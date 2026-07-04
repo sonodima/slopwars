@@ -1,0 +1,143 @@
+// ─── Shared types, tuning constants, protocol ───────────────────────────────
+
+export type Vec3 = { x: number; y: number; z: number };
+
+export const TICK_RATE = 15; // net state send Hz
+export const INTERP_DELAY = 0.12; // s
+export const ROUND_TIME = 240; // s
+export const ROUNDS_PER_GAME = 4;
+export const INTERMISSION = 10; // s
+export const RESPAWN_TIME = 3; // s
+export const MAX_HP = 100;
+
+// movement (quake/krunker style)
+export const MOVE = {
+  eyeHeight: 1.62,
+  eyeCrouch: 1.08,
+  height: 1.8,
+  crouchHeight: 1.25,
+  radius: 0.38,
+  gravity: 19,
+  jumpVel: 6.6,
+  groundSpeed: 8.6,
+  crouchFactor: 0.55,
+  groundAccel: 13,
+  friction: 6.0,
+  airAccel: 38,
+  airWishCap: 1.1,
+  stepHeight: 0.55,
+  stopSpeed: 1.2,
+};
+
+export const PICKUP_HEAL = 25;
+export const PICKUP_RESPAWN = 15; // s
+export const PICKUP_RADIUS = 1.1;
+
+export type WeaponId = "knife" | "usp" | "ak47" | "awp" | "he" | "mol";
+
+export interface WeaponDef {
+  id: WeaponId;
+  name: string;
+  damage: number;
+  headMult: number;
+  rpm: number;
+  mag: number;
+  reserve: number;
+  reloadTime: number;
+  spread: number; // base rad
+  spreadMove: number; // extra at full speed
+  recoil: number; // camera pitch kick deg
+  penetration: number; // max wall thickness (m), 0 = none
+  penDamageKeep: number; // damage kept after wallbang
+  falloff: [number, number, number]; // [startDist, endDist, minFactor]
+  range: number;
+  moveFactor: number;
+  scope?: boolean;
+  melee?: boolean;
+  throwable?: boolean;
+  auto: boolean;
+}
+
+export const WEAPONS: Record<WeaponId, WeaponDef> = {
+  knife: {
+    id: "knife", name: "Knife", damage: 55, headMult: 1.4, rpm: 150, mag: -1,
+    reserve: -1, reloadTime: 0, spread: 0, spreadMove: 0, recoil: 0,
+    penetration: 0, penDamageKeep: 0, falloff: [999, 1000, 1], range: 2.3, moveFactor: 1.12, melee: true, auto: false,
+  },
+  usp: {
+    id: "usp", name: "USP-S", damage: 34, headMult: 4, rpm: 352, mag: 12,
+    reserve: 48, reloadTime: 2.0, spread: 0.006, spreadMove: 0.02, recoil: 0.9,
+    penetration: 0.28, penDamageKeep: 0.5, falloff: [14, 45, 0.55], range: 400, moveFactor: 1.0, auto: false,
+  },
+  ak47: {
+    id: "ak47", name: "AK-47", damage: 34, headMult: 4, rpm: 600, mag: 30,
+    reserve: 90, reloadTime: 2.4, spread: 0.008, spreadMove: 0.045, recoil: 1.35,
+    penetration: 0.45, penDamageKeep: 0.62, falloff: [20, 60, 0.6], range: 800, moveFactor: 0.92, auto: true,
+  },
+  awp: {
+    id: "awp", name: "AWP", damage: 112, headMult: 2.4, rpm: 41, mag: 5,
+    reserve: 15, reloadTime: 3.6, spread: 0.05, spreadMove: 0.08, recoil: 3.2,
+    penetration: 0.7, penDamageKeep: 0.75, falloff: [45, 130, 0.82], range: 1200, moveFactor: 0.82, scope: true, auto: false,
+  },
+  he: {
+    id: "he", name: "HE Grenade", damage: 92, headMult: 1, rpm: 55, mag: 2,
+    reserve: 0, reloadTime: 0, spread: 0, spreadMove: 0, recoil: 0,
+    penetration: 0, penDamageKeep: 0, falloff: [999, 1000, 1], range: 0, moveFactor: 1.05, throwable: true, auto: false,
+  },
+  mol: {
+    id: "mol", name: "Molotov", damage: 12, headMult: 1, rpm: 55, mag: 1,
+    reserve: 0, reloadTime: 0, spread: 0, spreadMove: 0, recoil: 0,
+    penetration: 0, penDamageKeep: 0, falloff: [999, 1000, 1], range: 0, moveFactor: 1.05, throwable: true, auto: false,
+  },
+};
+
+export const LOADOUT: WeaponId[] = ["knife", "usp", "ak47", "awp", "he", "mol"];
+
+// ─── Net protocol ────────────────────────────────────────────────────────────
+
+export interface PlayerInfo { id: string; name: string; color: number }
+
+export interface PlayerState {
+  id: string;
+  p: [number, number, number]; // feet pos
+  yaw: number;
+  pitch: number;
+  cr: 0 | 1; // crouch
+  w: WeaponId;
+  hp: number;
+}
+
+export type GamePhase = "lobby" | "play" | "inter" | "over";
+
+export interface GameSnapshot {
+  phase: GamePhase;
+  round: number;
+  timeLeft: number;
+  scores: Record<string, { k: number; d: number }>;
+  pk: number[]; // pickup respawn timers (0 = available)
+}
+
+export type Msg =
+  | { t: "hello"; name: string }
+  | { t: "init"; id: string; players: PlayerInfo[]; game: GameSnapshot }
+  | { t: "pjoin"; p: PlayerInfo }
+  | { t: "pleave"; id: string }
+  | { t: "state"; s: PlayerState }
+  | { t: "snap"; ps: PlayerState[]; time: number }
+  | { t: "shot"; id: string; o: [number, number, number]; d: [number, number, number]; w: WeaponId }
+  | { t: "hit"; v: string; dmg: number; hs: 0 | 1; w: WeaponId }
+  | { t: "dmg"; v: string; hp: number; a: string; from: [number, number, number] }
+  | { t: "kill"; k: string; v: string; w: WeaponId; hs: 0 | 1 }
+  | { t: "spawn"; id: string; p: [number, number, number]; yaw: number }
+  | { t: "game"; g: GameSnapshot }
+  | { t: "start" }
+  | { t: "chat"; id: string; txt: string }
+  | { t: "nade"; id: string; k: "he" | "mol"; o: [number, number, number]; v: [number, number, number] }
+  | { t: "heal"; v: string; hp: number }
+  | { t: "pkup"; i: number }
+  | { t: "ping"; ts: number }
+  | { t: "pong"; ts: number }
+  | { t: "leave" };
+
+export function rand(a: number, b: number): number { return a + Math.random() * (b - a); }
+export function clamp(v: number, a: number, b: number): number { return v < a ? a : v > b ? b : v; }

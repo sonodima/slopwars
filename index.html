@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CSBOH — web fps</title>
+<style>
+  :root{
+    --sand:#d8b878; --sand-dim:#a68b58; --ink:#0d0c0a; --panel:rgba(16,14,10,.88);
+    --line:rgba(216,184,120,.28); --red:#e0483a; --green:#8fbf4d;
+    --font:"Bahnschrift","DIN Alternate","Franklin Gothic Medium","Arial Narrow",Arial,sans-serif;
+    --mono:"Consolas","JetBrains Mono",monospace;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:var(--ink);font-family:var(--font);color:#e8e0cf;
+    -webkit-user-select:none;user-select:none}
+  .hidden{display:none!important}
+  #game-canvas{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:crosshair}
+
+  /* ── screens ── */
+  .screen{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;
+    background:radial-gradient(ellipse at 50% 30%,#2a2418 0%,#12100b 65%,#080705 100%);z-index:30}
+  .screen h1{font-size:64px;letter-spacing:14px;color:var(--sand);font-weight:700;text-transform:uppercase;
+    text-shadow:0 0 32px rgba(216,184,120,.35);margin-bottom:4px}
+  .screen .sub{font-size:12px;letter-spacing:6px;color:var(--sand-dim);text-transform:uppercase;margin-bottom:42px}
+  .panel{background:var(--panel);border:1px solid var(--line);padding:28px 32px;min-width:340px;
+    box-shadow:0 24px 60px rgba(0,0,0,.6)}
+  .panel label{display:block;font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--sand-dim);margin:14px 0 5px}
+  .panel input{width:100%;background:#0a0906;border:1px solid var(--line);color:#f0e8d5;padding:10px 12px;
+    font-family:var(--mono);font-size:15px;letter-spacing:2px;outline:none;text-transform:uppercase}
+  .panel input:focus{border-color:var(--sand)}
+  button{cursor:pointer;font-family:var(--font);text-transform:uppercase;letter-spacing:3px;font-size:13px;font-weight:700;
+    background:var(--sand);color:#171307;border:none;padding:12px 22px;width:100%;margin-top:16px;transition:filter .1s}
+  button:hover{filter:brightness(1.12)}
+  button.ghost{background:transparent;border:1px solid var(--line);color:var(--sand)}
+  .row2{display:flex;gap:10px}
+  .err{color:var(--red);font-size:12px;letter-spacing:1px;margin-top:12px;text-align:center}
+  .conn{color:var(--sand-dim);font-size:12px;letter-spacing:2px;margin-top:12px;text-align:center;animation:pulse 1.2s infinite}
+  @keyframes pulse{50%{opacity:.35}}
+  .keys{margin-top:26px;font-size:10px;letter-spacing:2px;color:#6d6350;text-transform:uppercase;line-height:1.9;text-align:center}
+  .keys b{color:var(--sand-dim)}
+
+  /* ── lobby ── */
+  #lobby-code{font-family:var(--mono);font-size:40px;letter-spacing:12px;color:var(--sand);text-align:center;margin:6px 0 18px}
+  .lp{padding:8px 10px;border-bottom:1px solid rgba(216,184,120,.1);font-size:14px;letter-spacing:1px;display:flex;align-items:center;gap:10px}
+  .lp em{color:var(--sand-dim);font-style:normal;font-size:10px;letter-spacing:2px;margin-left:auto}
+  .dot{width:10px;height:10px;border-radius:50%;display:inline-block}
+  #lobby-wait{margin-top:16px;text-align:center;color:var(--sand-dim);font-size:11px;letter-spacing:3px;animation:pulse 1.4s infinite}
+
+  /* ── in-game hud ── */
+  #scr-game{z-index:10;pointer-events:none;background:none}
+  .hud-bl{position:absolute;left:26px;bottom:22px;display:flex;align-items:baseline;gap:8px}
+  #hud-hp{font-size:52px;font-weight:700;color:#f0e8d5;text-shadow:0 2px 8px rgba(0,0,0,.8)}
+  #hud-hp.low{color:var(--red)}
+  .hud-bl .u{font-size:12px;letter-spacing:3px;color:var(--sand-dim);text-transform:uppercase}
+  .hud-br{position:absolute;right:26px;bottom:22px;text-align:right}
+  #hud-weapon{font-size:13px;letter-spacing:4px;color:var(--sand-dim);text-transform:uppercase}
+  #hud-ammo{font-size:42px;font-weight:700;font-family:var(--mono);color:#f0e8d5;text-shadow:0 2px 8px rgba(0,0,0,.8)}
+  .hud-top{position:absolute;top:16px;left:50%;transform:translateX(-50%);text-align:center;
+    background:var(--panel);border:1px solid var(--line);padding:6px 26px}
+  #hud-time{font-family:var(--mono);font-size:26px;font-weight:700;color:#f0e8d5}
+  #hud-round{font-size:9px;letter-spacing:3px;color:var(--sand-dim);text-transform:uppercase}
+  #killfeed{position:absolute;top:44px;right:20px;text-align:right;font-size:13px}
+  .kf{background:rgba(10,9,6,.75);border-right:2px solid var(--sand);padding:5px 10px;margin-bottom:5px;letter-spacing:.5px}
+  .kf b{color:var(--sand)}
+  .kf span{color:#8d8471;font-size:11px}
+
+  #stats{position:absolute;top:14px;left:16px;font-family:var(--mono);font-size:11px;line-height:1.7;
+    color:#b8ad93;background:rgba(10,9,6,.6);border-left:2px solid var(--line);padding:6px 10px;letter-spacing:.5px}
+  #stats b{color:var(--sand)}
+  #game-code{position:absolute;top:14px;right:20px;margin-top:-2px;font-family:var(--mono);font-size:11px;
+    letter-spacing:3px;color:#8d8471;background:rgba(10,9,6,.6);padding:4px 9px;border-right:2px solid var(--line);
+    transform:translateY(-0px)}
+  #sb-code{font-family:var(--mono);font-size:11px;letter-spacing:2px;color:var(--sand-dim);margin:-6px 0 10px}
+
+  #chatfeed{position:absolute;left:16px;bottom:118px;max-width:420px;font-size:13px;letter-spacing:.3px}
+  .cm{background:rgba(10,9,6,.65);padding:4px 9px;margin-top:4px;border-left:2px solid var(--line)}
+  #chat-bar{position:absolute;left:16px;bottom:92px;display:flex;align-items:center;gap:8px;width:420px;
+    background:rgba(10,9,6,.85);border:1px solid var(--line);padding:7px 10px;pointer-events:auto}
+  #chat-bar span{color:var(--sand)}
+  #chat-inp{flex:1;background:none;border:none;outline:none;color:#f0e8d5;font-family:var(--font);font-size:14px;letter-spacing:.5px}
+  #voice{position:absolute;left:16px;bottom:70px;font-size:11px;letter-spacing:1px;color:var(--green)}
+  #voice.off{color:#7a705c}
+
+  #crosshair{position:absolute;left:50%;top:50%;width:22px;height:22px;transform:translate(-50%,-50%)}
+  #crosshair::before,#crosshair::after{content:"";position:absolute;background:rgba(150,255,120,.95);box-shadow:0 0 3px #000}
+  #crosshair::before{left:50%;top:0;width:2px;height:100%;transform:translateX(-50%);clip-path:polygon(0 0,100% 0,100% 32%,0 32%,0 68%,100% 68%,100% 100%,0 100%)}
+  #crosshair::after{top:50%;left:0;height:2px;width:100%;transform:translateY(-50%);clip-path:polygon(0 0,32% 0,32% 100%,0 100%,68% 0,100% 0,100% 100%,68% 100%)}
+
+  #hitmarker{position:absolute;left:50%;top:50%;width:26px;height:26px;transform:translate(-50%,-50%) rotate(45deg)}
+  #hitmarker::before,#hitmarker::after{content:"";position:absolute;background:#fff;box-shadow:0 0 4px #000}
+  #hitmarker::before{left:50%;top:0;width:2px;height:100%;transform:translateX(-50%);clip-path:polygon(0 0,100% 0,100% 30%,0 30%,0 70%,100% 70%,100% 100%,0 100%)}
+  #hitmarker::after{top:50%;left:0;height:2px;width:100%;transform:translateY(-50%);clip-path:polygon(0 0,30% 0,30% 100%,0 100%,70% 0,100% 0,100% 100%,70% 100%)}
+  #hitmarker.hs::before,#hitmarker.hs::after{background:var(--red)}
+
+  #dmg-vignette{position:absolute;inset:0;background:radial-gradient(ellipse at center,transparent 55%,rgba(200,30,20,.45) 100%)}
+  #scope{position:absolute;inset:0;background:radial-gradient(circle at center,transparent 0 33vmin,rgba(0,0,0,.985) calc(33vmin + 2px))}
+  #scope::before{content:"";position:absolute;left:50%;top:0;width:1.5px;height:100%;background:rgba(0,0,0,.9);transform:translateX(-50%)}
+  #scope::after{content:"";position:absolute;top:50%;left:0;height:1.5px;width:100%;background:rgba(0,0,0,.9);transform:translateY(-50%)}
+
+  #banner{position:absolute;top:26%;left:50%;transform:translateX(-50%);font-size:24px;letter-spacing:6px;
+    text-transform:uppercase;color:var(--sand);background:var(--panel);border:1px solid var(--line);padding:12px 34px}
+  #respawn{position:absolute;inset:0;background:rgba(8,6,4,.55);display:flex;align-items:center;justify-content:center;flex-direction:column}
+  #respawn .d{font-size:30px;letter-spacing:8px;color:var(--red);text-transform:uppercase}
+  #respawn-t{font-size:80px;font-weight:700;font-family:var(--mono);color:#f0e8d5}
+  #click-to-play{position:absolute;inset:0;background:rgba(8,6,4,.45);display:flex;align-items:center;justify-content:center;
+    font-size:15px;letter-spacing:5px;text-transform:uppercase;color:var(--sand);pointer-events:auto;cursor:pointer}
+
+  #scoreboard{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);min-width:420px;
+    background:var(--panel);border:1px solid var(--line);padding:18px 22px}
+  #scoreboard h3{font-size:12px;letter-spacing:5px;color:var(--sand-dim);text-transform:uppercase;margin-bottom:10px}
+  .sb-head,.row{display:grid;grid-template-columns:1fr 60px 60px;padding:7px 6px;font-size:14px;letter-spacing:1px}
+  .sb-head{font-size:9px;letter-spacing:3px;color:var(--sand-dim);text-transform:uppercase;border-bottom:1px solid var(--line)}
+  .row{border-bottom:1px solid rgba(216,184,120,.08)}
+  .row span:nth-child(2),.row span:nth-child(3),.sb-head span:nth-child(2),.sb-head span:nth-child(3){text-align:right;font-family:var(--mono)}
+  .row.me span:first-child{color:var(--sand)}
+
+  #scr-end .panel{min-width:460px}
+  #scr-end h2{font-size:26px;letter-spacing:8px;color:var(--sand);text-transform:uppercase;text-align:center;margin-bottom:16px}
+</style>
+</head>
+<body>
+<canvas id="game-canvas"></canvas>
+
+<!-- ═══ MENU ═══ -->
+<div id="scr-menu" class="screen">
+  <h1>CSBOH</h1>
+  <div class="sub">browser fps · p2p · 4 rounds ffa</div>
+  <div class="panel">
+    <label>callsign</label>
+    <input id="inp-name" maxlength="16" spellcheck="false">
+    <button id="btn-create">Create lobby</button>
+    <label>lobby code</label>
+    <div class="row2">
+      <input id="inp-code" maxlength="5" placeholder="XXXXX" spellcheck="false">
+    </div>
+    <button id="btn-join" class="ghost">Join lobby</button>
+    <div id="menu-err" class="err hidden"></div>
+    <div id="menu-conn" class="conn hidden">connecting…</div>
+  </div>
+  <div class="keys">
+    <b>wasd</b> move · <b>space</b> jump (hold = bhop) · <b>ctrl</b> crouch<br>
+    <b>lmb</b> fire · <b>rmb</b> scope · <b>r</b> reload · <b>1-6</b> / <b>wheel</b> weapons (5 nade, 6 molotov)<br><b>t</b> chat · <b>v</b> mic · <b>tab</b> scores
+  </div>
+</div>
+
+<!-- ═══ LOBBY ═══ -->
+<div id="scr-lobby" class="screen hidden">
+  <div class="panel">
+    <label style="text-align:center">share this code</label>
+    <div id="lobby-code"></div>
+    <label>operators</label>
+    <div id="lobby-players"></div>
+    <button id="btn-start">Start match</button>
+    <div id="lobby-wait" class="hidden">waiting for host…</div>
+  </div>
+</div>
+
+<!-- ═══ IN-GAME HUD ═══ -->
+<div id="scr-game" class="screen hidden">
+  <div id="dmg-vignette" class="hidden"></div>
+  <div id="scope" class="hidden"></div>
+  <div id="crosshair" class="hidden"></div>
+  <div id="hitmarker" class="hidden"></div>
+  <div class="hud-top"><div id="hud-time">4:00</div><div id="hud-round">round 1/4</div></div>
+  <div id="stats"></div>
+  <div id="game-code"></div>
+  <div id="killfeed"></div>
+  <div id="chatfeed"></div>
+  <div id="chat-bar" class="hidden"><span>›</span><input id="chat-inp" maxlength="120" spellcheck="false"></div>
+  <div id="voice" class="off">🎙 no mic</div>
+  <div class="hud-bl"><span id="hud-hp">100</span><span class="u">hp</span></div>
+  <div class="hud-br"><div id="hud-weapon">AK-47</div><div id="hud-ammo">30 / 90</div></div>
+  <div id="scoreboard" class="hidden">
+    <h3>scoreboard</h3>
+    <div id="sb-code"></div>
+    <div class="sb-head"><span>operator</span><span>K</span><span>D</span></div>
+    <div id="sb-rows"></div>
+  </div>
+  <div id="banner" class="hidden"></div>
+  <div id="respawn" class="hidden"><div class="d">eliminated</div><div id="respawn-t">3</div></div>
+  <div id="click-to-play" class="hidden">click to play</div>
+</div>
+
+<!-- ═══ END ═══ -->
+<div id="scr-end" class="screen hidden">
+  <div class="panel">
+    <h2>Match over</h2>
+    <div class="sb-head"><span>operator</span><span>K</span><span>D</span></div>
+    <div id="end-rows"></div>
+    <button id="btn-again">Play again</button>
+  </div>
+</div>
+
+<script type="module" src="/src/main.ts"></script>
+</body>
+</html>

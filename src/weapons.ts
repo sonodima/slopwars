@@ -1,0 +1,296 @@
+// ─── Weapon system: viewmodels, firing state, recoil, tracers, muzzle flash ──
+import {
+  BlinnPhongMaterial, Color, Engine, Entity, MeshRenderer, PointLight,
+  PrimitiveMesh, Quaternion, UnlitMaterial,
+} from "@galacean/engine";
+import { sfx } from "./audio";
+import { Vec3, WEAPONS, WeaponDef, WeaponId, LOADOUT, clamp } from "./types";
+
+interface Ammo { mag: number; reserve: number }
+
+export class WeaponSystem {
+  current: WeaponId = "ak47";
+  ammo: Record<WeaponId, Ammo> = {
+    knife: { mag: -1, reserve: -1 },
+    usp: { mag: 12, reserve: 48 },
+    ak47: { mag: 30, reserve: 90 },
+    awp: { mag: 5, reserve: 15 },
+    he: { mag: 2, reserve: -1 },
+    mol: { mag: 1, reserve: -1 },
+  };
+  reloading = 0; // time left
+  cooldown = 0;
+  scoped = false;
+  recoilPitch = 0; // accumulated camera kick (rad), decays
+  private kick = 0; // viewmodel z punch
+  private drawTimer = 0;
+
+  private vm!: Entity; // viewmodel root (child of camera)
+  private models: Partial<Record<WeaponId, Entity>> = {};
+  private flash!: Entity;
+  private flashLight!: PointLight;
+  private flashTtl = 0;
+  private bobT = 0;
+
+  onShoot: ((def: WeaponDef, spread: number) => void) | null = null;
+  onAmmoChange: (() => void) | null = null;
+
+  constructor(private engine: Engine, cameraEntity: Entity) {
+    this.vm = cameraEntity.createChild("viewmodel");
+    this.buildModels();
+    this.buildFlash();
+    this.select("ak47");
+  }
+
+  def(): WeaponDef { return WEAPONS[this.current]; }
+
+  select(w: WeaponId): void {
+    if (this.current === w && this.models[w]?.isActive) return;
+    this.current = w;
+    this.reloading = 0;
+    this.cooldown = Math.max(this.cooldown, 0.25);
+    this.drawTimer = 0.25;
+    this.setScope(false);
+    for (const id of LOADOUT) this.models[id]!.isActive = id === w;
+    sfx.draw();
+    this.onAmmoChange?.();
+  }
+
+  cycle(dir: number): void {
+    const i = LOADOUT.indexOf(this.current);
+    this.select(LOADOUT[(i + dir + LOADOUT.length) % LOADOUT.length]);
+  }
+
+  reload(): void {
+    const d = this.def();
+    const a = this.ammo[this.current];
+    if (d.melee || this.reloading > 0 || a.mag >= d.mag || a.reserve <= 0) return;
+    this.reloading = d.reloadTime;
+    this.setScope(false);
+    sfx.reload(this.current);
+  }
+
+  setScope(on: boolean): void {
+    if (!this.def().scope) on = false;
+    this.scoped = on;
+    this.vm.isActive = !on;
+  }
+
+  /** attempt fire. moveSpeed for spread. Returns true if a shot happened. */
+  tryFire(moveSpeed: number, onGround: boolean): boolean {
+    const d = this.def();
+    const a = this.ammo[this.current];
+    if (this.cooldown > 0 || this.reloading > 0 || this.drawTimer > 0) return false;
+    if (!d.melee && a.mag <= 0) { if (!d.throwable) this.reload(); return false; }
+
+    this.cooldown = 60 / d.rpm;
+    if (!d.melee) { a.mag--; this.onAmmoChange?.(); }
+    if (d.throwable) {
+      sfx.nadeThrow();
+      this.onShoot?.(d, 0);
+      this.cooldown = Math.max(this.cooldown, 0.5);
+      return true;
+    }
+
+    let spread = d.spread + d.spreadMove * clamp(moveSpeed / 7, 0, 1.6);
+    if (!onGround) spread += 0.02;
+    if (d.scope && !this.scoped) spread += 0.06; // noscope
+    if (d.scope && this.scoped) spread = d.spread * 0.1;
+
+    if (!d.melee) this.showFlash();
+    sfx.shot(this.current);
+    this.onShoot?.(d, spread);          // shot uses current view, THEN recoil kicks
+    this.recoilPitch += (d.recoil * Math.PI) / 180;
+    this.kick = 0.09;
+    return true;
+  }
+
+  update(dt: number, moving: boolean, onGround: boolean): void {
+    this.cooldown = Math.max(0, this.cooldown - dt);
+    this.drawTimer = Math.max(0, this.drawTimer - dt);
+    if (this.reloading > 0) {
+      this.reloading -= dt;
+      if (this.reloading <= 0) {
+        const d = this.def();
+        const a = this.ammo[this.current];
+        const need = d.mag - a.mag;
+        const take = a.reserve < 0 ? need : Math.min(need, a.reserve);
+        a.mag += take;
+        if (a.reserve > 0) a.reserve -= take;
+        this.onAmmoChange?.();
+      }
+    }
+    // recoil recovery
+    this.recoilPitch *= Math.exp(-9 * dt);
+    this.kick *= Math.exp(-11 * dt);
+
+    // viewmodel bob + punch + reload dip
+    this.bobT += dt * (moving && onGround ? 9.5 : 2);
+    const bobY = Math.abs(Math.sin(this.bobT)) * (moving && onGround ? 0.012 : 0.003);
+    const bobX = Math.sin(this.bobT * 0.5) * (moving && onGround ? 0.008 : 0.002);
+    const dip = this.reloading > 0 ? -0.09 : 0;
+    const draw = this.drawTimer > 0 ? -this.drawTimer * 0.6 : 0;
+    this.vm.transform.setPosition(0.24 + bobX, -0.22 + bobY + dip + draw, -0.45 + this.kick);
+    this.vm.transform.setRotation(this.reloading > 0 ? -25 : 0, 0, 0);
+
+    if (this.flashTtl > 0) {
+      this.flashTtl -= dt;
+      if (this.flashTtl <= 0) { this.flash.isActive = false; this.flashLight.enabled = false; }
+    }
+  }
+
+  // ─── visuals ────────────────────────────────────────────────────────────────
+
+  private matBody!: BlinnPhongMaterial;
+  private matDark!: BlinnPhongMaterial;
+  private matWood!: BlinnPhongMaterial;
+
+  private buildModels(): void {
+    const e = this.engine;
+    this.matBody = new BlinnPhongMaterial(e); this.matBody.baseColor = new Color(0.16, 0.16, 0.18, 1);
+    this.matDark = new BlinnPhongMaterial(e); this.matDark.baseColor = new Color(0.08, 0.08, 0.09, 1);
+    this.matWood = new BlinnPhongMaterial(e); this.matWood.baseColor = new Color(0.45, 0.28, 0.13, 1);
+
+    const box = (parent: Entity, x: number, y: number, z: number, w: number, h: number, d: number, m: BlinnPhongMaterial): void => {
+      const c = parent.createChild("p");
+      c.transform.setPosition(x, y, z);
+      const r = c.addComponent(MeshRenderer);
+      r.mesh = PrimitiveMesh.createCuboid(e, w, h, d);
+      r.setMaterial(m);
+    };
+
+    // knife
+    let g = this.vm.createChild("knife");
+    box(g, 0, 0, 0.02, 0.03, 0.05, 0.12, this.matDark);              // handle
+    box(g, 0, 0.015, -0.13, 0.012, 0.045, 0.2, this.matBody);        // blade
+    this.models.knife = g;
+
+    // usp
+    g = this.vm.createChild("usp");
+    box(g, 0, 0, 0, 0.045, 0.09, 0.16, this.matBody);                // slide/frame
+    box(g, 0, -0.07, 0.05, 0.04, 0.09, 0.05, this.matDark);          // grip
+    box(g, 0, 0.005, -0.17, 0.03, 0.03, 0.18, this.matDark);         // suppressor
+    this.models.usp = g;
+
+    // ak47
+    g = this.vm.createChild("ak47");
+    box(g, 0, 0, -0.05, 0.05, 0.07, 0.5, this.matBody);              // receiver+barrel
+    box(g, 0, -0.005, -0.34, 0.025, 0.025, 0.22, this.matDark);      // barrel
+    box(g, 0, -0.06, -0.12, 0.045, 0.09, 0.14, this.matWood);        // mag (curved-ish)
+    box(g, 0, -0.075, -0.02, 0.04, 0.06, 0.1, this.matWood);
+    box(g, 0, -0.05, 0.18, 0.045, 0.06, 0.16, this.matWood);         // stock
+    box(g, 0, -0.045, 0.05, 0.03, 0.05, 0.05, this.matDark);         // grip
+    this.models.ak47 = g;
+
+    // he grenade
+    g = this.vm.createChild("he");
+    const olive = new BlinnPhongMaterial(e); olive.baseColor = new Color(0.14, 0.2, 0.12, 1);
+    box(g, 0, -0.02, -0.05, 0.09, 0.11, 0.09, olive);
+    box(g, 0, 0.055, -0.05, 0.03, 0.04, 0.03, this.matDark);      // fuse cap
+    this.models.he = g;
+
+    // molotov
+    g = this.vm.createChild("mol");
+    const amber = new BlinnPhongMaterial(e); amber.baseColor = new Color(0.6, 0.32, 0.08, 1);
+    const rag = new BlinnPhongMaterial(e); rag.baseColor = new Color(0.8, 0.76, 0.65, 1);
+    box(g, 0, -0.03, -0.05, 0.09, 0.16, 0.09, amber);             // bottle
+    box(g, 0, 0.075, -0.05, 0.04, 0.06, 0.04, amber);             // neck
+    box(g, 0, 0.12, -0.05, 0.05, 0.04, 0.05, rag);                // rag
+    this.models.mol = g;
+
+    // awp
+    g = this.vm.createChild("awp");
+    const green = new BlinnPhongMaterial(e); green.baseColor = new Color(0.15, 0.22, 0.12, 1);
+    box(g, 0, 0, -0.05, 0.05, 0.08, 0.55, green);                    // body
+    box(g, 0, 0, -0.42, 0.025, 0.025, 0.3, this.matDark);            // barrel
+    box(g, 0, 0.075, -0.05, 0.035, 0.045, 0.24, this.matDark);       // scope
+    box(g, 0, -0.055, 0.2, 0.05, 0.06, 0.16, green);                 // stock
+    box(g, 0, -0.07, -0.1, 0.04, 0.07, 0.1, this.matDark);           // mag
+    this.models.awp = g;
+  }
+
+  private buildFlash(): void {
+    this.flash = this.vm.createChild("flash");
+    this.flash.transform.setPosition(0, 0.01, -0.62);
+    const r = this.flash.addComponent(MeshRenderer);
+    r.mesh = PrimitiveMesh.createSphere(this.engine, 0.055, 8);
+    const m = new UnlitMaterial(this.engine);
+    m.baseColor = new Color(6, 4.2, 1.2, 1); // HDR → bloom
+    r.setMaterial(m);
+    const le = this.flash.createChild("l");
+    this.flashLight = le.addComponent(PointLight);
+    this.flashLight.color = new Color(1, 0.75, 0.35, 1);
+    this.flashLight.distance = 9;
+    this.flash.isActive = false;
+  }
+
+  private showFlash(): void {
+    this.flash.isActive = true;
+    this.flashLight.enabled = true;
+    this.flash.transform.setRotation(0, 0, Math.random() * 360);
+    this.flashTtl = 0.045;
+  }
+}
+
+// ─── tracers + impact puffs (pooled) ─────────────────────────────────────────
+export class TracerPool {
+  private pool: { e: Entity; ttl: number }[] = [];
+  private puffs: { e: Entity; ttl: number }[] = [];
+  private root: Entity;
+  private mat: UnlitMaterial;
+  private puffMat: UnlitMaterial;
+  private q = new Quaternion();
+
+  constructor(private engine: Engine, parent: Entity) {
+    this.root = parent.createChild("fx");
+    this.mat = new UnlitMaterial(engine);
+    this.mat.baseColor = new Color(4, 3.2, 1.6, 1);
+    this.puffMat = new UnlitMaterial(engine);
+    this.puffMat.baseColor = new Color(0.85, 0.8, 0.7, 1);
+  }
+
+  spawn(from: Vec3, to: Vec3): void {
+    const dx = to.x - from.x, dy = to.y - from.y, dz = to.z - from.z;
+    const len = Math.hypot(dx, dy, dz);
+    if (len < 0.5) return;
+    let slot = this.pool.find((s) => s.ttl <= 0);
+    if (!slot) {
+      const e = this.root.createChild("tracer");
+      const r = e.addComponent(MeshRenderer);
+      r.mesh = PrimitiveMesh.createCuboid(this.engine, 0.02, 0.02, 1);
+      r.setMaterial(this.mat);
+      slot = { e, ttl: 0 };
+      this.pool.push(slot);
+    }
+    const e = slot.e;
+    e.isActive = true;
+    e.transform.setPosition(from.x + dx / 2, from.y + dy / 2, from.z + dz / 2);
+    e.transform.setScale(1, 1, len);
+    // orient -Z along dir
+    const yaw = Math.atan2(-dx, -dz);
+    const pitch = Math.asin(clamp(dy / len, -1, 1));
+    Quaternion.rotationYawPitchRoll(yaw, pitch, 0, this.q);
+    e.transform.rotationQuaternion = this.q;
+    slot.ttl = 0.06;
+  }
+
+  impact(p: Vec3): void {
+    let slot = this.puffs.find((s) => s.ttl <= 0);
+    if (!slot) {
+      const e = this.root.createChild("puff");
+      const r = e.addComponent(MeshRenderer);
+      r.mesh = PrimitiveMesh.createSphere(this.engine, 0.06, 6);
+      r.setMaterial(this.puffMat);
+      slot = { e, ttl: 0 };
+      this.puffs.push(slot);
+    }
+    slot.e.isActive = true;
+    slot.e.transform.setPosition(p.x, p.y, p.z);
+    slot.ttl = 0.1;
+  }
+
+  update(dt: number): void {
+    for (const s of this.pool) if (s.ttl > 0) { s.ttl -= dt; if (s.ttl <= 0) s.e.isActive = false; }
+    for (const s of this.puffs) if (s.ttl > 0) { s.ttl -= dt; if (s.ttl <= 0) s.e.isActive = false; }
+  }
+}
