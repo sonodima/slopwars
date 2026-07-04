@@ -1,12 +1,20 @@
 // ─── "Kasbah" — compact courtyard map: geometry, solid AABBs, ray queries ────
 import {
-  BlinnPhongMaterial, Color, Engine, Entity, MeshRenderer, PBRMaterial,
-  PointLight, PrimitiveMesh, Texture2D, UnlitMaterial, Vector4,
+  Color, Engine, Entity, GLTFResource, MeshRenderer, PBRMaterial,
+  PointLight, PrimitiveMesh, Vector4,
 } from "@galacean/engine";
-import { MapTextures } from "./textures";
+import { GameModels, instantiate } from "./models";
+import { MapTextures, PbrSet } from "./textures";
 import { Vec3 } from "./types";
 
 export interface AABB { min: Vec3; max: Vec3 }
+
+// per-model transform tuning (PH models are real-world scale; dial to fit map)
+const MODEL = {
+  barrelScale: 1.15,
+  lanternScale: 1.0,
+  planterScale: 1.0,
+};
 
 // bounds: x ∈ [-30,30], z ∈ [-22,22]. north = -z.
 export class GameMap {
@@ -18,11 +26,13 @@ export class GameMap {
 
   private engine!: Engine;
   private tex!: MapTextures;
+  private models!: GameModels;
   private mats = new Map<string, PBRMaterial>();
 
-  build(engine: Engine, parent: Entity, tex: MapTextures): void {
+  build(engine: Engine, parent: Entity, tex: MapTextures, models: GameModels): void {
     this.engine = engine;
     this.tex = tex;
+    this.models = models;
     this.root = parent.createChild("map");
     const T = tex;
     const H = 6;
@@ -171,23 +181,33 @@ export class GameMap {
   }
 
   // ── builders ─────────────────────────────────────────────────────────────
-  private mat(tex: Texture2D, tu: number, tv: number): PBRMaterial {
-    const key = `${tex.instanceId}:${tu}:${tv}`;
+  private mat(set: PbrSet, tu: number, tv: number): PBRMaterial {
+    const key = `${set.color.instanceId}:${tu}:${tv}`;
     let m = this.mats.get(key);
     if (!m) {
       m = new PBRMaterial(this.engine);
-      m.baseTexture = tex;
-      if (tex === this.tex.metal) { m.roughness = 0.38; m.metallic = 0.85; }
-      else if (tex === this.tex.floor) { m.roughness = 0.72; m.metallic = 0.05; }
-      else if (tex === this.tex.stone) { m.roughness = 0.68; m.metallic = 0.04; }
-      else { m.roughness = 0.88; m.metallic = 0; }
+      m.baseTexture = set.color;
+      m.normalTexture = set.normal;
+      m.roughnessMetallicTexture = set.arm; // G=roughness, B=metallic
+      m.occlusionTexture = set.arm;         // R=ambient occlusion
       m.tilingOffset = new Vector4(tu, tv, 0, 0);
       this.mats.set(key, m);
     }
     return m;
   }
 
-  private mesh(x: number, y: number, z: number, w: number, h: number, d: number, tex: Texture2D, tu: number, tv: number): Entity {
+  /** instantiate a loaded model at a transform (visual only — collision is pushed by caller) */
+  private placeModel(res: GLTFResource, x: number, y: number, z: number, scale: number, rotY = 0): Entity {
+    const e = instantiate(res);
+    e.transform.setPosition(x, y, z);
+    e.transform.setScale(scale, scale, scale);
+    e.transform.setRotation(0, rotY, 0);
+    this.root.addChild(e);
+    this.tris += 500; // approx, for stats overlay
+    return e;
+  }
+
+  private mesh(x: number, y: number, z: number, w: number, h: number, d: number, tex: PbrSet, tu: number, tv: number): Entity {
     const e = this.root.createChild("b");
     e.transform.setPosition(x, y, z);
     const r = e.addComponent(MeshRenderer);
@@ -199,12 +219,12 @@ export class GameMap {
     return e;
   }
 
-  private box(x: number, y: number, z: number, w: number, h: number, d: number, tex: Texture2D, tu = 1, tv = 1): void {
+  private box(x: number, y: number, z: number, w: number, h: number, d: number, tex: PbrSet, tu = 1, tv = 1): void {
     this.mesh(x, y, z, w, h, d, tex, tu, tv);
     this.solids.push({ min: { x: x - w / 2, y: y - h / 2, z: z - d / 2 }, max: { x: x + w / 2, y: y + h / 2, z: z + d / 2 } });
   }
 
-  private slab(x: number, y: number, z: number, w: number, h: number, d: number, tex: Texture2D, tu: number, tv: number): void {
+  private slab(x: number, y: number, z: number, w: number, h: number, d: number, tex: PbrSet, tu: number, tv: number): void {
     this.box(x, y, z, w, h, d, tex, tu, tv);
   }
 
@@ -233,32 +253,13 @@ export class GameMap {
   }
 
   private barrel(x: number, z: number): void {
-    const e = this.root.createChild("barrel");
-    e.transform.setPosition(x, 0.55, z);
-    const r = e.addComponent(MeshRenderer);
-    r.mesh = PrimitiveMesh.createCylinder(this.engine, 0.45, 0.45, 1.1, 14);
-    const m = new PBRMaterial(this.engine);
-    m.baseColor = new Color(0.36, 0.15, 0.11, 1);
-    m.roughness = 0.42; m.metallic = 0.85;
-    r.setMaterial(m);
-    r.castShadows = true; r.receiveShadows = true;
-    this.tris += 84;
+    this.placeModel(this.models.barrel, x, 0, z, MODEL.barrelScale);
     this.solids.push({ min: { x: x - 0.45, y: 0, z: z - 0.45 }, max: { x: x + 0.45, y: 1.1, z: z + 0.45 } });
   }
 
   private planter(x: number, z: number): void {
-    this.box(x, 0.35, z, 1.6, 0.7, 1.6, this.tex.stone, 1, 0.5);
-    for (let i = 0; i < 3; i++) {
-      const e = this.root.createChild("plant");
-      e.transform.setPosition(x + (Math.random() - 0.5) * 0.8, 1.0 + Math.random() * 0.3, z + (Math.random() - 0.5) * 0.8);
-      const r = e.addComponent(MeshRenderer);
-      r.mesh = PrimitiveMesh.createSphere(this.engine, 0.32 + Math.random() * 0.18, 8);
-      const m = new BlinnPhongMaterial(this.engine);
-      m.baseColor = new Color(0.12 + Math.random() * 0.08, 0.32 + Math.random() * 0.12, 0.1, 1);
-      r.setMaterial(m);
-      r.castShadows = true;
-      this.tris += 128;
-    }
+    this.placeModel(this.models.planter, x, 0, z, MODEL.planterScale);
+    this.solids.push({ min: { x: x - 0.8, y: 0, z: z - 0.8 }, max: { x: x + 0.8, y: 0.7, z: z + 0.8 } });
   }
 
   private pallet(x: number, z: number): void {
@@ -298,14 +299,7 @@ export class GameMap {
   }
 
   private lamp(x: number, y: number, z: number): void {
-    const e = this.root.createChild("lamp");
-    e.transform.setPosition(x, y, z);
-    const r = e.addComponent(MeshRenderer);
-    r.mesh = PrimitiveMesh.createSphere(this.engine, 0.09, 8);
-    const m = new UnlitMaterial(this.engine);
-    m.baseColor = new Color(5, 3.2, 1.4, 1);
-    r.setMaterial(m);
-    this.tris += 128;
+    const e = this.placeModel(this.models.lantern, x, y, z, MODEL.lanternScale);
     const l = e.addComponent(PointLight);
     l.color = new Color(0.9, 0.62, 0.32, 1);
     l.distance = 8;

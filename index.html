@@ -117,13 +117,25 @@
 
   #scr-end .panel{min-width:460px}
   #scr-end h2{font-size:26px;letter-spacing:8px;color:var(--sand);text-transform:uppercase;text-align:center;margin-bottom:16px}
+
+  /* ── loading ── */
+  .loadbar{width:340px;height:6px;background:rgba(216,184,120,.15);border:1px solid var(--line);margin-top:10px}
+  #load-bar{height:100%;width:0;background:var(--sand);transition:width .15s}
 </style>
 </head>
 <body>
 <canvas id="game-canvas"></canvas>
 
+<!-- ═══ LOADING ═══ -->
+<div id="scr-loading" class="screen">
+  <h1>CSBOH</h1>
+  <div class="sub">loading assets…</div>
+  <div class="loadbar"><div id="load-bar"></div></div>
+  <div id="load-pct" class="conn">0%</div>
+</div>
+
 <!-- ═══ MENU ═══ -->
-<div id="scr-menu" class="screen">
+<div id="scr-menu" class="screen hidden">
   <h1>CSBOH</h1>
   <div class="sub">browser fps · p2p · 4 rounds ffa</div>
   <div class="panel">

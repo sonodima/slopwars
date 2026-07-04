@@ -4,9 +4,18 @@ import {
   PrimitiveMesh, Quaternion, UnlitMaterial,
 } from "@galacean/engine";
 import { sfx } from "./audio";
+import { GameModels, instantiate } from "./models";
 import { Vec3, WEAPONS, WeaponDef, WeaponId, LOADOUT, clamp } from "./types";
 
 interface Ammo { mag: number; reserve: number }
+
+// first-person placement for the PH proxy meshes (scale + position + euler deg).
+// Real-scale detailed meshes → tuned to sit in view. Adjust here to reframe.
+const WEP_TUNE: Record<"ak47" | "usp" | "knife", { s: number; p: [number, number, number]; r: [number, number, number] }> = {
+  ak47:  { s: 0.5,  p: [0.18, -0.22, -0.15], r: [0, 90, 0] },
+  usp:   { s: 0.7,  p: [0.15, -0.16, -0.08], r: [0, 90, 0] },
+  knife: { s: 0.6,  p: [0.12, -0.12, -0.12], r: [0, 90, 0] },
+};
 
 export class WeaponSystem {
   current: WeaponId = "ak47";
@@ -31,11 +40,13 @@ export class WeaponSystem {
   private flashLight!: PointLight;
   private flashTtl = 0;
   private bobT = 0;
+  private src!: GameModels;
 
   onShoot: ((def: WeaponDef, spread: number) => void) | null = null;
   onAmmoChange: (() => void) | null = null;
 
-  constructor(private engine: Engine, cameraEntity: Entity) {
+  constructor(private engine: Engine, cameraEntity: Entity, src: GameModels) {
+    this.src = src;
     this.vm = cameraEntity.createChild("viewmodel");
     this.buildModels();
     this.buildFlash();
@@ -141,15 +152,11 @@ export class WeaponSystem {
 
   // ─── visuals ────────────────────────────────────────────────────────────────
 
-  private matBody!: BlinnPhongMaterial;
   private matDark!: BlinnPhongMaterial;
-  private matWood!: BlinnPhongMaterial;
 
   private buildModels(): void {
     const e = this.engine;
-    this.matBody = new BlinnPhongMaterial(e); this.matBody.baseColor = new Color(0.16, 0.16, 0.18, 1);
     this.matDark = new BlinnPhongMaterial(e); this.matDark.baseColor = new Color(0.08, 0.08, 0.09, 1);
-    this.matWood = new BlinnPhongMaterial(e); this.matWood.baseColor = new Color(0.45, 0.28, 0.13, 1);
 
     const box = (parent: Entity, x: number, y: number, z: number, w: number, h: number, d: number, m: BlinnPhongMaterial): void => {
       const c = parent.createChild("p");
@@ -159,31 +166,19 @@ export class WeaponSystem {
       r.setMaterial(m);
     };
 
-    // knife
-    let g = this.vm.createChild("knife");
-    box(g, 0, 0, 0.02, 0.03, 0.05, 0.12, this.matDark);              // handle
-    box(g, 0, 0.015, -0.13, 0.012, 0.045, 0.2, this.matBody);        // blade
-    this.models.knife = g;
-
-    // usp
-    g = this.vm.createChild("usp");
-    box(g, 0, 0, 0, 0.045, 0.09, 0.16, this.matBody);                // slide/frame
-    box(g, 0, -0.07, 0.05, 0.04, 0.09, 0.05, this.matDark);          // grip
-    box(g, 0, 0.005, -0.17, 0.03, 0.03, 0.18, this.matDark);         // suppressor
-    this.models.usp = g;
-
-    // ak47
-    g = this.vm.createChild("ak47");
-    box(g, 0, 0, -0.05, 0.05, 0.07, 0.5, this.matBody);              // receiver+barrel
-    box(g, 0, -0.005, -0.34, 0.025, 0.025, 0.22, this.matDark);      // barrel
-    box(g, 0, -0.06, -0.12, 0.045, 0.09, 0.14, this.matWood);        // mag (curved-ish)
-    box(g, 0, -0.075, -0.02, 0.04, 0.06, 0.1, this.matWood);
-    box(g, 0, -0.05, 0.18, 0.045, 0.06, 0.16, this.matWood);         // stock
-    box(g, 0, -0.045, 0.05, 0.03, 0.05, 0.05, this.matDark);         // grip
-    this.models.ak47 = g;
+    // ── proxy GLB viewmodels (Poly Haven CC0): AK / USP / knife ──
+    for (const [id, key] of [["ak47", "ak"], ["usp", "usp"], ["knife", "knife"]] as const) {
+      const t = WEP_TUNE[id];
+      const m = instantiate(this.src[key]);
+      m.transform.setPosition(t.p[0], t.p[1], t.p[2]);
+      m.transform.setScale(t.s, t.s, t.s);
+      m.transform.setRotation(t.r[0], t.r[1], t.r[2]);
+      this.vm.addChild(m);
+      this.models[id] = m;
+    }
 
     // he grenade
-    g = this.vm.createChild("he");
+    let g = this.vm.createChild("he");
     const olive = new BlinnPhongMaterial(e); olive.baseColor = new Color(0.14, 0.2, 0.12, 1);
     box(g, 0, -0.02, -0.05, 0.09, 0.11, 0.09, olive);
     box(g, 0, 0.055, -0.05, 0.03, 0.04, 0.03, this.matDark);      // fuse cap

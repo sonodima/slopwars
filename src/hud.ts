@@ -69,8 +69,14 @@ export class Hud {
     return (($("inp-name") as HTMLInputElement).value || "player").slice(0, 16);
   }
 
-  show(screen: "menu" | "lobby" | "game" | "end"): void {
-    for (const s of ["menu", "lobby", "game", "end"]) $(`scr-${s}`).classList.toggle("hidden", s !== screen);
+  show(screen: "loading" | "menu" | "lobby" | "game" | "end"): void {
+    for (const s of ["loading", "menu", "lobby", "game", "end"]) $(`scr-${s}`).classList.toggle("hidden", s !== screen);
+  }
+
+  loadingProgress(frac: number): void {
+    const pct = Math.round(Math.max(0, Math.min(1, frac)) * 100);
+    $("load-bar").style.width = `${pct}%`;
+    $("load-pct").textContent = `${pct}%`;
   }
 
   menuError(msg: string): void {

@@ -2,18 +2,19 @@
 import {
   AmbientLight, BackgroundMode, BloomEffect, Camera, Color, DirectLight, Engine,
   Entity, FogMode, MSAASamples, MeshRenderer, PostProcess, PrimitiveMesh,
-  Quaternion, ShadowResolution, ShadowType, SkyProceduralMaterial, SunMode,
-  TextureCube, TextureCubeFace, TonemappingEffect, TonemappingMode,
-  UnlitMaterial, WebGLEngine,
+  Quaternion, ShadowResolution, ShadowType, SkyBoxMaterial,
+  TonemappingEffect, TonemappingMode, UnlitMaterial, WebGLEngine,
 } from "@galacean/engine";
 import { sfx } from "./audio";
+import { loadHDRCube } from "./assets";
 import { Hud } from "./hud";
 import { GameMap } from "./map";
 import { HE_DAMAGE, HE_RADIUS, MOL_RADIUS, MOL_TICK_DMG, NadeKind, Projectiles } from "./nades";
 import { Net, colorFor } from "./net";
 import { Input, PlayerBody } from "./player";
 import { RemotePlayer } from "./remote";
-import { buildTextures } from "./textures";
+import { MODEL_LOAD_COUNT, loadModels } from "./models";
+import { TEXTURE_LOAD_COUNT, loadMapTextures } from "./textures";
 import {
   GamePhase, GameSnapshot, INTERMISSION, MAX_HP, Msg, PICKUP_HEAL, PICKUP_RADIUS,
   PICKUP_RESPAWN, PlayerState, RESPAWN_TIME, ROUNDS_PER_GAME,
@@ -80,18 +81,7 @@ class Game {
 
     const scene = engine.sceneManager.activeScene;
     const root = scene.createRootEntity("root");
-
-    // ── sky ──
-    const sky = new SkyProceduralMaterial(engine);
-    sky.sunMode = SunMode.HighQuality;
-    sky.sunSize = 0.045;
-    sky.atmosphereThickness = 0.85;
-    sky.exposure = 1.35;
-    sky.skyTint = new Color(0.62, 0.72, 0.85, 1);
-    sky.groundTint = new Color(0.55, 0.48, 0.38, 1);
-    scene.background.mode = BackgroundMode.Sky;
-    scene.background.sky.material = sky;
-    scene.background.sky.mesh = PrimitiveMesh.createSphere(engine, 1, 24);
+    // sky (HDRI) + image-based ambient applied after assets load, below
 
     // ── lights ──
     const sunE = root.createChild("sun");
@@ -108,8 +98,7 @@ class Game {
     const amb: AmbientLight = scene.ambientLight;
     amb.diffuseSolidColor = new Color(0.55, 0.6, 0.72, 1);
     amb.diffuseIntensity = 0.62;
-    amb.specularTexture = buildEnvCube(engine);
-    amb.specularIntensity = 0.85;
+    amb.specularIntensity = 0.85; // specularTexture set from HDRI after load
 
     // ── atmosphere ──
     scene.fogMode = FogMode.Linear;
@@ -139,15 +128,35 @@ class Game {
     tone.enabled = true;
     tone.mode.value = TonemappingMode.ACES;
 
+    // ── load assets (textures, HDRI sky, models) with progress ──
+    this.hud.show("loading");
+    const total = TEXTURE_LOAD_COUNT + 1 + MODEL_LOAD_COUNT;
+    let loaded = 0;
+    const bump = (): void => this.hud.loadingProgress(++loaded / total);
+    const [tex, sky, models] = await Promise.all([
+      loadMapTextures(engine, bump),
+      loadHDRCube(engine, "hdri/sky.hdr").then((c) => { bump(); return c; }),
+      loadModels(engine, bump),
+    ]);
+
+    // ── HDRI skybox + image-based ambient ──
+    const skyMat = new SkyBoxMaterial(engine);
+    skyMat.texture = sky;
+    skyMat.textureDecodeRGBM = true;
+    scene.background.mode = BackgroundMode.Sky;
+    scene.background.sky.material = skyMat;
+    scene.background.sky.mesh = PrimitiveMesh.createCuboid(engine, 2, 2, 2);
+    amb.specularTexture = sky;
+    amb.specularTextureDecodeRGBM = true;
+
     // ── map ──
-    const tex = buildTextures(engine);
-    this.map.build(engine, root, tex);
+    this.map.build(engine, root, tex, models);
 
     // ── player + weapons + fx ──
     this.body = new PlayerBody(this.map);
     this.body.teleport({ x: 0, y: 0.1, z: -18 }, 180);
     this.buildPickups(root);
-    this.ws = new WeaponSystem(engine, this.camEntity);
+    this.ws = new WeaponSystem(engine, this.camEntity, models);
     this.ws.onShoot = (def, spread) => {
       if (def.throwable) this.throwNade(def.id as NadeKind);
       else this.fireHitscan(def, spread);
@@ -1016,35 +1025,6 @@ class Game {
     const a = this.ws.ammo[this.ws.current];
     this.hud.ammo(this.ws.current, a.mag, a.reserve, this.ws.reloading > 0);
   }
-}
-
-// gradient sky env cube for PBR specular reflections
-function buildEnvCube(engine: Engine): TextureCube {
-  const S = 32;
-  const cube = new TextureCube(engine, S);
-  const sky = [148, 178, 214], hor = [214, 192, 152], gnd = [128, 110, 84];
-  const mix = (a: number[], b: number[], k: number): number[] =>
-    [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
-  const fill = (col: (row: number) => number[]): Uint8Array => {
-    const buf = new Uint8Array(S * S * 4);
-    for (let y = 0; y < S; y++) {
-      const c = col(y / (S - 1));
-      for (let x = 0; x < S; x++) {
-        const o = (y * S + x) * 4;
-        buf[o] = c[0]; buf[o + 1] = c[1]; buf[o + 2] = c[2]; buf[o + 3] = 255;
-      }
-    }
-    return buf;
-  };
-  const side = fill((v) => (v < 0.55 ? mix(sky, hor, v / 0.55) : mix(hor, gnd, (v - 0.55) / 0.45)));
-  cube.setPixelBuffer(TextureCubeFace.PositiveX, side);
-  cube.setPixelBuffer(TextureCubeFace.NegativeX, side);
-  cube.setPixelBuffer(TextureCubeFace.PositiveZ, side);
-  cube.setPixelBuffer(TextureCubeFace.NegativeZ, side);
-  cube.setPixelBuffer(TextureCubeFace.PositiveY, fill(() => sky));
-  cube.setPixelBuffer(TextureCubeFace.NegativeY, fill(() => gnd));
-  cube.generateMipmaps();
-  return cube;
 }
 
 function falloff(def: WeaponDef, dist: number): number {
