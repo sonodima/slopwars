@@ -1,7 +1,7 @@
 {
-  "name": "csboh",
+  "name": "slopwars",
   "version": "1.0.0",
-  "description": "Browser FPS — serverless P2P, Galacean engine",
+  "description": "SlopWars — AI-built multiplayer browser FPS (serverless P2P, Galacean engine)",
   "type": "module",
   "packageManager": "pnpm@11.9.0",
   "engines": {

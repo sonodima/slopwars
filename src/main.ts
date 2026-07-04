@@ -1,9 +1,9 @@
 // ─── Bootstrap + game orchestration ──────────────────────────────────────────
 import {
-  AmbientLight, BackgroundMode, BloomEffect, Camera, Color, DirectLight, Engine,
-  Entity, FogMode, MSAASamples, MeshRenderer, PostProcess, PrimitiveMesh,
-  Quaternion, ShadowResolution, ShadowType, SkyBoxMaterial,
-  TonemappingEffect, TonemappingMode, UnlitMaterial, WebGLEngine,
+  AmbientLight, BackgroundMode, BlinnPhongMaterial, BloomEffect, Camera, Color,
+  DirectLight, Engine, Entity, FogMode, MSAASamples, MeshRenderer, PostProcess,
+  PrimitiveMesh, Quaternion, ShadowResolution, ShadowType, SkyBoxMaterial,
+  TonemappingEffect, TonemappingMode, UnlitMaterial, Vector3, WebGLEngine,
 } from "@galacean/engine";
 import { sfx } from "./audio";
 import { loadHDRCube } from "./assets";
@@ -17,8 +17,9 @@ import { MODEL_LOAD_COUNT, loadModels } from "./models";
 import { TEXTURE_LOAD_COUNT, loadMapTextures } from "./textures";
 import {
   GamePhase, GameSnapshot, INTERMISSION, MAX_HP, Msg, PICKUP_HEAL, PICKUP_RADIUS,
-  PICKUP_RESPAWN, PlayerState, RESPAWN_TIME, ROUNDS_PER_GAME,
-  ROUND_TIME, TICK_RATE, Vec3, WEAPONS, WeaponDef, WeaponId, LOADOUT, clamp, rand,
+  PICKUP_RESPAWN, PlayerState, POWERUPS, POWERUP_INTERVAL, POWERUP_RADIUS, PowerupKind,
+  QUAD_MULT, RAPID_MULT, RESPAWN_TIME, ROUNDS_PER_GAME, ROUND_TIME, SPEED_MULT, TICK_RATE,
+  Vec3, WEAPONS, WeaponDef, WeaponId, LOADOUT, clamp, rand, randomPowerup,
 } from "./types";
 import { Voice } from "./voice";
 import { TracerPool, WeaponSystem } from "./weapons";
@@ -38,6 +39,13 @@ class Game {
 
   remotes = new Map<string, RemotePlayer>();
   names = new Map<string, string>();
+
+  // 3D lobby scene
+  lobbyView = false;
+  lobbyStageRoot!: Entity;
+  lobbyAvatars = new Map<string, Entity>();
+  private lobbyTarget = new Vector3(0, 1.3, -6);
+  private worldUp = new Vector3(0, 1, 0);
 
   // authoritative (host) / mirrored (guest)
   phase: GamePhase = "lobby";
@@ -66,6 +74,14 @@ class Game {
   pkTimers: number[] = [];
   pkEntities: Entity[] = [];
   pkSpin = 0;
+
+  // powerups
+  pwEntities: Entity[] = [];
+  pwMats: UnlitMaterial[] = [];
+  pwActive: (PowerupKind | null)[] = [];
+  pwSpawnAcc = 0;
+  buff: { kind: PowerupKind; until: number } | null = null;
+  dmgMult = 1;
 
   // stats
   ping = 0;
@@ -156,6 +172,8 @@ class Game {
     this.body = new PlayerBody(this.map);
     this.body.teleport({ x: 0, y: 0.1, z: -18 }, 180);
     this.buildPickups(root);
+    this.buildPowerups(root);
+    this.lobbyStageRoot = root.createChild("lobby-avatars");
     this.ws = new WeaponSystem(engine, this.camEntity, models);
     this.ws.onShoot = (def, spread) => {
       if (def.throwable) this.throwNade(def.id as NadeKind);
@@ -189,6 +207,11 @@ class Game {
     engine.run();
 
     this.hud.show("menu");
+    // theme music starts on first user gesture (autoplay policy)
+    window.addEventListener("pointerdown", () => {
+      sfx.unlock();
+      if (!this.inGame) sfx.startTheme();
+    }, { once: true });
   }
 
   // ─── input ──────────────────────────────────────────────────────────────────
@@ -275,10 +298,12 @@ class Game {
         fwd: (this.keys.has("KeyW") ? 1 : 0) - (this.keys.has("KeyS") ? 1 : 0),
         right: (this.keys.has("KeyD") ? 1 : 0) - (this.keys.has("KeyA") ? 1 : 0),
         jump: this.keys.has("Space"),
-        crouch: this.keys.has("ControlLeft") || this.keys.has("KeyC") || this.keys.has("ShiftLeft"),
+        crouch: this.keys.has("ControlLeft") || this.keys.has("KeyC"),
+        sprint: this.keys.has("ShiftLeft") || this.keys.has("ShiftRight"),
       };
       const canPlay = this.alive && this.phase === "play";
-      this.body.update(dt, canPlay ? inp : { fwd: 0, right: 0, jump: false, crouch: false }, this.ws.def().moveFactor);
+      const speedBuff = this.buff?.kind === "speed" ? SPEED_MULT : 1;
+      this.body.update(dt, canPlay ? inp : { fwd: 0, right: 0, jump: false, crouch: false, sprint: false }, this.ws.def().moveFactor * speedBuff);
 
       if (this.body.jumped) sfx.jump();
       if (this.body.landed) sfx.land();
@@ -313,6 +338,10 @@ class Game {
         this.voice.setSpatial(r.id, rel.pan, rel.dist);
       }
 
+      // ambient water loop, spatialized to the fountain at origin
+      const wr = this.relAudio({ x: 0, y: 0.4, z: 0 });
+      sfx.setWaterSpatial(wr.pan, wr.dist);
+
       // pickups: spin/bob + host claim detection
       this.pkSpin += dt * 2.2;
       for (let i = 0; i < this.pkEntities.length; i++) {
@@ -322,7 +351,28 @@ class Game {
         e.transform.setPosition(sp.x, sp.y + Math.sin(this.pkSpin + i) * 0.12, sp.z);
         e.transform.setRotation(0, (this.pkSpin * 180) / Math.PI, 0);
       }
-      if (this.net.isHost && this.phase === "play") this.hostCheckPickups();
+      // powerups: spin/bob
+      for (let i = 0; i < this.pwEntities.length; i++) {
+        const e = this.pwEntities[i];
+        if (!e.isActive) continue;
+        const sp = this.map.powerupSpots[i];
+        e.transform.setPosition(sp.x, sp.y + Math.sin(this.pkSpin * 1.5 + i) * 0.15, sp.z);
+        e.transform.setRotation(0, this.pkSpin * 90, this.pkSpin * 60);
+      }
+
+      if (this.net.isHost && this.phase === "play") {
+        this.hostCheckPickups();
+        this.pwSpawnAcc += dt;
+        if (this.pwSpawnAcc >= POWERUP_INTERVAL) { this.pwSpawnAcc = 0; this.hostSpawnPowerup(); }
+        this.hostCheckPowerups();
+      }
+
+      // active buff timer / HUD
+      if (this.buff) {
+        const left = this.buff.until - now;
+        if (left <= 0) this.clearBuff();
+        else { const d = POWERUPS[this.buff.kind]; this.hud.buff(d.name, d.color, left); }
+      }
 
       // ping (guest)
       this.pingAcc += dt;
@@ -352,6 +402,8 @@ class Game {
 
       this.hud.timer(this.phase, this.round, this.timeLeft);
       this.hud.scoreboard(this.sbOpen || this.phase === "inter", this.net.players, this.scores, this.net.myId);
+    } else if (this.lobbyView) {
+      this.updateLobbyCamera(now);
     }
     this.hud.update(dt);
 
@@ -426,6 +478,20 @@ class Game {
       if (h) { victim = r; vDist = h.dist; vHead = h.head; }
     }
 
+    // explosive barrel closer than any victim/wall → it takes the hit and stops the ray
+    const bh = this.map.raycastBarrel(o, d, vDist);
+    if (bh) {
+      const bp: Vec3 = { x: o.x + d.x * bh.dist, y: o.y + d.y * bh.dist, z: o.z + d.z * bh.dist };
+      if (localShooter) {
+        if (!def.melee) this.tracers.spawn({ x: o.x + d.x * 0.8, y: o.y - 0.12, z: o.z + d.z * 0.8 }, bp);
+        this.tracers.impact(bp);
+        const rel = this.relAudio(bp);
+        sfx.impact(rel.pan, rel.dist);
+        this.reportBarrelHit(bh.index, Math.max(1, Math.round(def.damage * dmgScale * this.dmgMult)));
+      }
+      return;
+    }
+
     const end: Vec3 = { x: o.x + d.x * Math.min(vDist, wallDist), y: o.y + d.y * Math.min(vDist, wallDist), z: o.z + d.z * Math.min(vDist, wallDist) };
     if (localShooter) {
       const mo: Vec3 = { x: o.x + d.x * 0.8, y: o.y - 0.12, z: o.z + d.z * 0.8 };
@@ -435,6 +501,7 @@ class Game {
     if (victim) {
       let dmg = def.damage * dmgScale * falloff(def, baseDist + vDist);
       if (vHead) dmg *= def.headMult;
+      if (localShooter) dmg *= this.dmgMult; // quad-damage powerup
       dmg = Math.max(1, Math.round(dmg));
       if (localShooter) {
         this.hud.hitmarker(vHead);
@@ -524,6 +591,34 @@ class Game {
     }
   }
 
+  // ─── explosive barrels ───────────────────────────────────────────────────────
+
+  reportBarrelHit(i: number, dmg: number): void {
+    if (this.net.isHost) this.hostBarrelHit(i, dmg);
+    else this.net.send({ t: "bhit", i, dmg });
+  }
+
+  hostBarrelHit(i: number, dmg: number): void {
+    const b = this.map.barrels[i];
+    if (!b || b.dead) return;
+    b.hp -= dmg;
+    if (b.hp <= 0) this.hostBarrelExplode(i);
+  }
+
+  hostBarrelExplode(i: number): void {
+    const b = this.map.barrels[i];
+    if (!b || b.dead) return;
+    const c: Vec3 = { ...b.pos };
+    this.map.killBarrel(i);
+    this.spawnBarrelFx(c);
+    this.explodeDamage(c); // host applies HE-like area damage
+    this.net.broadcast({ t: "bexp", i });
+  }
+
+  spawnBarrelFx(c: Vec3): void {
+    this.nades.explodeFx(c);
+  }
+
   // ─── host authority ─────────────────────────────────────────────────────────
 
   hostApplyHit(attacker: string, victim: string, dmg: number, hs: boolean, w: WeaponId): void {
@@ -602,7 +697,8 @@ class Game {
             this.timeLeft = INTERMISSION;
             this.pushGame();
             this.hud.banner(`Round ${this.round} over`);
-            sfx.beep();
+            sfx.roundEnd();
+            sfx.startInterlude();
           }
         } else {
           this.hostStartRound(this.round + 1);
@@ -617,11 +713,15 @@ class Game {
     this.timeLeft = ROUND_TIME;
     this.pkTimers = this.map.pickupSpots.map(() => 0);
     for (const e of this.pkEntities) e.isActive = true;
+    this.pwSpawnAcc = 0;
+    for (let i = 0; i < this.pwActive.length; i++) { this.pwActive[i] = null; if (this.pwEntities[i]) this.pwEntities[i].isActive = false; }
+    this.clearBuff();
     for (const p of this.net.players) this.hpMap[p.id] = MAX_HP;
     this.pushGame();
     for (const p of this.net.players) this.hostSpawn(p.id);
+    sfx.stopInterlude();
     this.hud.banner(`Round ${n} — go!`);
-    sfx.beep(true);
+    sfx.roundStart();
   }
 
   pushGame(): void {
@@ -644,8 +744,8 @@ class Game {
       for (let i = 0; i < this.pkEntities.length; i++) this.pkEntities[i].isActive = (g.pk[i] ?? 0) <= 0;
     }
     if (!this.net.isHost) {
-      if (prevPhase !== "inter" && g.phase === "inter") { this.hud.banner(`Round ${g.round} over`); sfx.beep(); }
-      if (prevPhase !== "play" && g.phase === "play") { this.hud.banner(`Round ${g.round} — go!`); sfx.beep(true); }
+      if (prevPhase !== "inter" && g.phase === "inter") { this.hud.banner(`Round ${g.round} over`); sfx.roundEnd(); sfx.startInterlude(); }
+      if (prevPhase !== "play" && g.phase === "play") { sfx.stopInterlude(); this.hud.banner(`Round ${g.round} — go!`); sfx.roundStart(); }
       if (g.phase === "over" && prevPhase !== "over") this.enterEnd();
     }
   }
@@ -656,6 +756,8 @@ class Game {
     this.hud.end(this.net.players, this.scores, this.net.isHost);
     this.hud.show("end");
     sfx.death();
+    sfx.stopInterlude();
+    sfx.startTheme();
   }
 
   // ─── health pickups ─────────────────────────────────────────────────────────
@@ -706,6 +808,84 @@ class Game {
     this.pushGame();
   }
 
+  // ─── powerups / modifiers ─────────────────────────────────────────────────────
+
+  buildPowerups(root: Entity): void {
+    for (const sp of this.map.powerupSpots) {
+      const g = root.createChild("pw");
+      g.transform.setPosition(sp.x, sp.y, sp.z);
+      const r = g.addComponent(MeshRenderer);
+      r.mesh = PrimitiveMesh.createSphere(this.engine, 0.3, 3); // low-poly gem
+      const m = new UnlitMaterial(this.engine);
+      r.setMaterial(m);
+      g.isActive = false;
+      this.pwEntities.push(g);
+      this.pwMats.push(m);
+      this.pwActive.push(null);
+    }
+  }
+
+  /** host: try to activate a random empty powerup spot with a rarity-weighted kind */
+  hostSpawnPowerup(): void {
+    const free: number[] = [];
+    for (let i = 0; i < this.pwActive.length; i++) if (!this.pwActive[i]) free.push(i);
+    if (!free.length) return;
+    const i = free[(Math.random() * free.length) | 0];
+    const k = randomPowerup();
+    this.applyPwSpawn(i, k);
+    this.net.broadcast({ t: "pwspawn", i, k });
+  }
+
+  applyPwSpawn(i: number, k: PowerupKind): void {
+    if (!this.pwEntities[i]) return;
+    this.pwActive[i] = k;
+    const c = POWERUPS[k].color;
+    // HDR-boosted colour → bloom glow
+    this.pwMats[i].baseColor = new Color(((c >> 16) & 255) / 255 * 4, ((c >> 8) & 255) / 255 * 4, (c & 255) / 255 * 4, 1);
+    this.pwEntities[i].isActive = true;
+  }
+
+  hostCheckPowerups(): void {
+    for (let i = 0; i < this.pwActive.length; i++) {
+      const k = this.pwActive[i];
+      if (!k) continue;
+      const sp = this.map.powerupSpots[i];
+      for (const p of this.net.players) {
+        const me = p.id === this.net.myId;
+        const pos = me ? this.body.pos : this.remotes.get(p.id)?.pos;
+        const alive = me ? this.alive : (this.remotes.get(p.id)?.alive ?? false);
+        if (!pos || !alive) continue;
+        if (Math.hypot(pos.x - sp.x, pos.z - sp.z) < POWERUP_RADIUS && Math.abs(pos.y + 1 - sp.y) < 2) {
+          this.applyPwTake(i, p.id, k);
+          this.net.broadcast({ t: "pwtake", i, who: p.id, k });
+          break;
+        }
+      }
+    }
+  }
+
+  applyPwTake(i: number, who: string, k: PowerupKind): void {
+    this.pwActive[i] = null;
+    if (this.pwEntities[i]) this.pwEntities[i].isActive = false;
+    if (who === this.net.myId) this.applyBuff(k);
+  }
+
+  applyBuff(k: PowerupKind): void {
+    this.buff = { kind: k, until: performance.now() / 1000 + POWERUPS[k].duration };
+    this.dmgMult = k === "quad" ? QUAD_MULT : 1;
+    this.ws.fireRateMult = k === "rapid" ? RAPID_MULT : 1;
+    sfx.pickup();
+    this.hud.banner(`${POWERUPS[k].name}!`, 1500);
+  }
+
+  clearBuff(): void {
+    if (!this.buff) return;
+    this.buff = null;
+    this.dmgMult = 1;
+    this.ws.fireRateMult = 1;
+    this.hud.buff(null, 0, 0);
+  }
+
   // ─── net wiring ─────────────────────────────────────────────────────────────
 
   wireNet(): void {
@@ -745,6 +925,7 @@ class Game {
       } else if (!this.net.isHost && err.includes("Lost connection")) {
         // host gone → whole lobby dead; back to menu
         this.inGame = false;
+        this.exitLobby();
         document.exitPointerLock();
         this.hud.menuError("Host left — lobby closed.");
         this.hud.connecting(false);
@@ -779,7 +960,7 @@ class Game {
         this.applyGame(m.game);
         this.refreshLobby();
         if (m.game.phase === "play" || m.game.phase === "inter") this.enterGame();
-        else this.hud.show("lobby");
+        else { this.hud.show("lobby"); this.enterLobby(); }
         this.hud.connecting(false);
         this.startVoice();
         break;
@@ -873,6 +1054,23 @@ class Game {
         if (!this.net.isHost && this.pkEntities[m.i]) this.pkEntities[m.i].isActive = false;
         break;
       }
+      case "bhit": {
+        if (this.net.isHost) this.hostBarrelHit(m.i, m.dmg);
+        break;
+      }
+      case "bexp": {
+        const b = this.map.killBarrel(m.i);
+        if (b) this.spawnBarrelFx(b.pos);
+        break;
+      }
+      case "pwspawn": {
+        if (!this.net.isHost) this.applyPwSpawn(m.i, m.k);
+        break;
+      }
+      case "pwtake": {
+        this.applyPwTake(m.i, m.who, m.k);
+        break;
+      }
       case "ping": {
         if (this.net.isHost) this.net.sendTo(fromId, { t: "pong", ts: m.ts });
         break;
@@ -917,6 +1115,7 @@ class Game {
         this.hud.crosshair(false);
         this.ws.setScope(false);
         this.applyScopeFov();
+        this.clearBuff();
         sfx.death();
       } else {
         const r = this.remotes.get(m.v);
@@ -958,6 +1157,7 @@ class Game {
         this.hpMap["host"] = MAX_HP;
         this.refreshLobby();
         this.hud.show("lobby");
+        this.enterLobby();
         this.startVoice();
       };
       this.net.host(name);
@@ -995,6 +1195,67 @@ class Game {
 
   refreshLobby(): void {
     this.hud.lobby(this.net.lobbyCode, this.net.players, this.net.isHost);
+    this.refreshLobbyAvatars();
+  }
+
+  // ─── 3D lobby ─────────────────────────────────────────────────────────────────
+
+  enterLobby(): void {
+    this.lobbyView = true;
+    this.ws.showViewmodel(false);
+    this.refreshLobbyAvatars();
+  }
+
+  exitLobby(): void {
+    this.lobbyView = false;
+    for (const e of this.lobbyAvatars.values()) e.destroy();
+    this.lobbyAvatars.clear();
+  }
+
+  /** rebuild the row of player avatars standing on the lobby stage */
+  refreshLobbyAvatars(): void {
+    if (!this.lobbyStageRoot) return;
+    for (const e of this.lobbyAvatars.values()) e.destroy();
+    this.lobbyAvatars.clear();
+    const players = this.net.players;
+    const n = players.length;
+    players.forEach((p, i) => {
+      const x = (i - (n - 1) / 2) * 1.3;
+      const z = -6;
+      const e = this.buildAvatar(this.lobbyStageRoot, p.color);
+      e.transform.setPosition(x, this.map.floorY(x, z) + 0.05, z);
+      e.transform.setRotation(0, 180, 0); // face south toward the camera
+      this.lobbyAvatars.set(p.id, e);
+    });
+  }
+
+  /** stylized box character (lobby showcase) */
+  buildAvatar(parent: Entity, color: number): Entity {
+    const e = parent.createChild("avatar");
+    const c = new Color(((color >> 16) & 255) / 255, ((color >> 8) & 255) / 255, (color & 255) / 255, 1);
+    const body = new BlinnPhongMaterial(this.engine); body.baseColor = c;
+    const dark = new BlinnPhongMaterial(this.engine); dark.baseColor = new Color(0.15, 0.14, 0.13, 1);
+    const skin = new BlinnPhongMaterial(this.engine); skin.baseColor = new Color(0.85, 0.65, 0.5, 1);
+    const mk = (x: number, y: number, z: number, w: number, h: number, d: number, m: BlinnPhongMaterial): void => {
+      const p = e.createChild("p");
+      p.transform.setPosition(x, y, z);
+      const r = p.addComponent(MeshRenderer);
+      r.mesh = PrimitiveMesh.createCuboid(this.engine, w, h, d);
+      r.setMaterial(m);
+      r.castShadows = true;
+    };
+    mk(0, 0.45, 0, 0.5, 0.9, 0.32, dark);   // legs
+    mk(0, 1.22, 0, 0.62, 0.64, 0.36, body); // torso
+    mk(0, 1.72, 0, 0.3, 0.3, 0.3, skin);    // head
+    mk(0.28, 1.3, -0.35, 0.06, 0.08, 0.55, dark); // gun
+    return e;
+  }
+
+  /** gentle swaying camera looking at the avatar line */
+  updateLobbyCamera(now: number): void {
+    const sway = Math.sin(now * 0.4) * 1.6;
+    this.camEntity.transform.setPosition(sway, 2.8, 2.0);
+    this.camEntity.transform.lookAt(this.lobbyTarget, this.worldUp);
   }
 
   startVoice(): void {
@@ -1014,6 +1275,11 @@ class Game {
     this.inGame = true;
     this.alive = true;
     this.myHp = MAX_HP;
+    this.exitLobby();
+    this.ws.showViewmodel(true);
+    sfx.stopTheme();
+    sfx.stopInterlude();
+    sfx.startAmbientWater();
     this.hud.show("game");
     this.hud.hp(this.myHp);
     this.refreshAmmoHud();

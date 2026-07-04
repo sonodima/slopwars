@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>CSBOH — web fps</title>
+<link rel="icon" href="./logo.png">
+<title>SlopWars — web fps</title>
 <style>
   :root{
     --sand:#d8b878; --sand-dim:#a68b58; --ink:#0d0c0a; --panel:rgba(16,14,10,.88);
@@ -40,7 +41,13 @@
   .keys{margin-top:26px;font-size:10px;letter-spacing:2px;color:#6d6350;text-transform:uppercase;line-height:1.9;text-align:center}
   .keys b{color:var(--sand-dim)}
 
-  /* ── lobby ── */
+  /* ── lobby (3D backdrop) ── */
+  #scr-lobby{background:linear-gradient(100deg,rgba(8,7,5,.85) 0%,rgba(8,7,5,.4) 36%,rgba(8,7,5,0) 62%);
+    align-items:flex-start;justify-content:center;padding-left:7vw}
+  #scr-lobby .panel{min-width:330px}
+  #lobby-title{font-size:38px;letter-spacing:12px;color:var(--sand);text-transform:uppercase;font-weight:700;
+    text-shadow:0 0 26px rgba(216,184,120,.35)}
+  #lobby-sub{font-size:11px;letter-spacing:5px;color:var(--sand-dim);text-transform:uppercase;margin:2px 0 20px}
   #lobby-code{font-family:var(--mono);font-size:40px;letter-spacing:12px;color:var(--sand);text-align:center;margin:6px 0 18px}
   .lp{padding:8px 10px;border-bottom:1px solid rgba(216,184,120,.1);font-size:14px;letter-spacing:1px;display:flex;align-items:center;gap:10px}
   .lp em{color:var(--sand-dim);font-style:normal;font-size:10px;letter-spacing:2px;margin-left:auto}
@@ -79,8 +86,9 @@
     background:rgba(10,9,6,.85);border:1px solid var(--line);padding:7px 10px;pointer-events:auto}
   #chat-bar span{color:var(--sand)}
   #chat-inp{flex:1;background:none;border:none;outline:none;color:#f0e8d5;font-family:var(--font);font-size:14px;letter-spacing:.5px}
-  #voice{position:absolute;left:16px;bottom:70px;font-size:11px;letter-spacing:1px;color:var(--green)}
-  #voice.off{color:#7a705c}
+  #voice{position:absolute;left:16px;top:96px;font-size:11px;letter-spacing:2px;color:var(--green);
+    background:rgba(10,9,6,.55);border-left:2px solid var(--green);padding:4px 9px}
+  #voice.off{color:#7a705c;border-left-color:#7a705c}
 
   #crosshair{position:absolute;left:50%;top:50%;width:22px;height:22px;transform:translate(-50%,-50%)}
   #crosshair::before,#crosshair::after{content:"";position:absolute;background:rgba(150,255,120,.95);box-shadow:0 0 3px #000}
@@ -118,6 +126,11 @@
   #scr-end .panel{min-width:460px}
   #scr-end h2{font-size:26px;letter-spacing:8px;color:var(--sand);text-transform:uppercase;text-align:center;margin-bottom:16px}
 
+  /* ── powerup buff indicator ── */
+  #buff{position:absolute;top:58px;left:50%;transform:translateX(-50%);font-size:13px;letter-spacing:3px;
+    text-transform:uppercase;font-weight:700;padding:5px 16px;background:rgba(10,9,6,.82);
+    border:1px solid var(--line);text-shadow:0 0 10px currentColor}
+
   /* ── loading ── */
   .loadbar{width:340px;height:6px;background:rgba(216,184,120,.15);border:1px solid var(--line);margin-top:10px}
   #load-bar{height:100%;width:0;background:var(--sand);transition:width .15s}
@@ -128,7 +141,7 @@
 
 <!-- ═══ LOADING ═══ -->
 <div id="scr-loading" class="screen">
-  <h1>CSBOH</h1>
+  <h1>SlopWars</h1>
   <div class="sub">loading assets…</div>
   <div class="loadbar"><div id="load-bar"></div></div>
   <div id="load-pct" class="conn">0%</div>
@@ -136,7 +149,7 @@
 
 <!-- ═══ MENU ═══ -->
 <div id="scr-menu" class="screen hidden">
-  <h1>CSBOH</h1>
+  <h1>SlopWars</h1>
   <div class="sub">browser fps · p2p · 4 rounds ffa</div>
   <div class="panel">
     <label>callsign</label>
@@ -151,13 +164,15 @@
     <div id="menu-conn" class="conn hidden">connecting…</div>
   </div>
   <div class="keys">
-    <b>wasd</b> move · <b>space</b> jump (hold = bhop) · <b>ctrl</b> crouch<br>
+    <b>wasd</b> move · <b>shift</b> sprint · <b>space</b> jump (hold = bhop) · <b>ctrl</b> crouch<br>
     <b>lmb</b> fire · <b>rmb</b> scope · <b>r</b> reload · <b>1-6</b> / <b>wheel</b> weapons (5 nade, 6 molotov)<br><b>t</b> chat · <b>v</b> mic · <b>tab</b> scores
   </div>
 </div>
 
 <!-- ═══ LOBBY ═══ -->
 <div id="scr-lobby" class="screen hidden">
+  <div id="lobby-title">SlopWars</div>
+  <div id="lobby-sub">lobby</div>
   <div class="panel">
     <label style="text-align:center">share this code</label>
     <div id="lobby-code"></div>
@@ -175,6 +190,7 @@
   <div id="crosshair" class="hidden"></div>
   <div id="hitmarker" class="hidden"></div>
   <div class="hud-top"><div id="hud-time">4:00</div><div id="hud-round">round 1/4</div></div>
+  <div id="buff" class="hidden"></div>
   <div id="stats"></div>
   <div id="game-code"></div>
   <div id="killfeed"></div>

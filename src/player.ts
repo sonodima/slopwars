@@ -7,6 +7,7 @@ export interface Input {
   right: number;
   jump: boolean;
   crouch: boolean;
+  sprint: boolean;
 }
 
 export class PlayerBody {
@@ -48,7 +49,8 @@ export class PlayerBody {
     const wl = Math.hypot(wx, wz);
     if (wl > 1e-5) { wx /= wl; wz /= wl; }
 
-    const maxSpeed = MOVE.groundSpeed * speedFactor * (this.crouched ? MOVE.crouchFactor : 1);
+    const sprint = inp.sprint && !this.crouched ? MOVE.sprintFactor : 1;
+    const maxSpeed = MOVE.groundSpeed * speedFactor * (this.crouched ? MOVE.crouchFactor : 1) * sprint;
 
     if (this.onGround) {
       if (inp.jump) {

@@ -164,28 +164,30 @@ export class Projectiles {
   // ── HE ──
   private explodeHE(n: Nade): void {
     n.entity.destroy();
-    const c = n.pos;
-    // flash core
-    this.addFx(this.sphere(this.mFlash, 1, 12), c, 0.22, 9);
-    // shock ring-ish second sphere
-    this.addFx(this.sphere(this.mFlame2, 0.6, 10), c, 0.3, 14);
-    // smoke
-    for (let k = 0; k < 8; k++) {
-      const e = this.sphere(this.mSmoke, rand(0.25, 0.5), 6);
-      this.addFx(e, c, rand(0.7, 1.3), 1.6, {
-        x: rand(-3, 3), y: rand(1.5, 4.5), z: rand(-3, 3),
-      });
+    this.explodeFx(n.pos);
+    this.onExplode?.(n.pos, n.owner, n.local);
+  }
+
+  /** explosion visuals + boom at a point (grenade or barrel); no damage/authority */
+  explodeFx(c: Vec3): void {
+    this.addFx(this.sphere(this.mFlash, 1.2, 12), c, 0.20, 11);     // white-hot flash core
+    this.addFx(this.sphere(this.mFlame2, 0.7, 12), c, 0.34, 17);    // expanding fireball
+    this.addFx(this.sphere(this.mFlame, 0.5, 10), c, 0.44, 13);     // inner flame
+    for (let k = 0; k < 12; k++) {                                  // smoke plume
+      const e = this.sphere(this.mSmoke, rand(0.3, 0.6), 6);
+      this.addFx(e, c, rand(0.8, 1.7), 1.9, { x: rand(-3.5, 3.5), y: rand(1.2, 5), z: rand(-3.5, 3.5) });
     }
-    // light pop
-    const le = this.root.createChild("boom-l");
+    for (let k = 0; k < 10; k++) {                                  // flying embers
+      const e = this.sphere(this.mFlame, rand(0.04, 0.09), 5);
+      this.addFx(e, c, rand(0.5, 1.1), 0.4, { x: rand(-6, 6), y: rand(2, 7), z: rand(-6, 6) });
+    }
+    const le = this.root.createChild("boom-l");                    // light pop
     le.transform.setPosition(c.x, c.y + 0.5, c.z);
     const l = le.addComponent(PointLight);
-    l.color = new Color(1.4, 0.9, 0.4, 1);
-    l.distance = 16;
-    window.setTimeout(() => le.destroy(), 120);
-
+    l.color = new Color(1.5, 0.95, 0.45, 1);
+    l.distance = 18;
+    window.setTimeout(() => le.destroy(), 140);
     this.onBoom?.(c);
-    this.onExplode?.(c, n.owner, n.local);
   }
 
   // ── molotov ──

@@ -166,6 +166,16 @@ export class Hud {
     if (t !== null) $("respawn-t").textContent = Math.ceil(t).toString();
   }
 
+  buff(name: string | null, color: number, secs: number): void {
+    const e = $("buff");
+    if (!name) { e.classList.add("hidden"); return; }
+    e.classList.remove("hidden");
+    const hex = `#${color.toString(16).padStart(6, "0")}`;
+    e.style.color = hex;
+    e.style.borderColor = hex;
+    e.textContent = `${name} · ${Math.ceil(secs)}s`;
+  }
+
   stats(html: string): void { $("stats").innerHTML = html; }
 
   scope(on: boolean): void { $("scope").classList.toggle("hidden", !on); }

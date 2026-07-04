@@ -11,10 +11,12 @@ interface Ammo { mag: number; reserve: number }
 
 // first-person placement for the PH proxy meshes (scale + position + euler deg).
 // Real-scale detailed meshes → tuned to sit in view. Adjust here to reframe.
-const WEP_TUNE: Record<"ak47" | "usp" | "knife", { s: number; p: [number, number, number]; r: [number, number, number] }> = {
+const WEP_TUNE: Record<"ak47" | "usp" | "knife" | "awp" | "mol", { s: number; p: [number, number, number]; r: [number, number, number] }> = {
   ak47:  { s: 0.5,  p: [0.18, -0.22, -0.15], r: [0, 90, 0] },
   usp:   { s: 0.7,  p: [0.15, -0.16, -0.08], r: [0, 90, 0] },
   knife: { s: 0.6,  p: [0.12, -0.12, -0.12], r: [0, 90, 0] },
+  awp:   { s: 0.55, p: [0.16, -0.20, -0.12], r: [0, 90, 0] },
+  mol:   { s: 0.9,  p: [0.12, -0.16, -0.06], r: [0, 0, 0] },
 };
 
 export class WeaponSystem {
@@ -30,10 +32,12 @@ export class WeaponSystem {
   reloading = 0; // time left
   cooldown = 0;
   scoped = false;
+  fireRateMult = 1; // <1 = faster (rapid-fire powerup)
   recoilPitch = 0; // accumulated camera kick (rad), decays
   private kick = 0; // viewmodel z punch
   private drawTimer = 0;
 
+  private vmVisible = true; // false in lobby (hide weapon from lobby camera)
   private vm!: Entity; // viewmodel root (child of camera)
   private models: Partial<Record<WeaponId, Entity>> = {};
   private flash!: Entity;
@@ -56,15 +60,20 @@ export class WeaponSystem {
   def(): WeaponDef { return WEAPONS[this.current]; }
 
   select(w: WeaponId): void {
-    if (this.current === w && this.models[w]?.isActive) return;
     this.current = w;
     this.reloading = 0;
     this.cooldown = Math.max(this.cooldown, 0.25);
     this.drawTimer = 0.25;
     this.setScope(false);
-    for (const id of LOADOUT) this.models[id]!.isActive = id === w;
+    for (const id of LOADOUT) { const e = this.models[id]; if (e) e.isActive = id === w; }
     sfx.draw();
     this.onAmmoChange?.();
+  }
+
+  /** hide/show whole viewmodel (e.g. in the lobby camera) */
+  showViewmodel(v: boolean): void {
+    this.vmVisible = v;
+    this.vm.isActive = v && !this.scoped;
   }
 
   cycle(dir: number): void {
@@ -84,7 +93,7 @@ export class WeaponSystem {
   setScope(on: boolean): void {
     if (!this.def().scope) on = false;
     this.scoped = on;
-    this.vm.isActive = !on;
+    this.vm.isActive = !on && this.vmVisible;
   }
 
   /** attempt fire. moveSpeed for spread. Returns true if a shot happened. */
@@ -94,7 +103,7 @@ export class WeaponSystem {
     if (this.cooldown > 0 || this.reloading > 0 || this.drawTimer > 0) return false;
     if (!d.melee && a.mag <= 0) { if (!d.throwable) this.reload(); return false; }
 
-    this.cooldown = 60 / d.rpm;
+    this.cooldown = (60 / d.rpm) * this.fireRateMult;
     if (!d.melee) { a.mag--; this.onAmmoChange?.(); }
     if (d.throwable) {
       sfx.nadeThrow();
@@ -166,10 +175,11 @@ export class WeaponSystem {
       r.setMaterial(m);
     };
 
-    // ── proxy GLB viewmodels (Poly Haven CC0): AK / USP / knife ──
-    for (const [id, key] of [["ak47", "ak"], ["usp", "usp"], ["knife", "knife"]] as const) {
+    // ── proxy GLB viewmodels (Poly Haven CC0). AWP reuses the bolt-action ──
+    for (const [id, key] of [["ak47", "ak"], ["usp", "usp"], ["knife", "knife"], ["awp", "ak"]] as const) {
       const t = WEP_TUNE[id];
       const m = instantiate(this.src[key]);
+      if (!m) continue;
       m.transform.setPosition(t.p[0], t.p[1], t.p[2]);
       m.transform.setScale(t.s, t.s, t.s);
       m.transform.setRotation(t.r[0], t.r[1], t.r[2]);
@@ -184,24 +194,24 @@ export class WeaponSystem {
     box(g, 0, 0.055, -0.05, 0.03, 0.04, 0.03, this.matDark);      // fuse cap
     this.models.he = g;
 
-    // molotov
-    g = this.vm.createChild("mol");
-    const amber = new BlinnPhongMaterial(e); amber.baseColor = new Color(0.6, 0.32, 0.08, 1);
-    const rag = new BlinnPhongMaterial(e); rag.baseColor = new Color(0.8, 0.76, 0.65, 1);
-    box(g, 0, -0.03, -0.05, 0.09, 0.16, 0.09, amber);             // bottle
-    box(g, 0, 0.075, -0.05, 0.04, 0.06, 0.04, amber);             // neck
-    box(g, 0, 0.12, -0.05, 0.05, 0.04, 0.05, rag);                // rag
-    this.models.mol = g;
-
-    // awp
-    g = this.vm.createChild("awp");
-    const green = new BlinnPhongMaterial(e); green.baseColor = new Color(0.15, 0.22, 0.12, 1);
-    box(g, 0, 0, -0.05, 0.05, 0.08, 0.55, green);                    // body
-    box(g, 0, 0, -0.42, 0.025, 0.025, 0.3, this.matDark);            // barrel
-    box(g, 0, 0.075, -0.05, 0.035, 0.045, 0.24, this.matDark);       // scope
-    box(g, 0, -0.055, 0.2, 0.05, 0.06, 0.16, green);                 // stock
-    box(g, 0, -0.07, -0.1, 0.04, 0.07, 0.1, this.matDark);           // mag
-    this.models.awp = g;
+    // molotov: bottle model if it loaded, else box
+    if (this.src.mol) {
+      const t = WEP_TUNE.mol;
+      const m = instantiate(this.src.mol)!;
+      m.transform.setPosition(t.p[0], t.p[1], t.p[2]);
+      m.transform.setScale(t.s, t.s, t.s);
+      m.transform.setRotation(t.r[0], t.r[1], t.r[2]);
+      this.vm.addChild(m);
+      this.models.mol = m;
+    } else {
+      g = this.vm.createChild("mol");
+      const amber = new BlinnPhongMaterial(e); amber.baseColor = new Color(0.6, 0.32, 0.08, 1);
+      const rag = new BlinnPhongMaterial(e); rag.baseColor = new Color(0.8, 0.76, 0.65, 1);
+      box(g, 0, -0.03, -0.05, 0.09, 0.16, 0.09, amber);           // bottle
+      box(g, 0, 0.075, -0.05, 0.04, 0.06, 0.04, amber);           // neck
+      box(g, 0, 0.12, -0.05, 0.05, 0.04, 0.05, rag);              // rag
+      this.models.mol = g;
+    }
   }
 
   private buildFlash(): void {

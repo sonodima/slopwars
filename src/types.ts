@@ -27,11 +27,35 @@ export const MOVE = {
   airWishCap: 1.1,
   stepHeight: 0.55,
   stopSpeed: 1.2,
+  sprintFactor: 1.4, // ground max-speed multiplier while sprinting
 };
 
 export const PICKUP_HEAL = 25;
 export const PICKUP_RESPAWN = 15; // s
 export const PICKUP_RADIUS = 1.1;
+
+// ─── Powerups / modifiers (timed buffs, rarity-weighted spawns) ──────────────
+export type PowerupKind = "speed" | "rapid" | "quad";
+export interface PowerupDef { kind: PowerupKind; name: string; color: number; duration: number; weight: number }
+export const POWERUPS: Record<PowerupKind, PowerupDef> = {
+  speed: { kind: "speed", name: "Speed",       color: 0x3fd0ff, duration: 8, weight: 60 }, // common
+  rapid: { kind: "rapid", name: "Rapid Fire",  color: 0xffd23f, duration: 7, weight: 30 }, // uncommon
+  quad:  { kind: "quad",  name: "Quad Damage", color: 0xc23fff, duration: 6, weight: 10 }, // rare
+};
+export const POWERUP_RADIUS = 1.3;
+export const POWERUP_INTERVAL = 16; // s between host spawn attempts
+export const SPEED_MULT = 1.6;
+export const RAPID_MULT = 0.5; // cooldown scale
+export const QUAD_MULT = 4;
+
+/** rarity-weighted random powerup kind */
+export function randomPowerup(): PowerupKind {
+  const kinds = Object.values(POWERUPS);
+  const total = kinds.reduce((s, p) => s + p.weight, 0);
+  let r = Math.random() * total;
+  for (const p of kinds) { if ((r -= p.weight) <= 0) return p.kind; }
+  return "speed";
+}
 
 export type WeaponId = "knife" | "usp" | "ak47" | "awp" | "he" | "mol";
 
@@ -135,6 +159,10 @@ export type Msg =
   | { t: "nade"; id: string; k: "he" | "mol"; o: [number, number, number]; v: [number, number, number] }
   | { t: "heal"; v: string; hp: number }
   | { t: "pkup"; i: number }
+  | { t: "bhit"; i: number; dmg: number } // guest → host: damaged barrel i
+  | { t: "bexp"; i: number }              // host → all: barrel i exploded
+  | { t: "pwspawn"; i: number; k: PowerupKind }              // host → all: powerup i appeared
+  | { t: "pwtake"; i: number; who: string; k: PowerupKind }  // host → all: player took powerup i
   | { t: "ping"; ts: number }
   | { t: "pong"; ts: number }
   | { t: "leave" };
