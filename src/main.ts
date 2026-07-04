@@ -3,12 +3,18 @@ import {
   AmbientLight, BackgroundMode, BlinnPhongMaterial, BloomEffect, Camera, Color,
   DirectLight, Engine, Entity, FogMode, MSAASamples, MeshRenderer, PostProcess,
   PrimitiveMesh, Quaternion, ShadowResolution, ShadowType, SkyBoxMaterial,
-  TonemappingEffect, TonemappingMode, UnlitMaterial, Vector3, WebGLEngine,
+  TextureCube, TonemappingEffect, TonemappingMode, UnlitMaterial, Vector3, WebGLEngine,
 } from "@galacean/engine";
 import { sfx } from "./audio";
 import { loadHDRCube } from "./assets";
 import { Hud } from "./hud";
 import { GameMap } from "./map";
+import { MapTextures } from "./textures";
+import { GameModels } from "./models";
+import { MapEnv } from "./maps/schema";
+import {
+  DEFAULT_MAP, mapById, mapMetas, pickVotedMap, randomMapId, tallyVotes,
+} from "./maps";
 import { HE_DAMAGE, HE_RADIUS, MOL_RADIUS, MOL_TICK_DMG, NadeKind, Projectiles } from "./nades";
 import { Net, colorFor } from "./net";
 import { Input, PlayerBody } from "./player";
@@ -29,6 +35,22 @@ class Game {
   camera!: Camera;
   camEntity!: Entity;
   map = new GameMap();
+
+  // world/render refs reused across map (re)loads
+  root!: Entity;
+  tex!: MapTextures;
+  models!: GameModels;
+  sky!: TextureCube;
+  skyMat!: SkyBoxMaterial;
+  sunE!: Entity;
+  sun!: DirectLight;
+  amb!: AmbientLight;
+
+  // map rotation + voting
+  currentMapId = DEFAULT_MAP;
+  mapVotes: Record<string, string> = {}; // host: playerId → map id
+  myVote: string | null = null;
+  lastVoteCounts: Record<string, number> = {};
   body!: PlayerBody;
   ws!: WeaponSystem;
   tracers!: TracerPool;
@@ -97,9 +119,10 @@ class Game {
 
     const scene = engine.sceneManager.activeScene;
     const root = scene.createRootEntity("root");
-    // sky (HDRI) + image-based ambient applied after assets load, below
+    this.root = root;
+    // sky (HDRI) + image-based ambient applied per-map by applyEnv(), below
 
-    // ── lights ──
+    // ── lights (env-specific values set by applyEnv on map load) ──
     const sunE = root.createChild("sun");
     sunE.transform.setPosition(0, 30, 0);
     sunE.transform.setRotation(-52, -38, 0);
@@ -107,6 +130,8 @@ class Game {
     sun.color = new Color(1.35, 1.22, 1.0, 1);
     sun.shadowType = ShadowType.SoftHigh;
     sun.shadowStrength = 0.82;
+    this.sunE = sunE;
+    this.sun = sun;
     scene.shadowResolution = ShadowResolution.High;
     scene.shadowDistance = 70;
     scene.shadowFadeBorder = 0.15;
@@ -115,6 +140,7 @@ class Game {
     amb.diffuseSolidColor = new Color(0.55, 0.6, 0.72, 1);
     amb.diffuseIntensity = 0.62;
     amb.specularIntensity = 0.85; // specularTexture set from HDRI after load
+    this.amb = amb;
 
     // ── atmosphere ──
     scene.fogMode = FogMode.Linear;
@@ -155,24 +181,25 @@ class Game {
       loadModels(engine, bump),
     ]);
 
-    // ── HDRI skybox + image-based ambient ──
+    // ── HDRI skybox material + image-based ambient (background mode per map) ──
     const skyMat = new SkyBoxMaterial(engine);
     skyMat.texture = sky;
     skyMat.textureDecodeRGBM = true;
-    scene.background.mode = BackgroundMode.Sky;
     scene.background.sky.material = skyMat;
     scene.background.sky.mesh = PrimitiveMesh.createCuboid(engine, 2, 2, 2);
     amb.specularTexture = sky;
     amb.specularTextureDecodeRGBM = true;
+    this.sky = sky;
+    this.skyMat = skyMat;
+    this.tex = tex;
+    this.models = models;
 
-    // ── map ──
-    this.map.build(engine, root, tex, models);
+    // ── map (loads geometry + applies env; pickups/powerups built inside) ──
+    this.loadMap(DEFAULT_MAP);
 
     // ── player + weapons + fx ──
     this.body = new PlayerBody(this.map);
     this.body.teleport({ x: 0, y: 0.1, z: -18 }, 180);
-    this.buildPickups(root);
-    this.buildPowerups(root);
     this.lobbyStageRoot = root.createChild("lobby-avatars");
     this.ws = new WeaponSystem(engine, this.camEntity, models);
     this.ws.onShoot = (def, spread) => {
@@ -338,9 +365,12 @@ class Game {
         this.voice.setSpatial(r.id, rel.pan, rel.dist);
       }
 
-      // ambient water loop, spatialized to the fountain at origin
-      const wr = this.relAudio({ x: 0, y: 0.4, z: 0 });
-      sfx.setWaterSpatial(wr.pan, wr.dist);
+      // ambient water loop, spatialized to the map's water source (if any)
+      if (this.map.env.water) {
+        const w = this.map.env.water;
+        const wr = this.relAudio({ x: w[0], y: w[1], z: w[2] });
+        sfx.setWaterSpatial(wr.pan, wr.dist);
+      }
 
       // pickups: spin/bob + host claim detection
       this.pkSpin += dt * 2.2;
@@ -708,6 +738,13 @@ class Game {
   }
 
   hostStartRound(n: number): void {
+    // round 1 = random map; later rounds = plurality of the interlude vote
+    const mapId = n === 1 ? randomMapId() : pickVotedMap(this.mapVotes);
+    this.loadMap(mapId);
+    this.mapVotes = {};
+    this.myVote = null;
+    this.hud.vote(null);
+
     this.phase = "play";
     this.round = n;
     this.timeLeft = ROUND_TIME;
@@ -720,7 +757,7 @@ class Game {
     this.pushGame();
     for (const p of this.net.players) this.hostSpawn(p.id);
     sfx.stopInterlude();
-    this.hud.banner(`Round ${n} — go!`);
+    this.hud.banner(`${this.map.meta.name} · Round ${n} — go!`);
     sfx.roundStart();
   }
 
@@ -731,21 +768,26 @@ class Game {
   }
 
   gameSnap(): GameSnapshot {
-    return { phase: this.phase, round: this.round, timeLeft: this.timeLeft, scores: this.scores, pk: this.pkTimers.map((t) => Math.ceil(t)) };
+    return { phase: this.phase, round: this.round, timeLeft: this.timeLeft, scores: this.scores, pk: this.pkTimers.map((t) => Math.ceil(t)), map: this.currentMapId };
   }
 
   applyGame(g: GameSnapshot): void {
     const prevPhase = this.phase;
+    // guests follow the host's loaded map
+    if (!this.net.isHost && g.map && g.map !== this.currentMapId) this.loadMap(g.map);
     this.phase = g.phase;
     this.round = g.round;
     this.timeLeft = g.timeLeft;
     this.scores = g.scores;
+    // map-vote UI opens during the interlude, closes when the round starts
+    if (prevPhase !== "inter" && g.phase === "inter") this.openVote(g.map);
+    if (g.phase !== "inter" && prevPhase === "inter") this.hud.vote(null);
     if (!this.net.isHost && g.pk) {
       for (let i = 0; i < this.pkEntities.length; i++) this.pkEntities[i].isActive = (g.pk[i] ?? 0) <= 0;
     }
     if (!this.net.isHost) {
       if (prevPhase !== "inter" && g.phase === "inter") { this.hud.banner(`Round ${g.round} over`); sfx.roundEnd(); sfx.startInterlude(); }
-      if (prevPhase !== "play" && g.phase === "play") { sfx.stopInterlude(); this.hud.banner(`Round ${g.round} — go!`); sfx.roundStart(); }
+      if (prevPhase !== "play" && g.phase === "play") { sfx.stopInterlude(); this.hud.banner(`${this.map.meta.name} · Round ${g.round} — go!`); sfx.roundStart(); }
       if (g.phase === "over" && prevPhase !== "over") this.enterEnd();
     }
   }
@@ -758,6 +800,90 @@ class Game {
     sfx.death();
     sfx.stopInterlude();
     sfx.startTheme();
+  }
+
+  // ─── map loading / rotation ───────────────────────────────────────────────────
+
+  /** load (or hot-swap) a map by id: rebuild geometry, env, pickups & powerups */
+  loadMap(id: string): void {
+    // tear down old pickup/powerup visuals (map geometry is torn down by map.load)
+    for (const e of this.pkEntities) e.destroy();
+    for (const e of this.pwEntities) e.destroy();
+    this.pkEntities = [];
+    this.pwEntities = [];
+    this.pwMats = [];
+    this.pwActive = [];
+    const def = mapById(id);
+    this.map.load(this.engine, this.root, this.tex, this.models, def);
+    this.currentMapId = id;
+    this.applyEnv(def.env);
+    this.buildPickups(this.root);
+    this.buildPowerups(this.root);
+    this.updateAmbientWater();
+  }
+
+  /** apply a map's skybox / fog / lighting identity */
+  applyEnv(env: MapEnv): void {
+    const scene = this.engine.sceneManager.activeScene;
+    this.sunE.transform.setRotation(env.sun.rot[0], env.sun.rot[1], env.sun.rot[2]);
+    this.sun.color = new Color(env.sun.color[0], env.sun.color[1], env.sun.color[2], 1);
+    this.sun.shadowStrength = env.sun.strength;
+    this.amb.diffuseSolidColor = new Color(env.ambient.color[0], env.ambient.color[1], env.ambient.color[2], 1);
+    this.amb.diffuseIntensity = env.ambient.intensity;
+    this.amb.specularIntensity = env.ambient.specular ?? 0.85;
+    if (env.fog) {
+      scene.fogMode = FogMode.Linear;
+      scene.fogColor = new Color(env.fog.color[0], env.fog.color[1], env.fog.color[2], 1);
+      scene.fogStart = env.fog.start;
+      scene.fogEnd = env.fog.end;
+    } else {
+      scene.fogMode = FogMode.None;
+    }
+    if (env.sky.hdri) {
+      scene.background.mode = BackgroundMode.Sky;
+      scene.background.sky.material = this.skyMat;
+    } else {
+      const s = env.sky.solid ?? [0, 0, 0];
+      scene.background.mode = BackgroundMode.SolidColor;
+      scene.background.solidColor = new Color(s[0], s[1], s[2], 1);
+    }
+  }
+
+  /** ambient water loop plays only in-game on maps that define a water source */
+  updateAmbientWater(): void {
+    if (this.inGame && this.map.env.water) sfx.startAmbientWater();
+    else sfx.stopAmbientWater();
+  }
+
+  // ─── map voting (interlude) ────────────────────────────────────────────────────
+
+  /** open the next-map vote card UI for the interlude */
+  openVote(currentId: string): void {
+    this.myVote = null;
+    if (this.net.isHost) this.mapVotes = {};
+    this.lastVoteCounts = {};
+    this.hud.vote(mapMetas(), currentId);
+    this.hud.voteCounts({}, null);
+  }
+
+  /** local player picked a map → record/route the vote */
+  castVote(id: string): void {
+    this.myVote = id;
+    if (this.net.isHost) {
+      this.mapVotes[this.net.myId] = id;
+      this.broadcastVotes();
+    } else {
+      this.net.send({ t: "mapvote", map: id });
+      this.hud.voteCounts(this.lastVoteCounts, id);
+    }
+  }
+
+  /** host: recompute + broadcast the live vote tally */
+  broadcastVotes(): void {
+    const counts = tallyVotes(this.mapVotes);
+    this.lastVoteCounts = counts;
+    this.net.broadcast({ t: "votes", counts });
+    this.hud.voteCounts(counts, this.myVote);
   }
 
   // ─── health pickups ─────────────────────────────────────────────────────────
@@ -1071,6 +1197,15 @@ class Game {
         this.applyPwTake(m.i, m.who, m.k);
         break;
       }
+      case "mapvote": {
+        if (this.net.isHost) { this.mapVotes[fromId] = m.map; this.broadcastVotes(); }
+        break;
+      }
+      case "votes": {
+        this.lastVoteCounts = m.counts;
+        this.hud.voteCounts(m.counts, this.myVote);
+        break;
+      }
       case "ping": {
         if (this.net.isHost) this.net.sendTo(fromId, { t: "pong", ts: m.ts });
         break;
@@ -1191,6 +1326,8 @@ class Game {
       this.enterGame();
       this.hostStartRound(1);
     };
+
+    this.hud.onVote = (id) => this.castVote(id);
   }
 
   refreshLobby(): void {
@@ -1279,7 +1416,7 @@ class Game {
     this.ws.showViewmodel(true);
     sfx.stopTheme();
     sfx.stopInterlude();
-    sfx.startAmbientWater();
+    this.updateAmbientWater();
     this.hud.show("game");
     this.hud.hp(this.myHp);
     this.refreshAmmoHud();

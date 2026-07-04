@@ -139,6 +139,7 @@ export interface GameSnapshot {
   timeLeft: number;
   scores: Record<string, { k: number; d: number }>;
   pk: number[]; // pickup respawn timers (0 = available)
+  map: string;  // currently loaded map id
 }
 
 export type Msg =
@@ -163,6 +164,8 @@ export type Msg =
   | { t: "bexp"; i: number }              // host → all: barrel i exploded
   | { t: "pwspawn"; i: number; k: PowerupKind }              // host → all: powerup i appeared
   | { t: "pwtake"; i: number; who: string; k: PowerupKind }  // host → all: player took powerup i
+  | { t: "mapvote"; map: string }                            // guest → host: vote for next map
+  | { t: "votes"; counts: Record<string, number> }           // host → all: live vote tally
   | { t: "ping"; ts: number }
   | { t: "pong"; ts: number }
   | { t: "leave" };

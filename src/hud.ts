@@ -1,5 +1,6 @@
 // ─── DOM HUD & screens ───────────────────────────────────────────────────────
 import { GameSnapshot, PlayerInfo, WEAPONS, WeaponId } from "./types";
+import { MapMeta } from "./maps/schema";
 
 const $ = (id: string): HTMLElement => document.getElementById(id)!;
 
@@ -10,6 +11,7 @@ export class Hud {
   onJoin: ((code: string, name: string) => void) | null = null;
   onStart: (() => void) | null = null;
   onPlayAgain: (() => void) | null = null;
+  onVote: ((mapId: string) => void) | null = null;
 
   private hitTtl = 0;
   private dmgTtl = 0;
@@ -174,6 +176,33 @@ export class Hud {
     e.style.color = hex;
     e.style.borderColor = hex;
     e.textContent = `${name} · ${Math.ceil(secs)}s`;
+  }
+
+  // ── map vote (interlude) ──
+  /** show vote cards (metas) with `currentId` marked, or hide when metas === null */
+  vote(metas: MapMeta[] | null, currentId?: string): void {
+    const el = $("vote");
+    if (!metas) { el.classList.add("hidden"); return; }
+    el.classList.remove("hidden");
+    $("vote-cards").innerHTML = metas
+      .map((m) => `<div class="vc" data-id="${m.id}"${m.id === currentId ? " data-cur=\"1\"" : ""}>` +
+        `<div class="vn">${esc(m.name)}</div><div class="vt">${esc(m.theme)}</div>` +
+        `<div class="vcount" id="vcount-${m.id}">0</div>${m.id === currentId ? "<div class=\"vcur\">current</div>" : ""}</div>`)
+      .join("");
+    for (const c of Array.from($("vote-cards").children)) {
+      c.addEventListener("click", () => this.onVote?.((c as HTMLElement).dataset.id!));
+    }
+  }
+
+  /** update per-map vote counts + highlight the local player's pick */
+  voteCounts(counts: Record<string, number>, myVote: string | null): void {
+    for (const c of Array.from($("vote-cards").children)) {
+      const el = c as HTMLElement;
+      const id = el.dataset.id!;
+      const cn = document.getElementById(`vcount-${id}`);
+      if (cn) cn.textContent = String(counts[id] ?? 0);
+      el.classList.toggle("sel", id === myVote);
+    }
   }
 
   stats(html: string): void { $("stats").innerHTML = html; }

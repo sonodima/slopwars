@@ -134,6 +134,19 @@
   /* ── loading ── */
   .loadbar{width:340px;height:6px;background:rgba(216,184,120,.15);border:1px solid var(--line);margin-top:10px}
   #load-bar{height:100%;width:0;background:var(--sand);transition:width .15s}
+
+  /* ── map vote (interlude) ── */
+  #vote{position:absolute;left:50%;bottom:132px;transform:translateX(-50%);pointer-events:auto;text-align:center}
+  #vote .vh{font-size:11px;letter-spacing:4px;text-transform:uppercase;color:var(--sand-dim);margin-bottom:8px}
+  #vote-cards{display:flex;gap:10px;justify-content:center}
+  .vc{position:relative;width:150px;background:rgba(10,9,6,.86);border:1px solid var(--line);padding:12px 12px 26px;
+    cursor:pointer;transition:border-color .1s,transform .1s}
+  .vc:hover{border-color:var(--sand);transform:translateY(-2px)}
+  .vc.sel{border-color:var(--sand);box-shadow:0 0 0 1px var(--sand),0 0 22px rgba(216,184,120,.3)}
+  .vc .vn{font-size:15px;letter-spacing:2px;color:var(--sand);text-transform:uppercase;font-weight:700}
+  .vc .vt{font-size:10px;letter-spacing:.5px;color:#8d8471;margin-top:4px;line-height:1.35;min-height:26px}
+  .vc .vcount{font-family:var(--mono);font-size:22px;font-weight:700;color:#f0e8d5;margin-top:8px}
+  .vc .vcur{position:absolute;top:6px;right:8px;font-size:8px;letter-spacing:2px;color:var(--sand-dim);text-transform:uppercase}
 </style>
 </head>
 <body>
@@ -206,6 +219,7 @@
     <div id="sb-rows"></div>
   </div>
   <div id="banner" class="hidden"></div>
+  <div id="vote" class="hidden"><div class="vh">vote next map</div><div id="vote-cards"></div></div>
   <div id="respawn" class="hidden"><div class="d">eliminated</div><div id="respawn-t">3</div></div>
   <div id="click-to-play" class="hidden">click to play</div>
 </div>

@@ -226,6 +226,12 @@ class Sfx {
     w.gain.gain.value = dist > 26 ? 0 : Math.min(0.5, 0.5 / (1 + dist * 0.12));
     w.pan.pan.value = clamp(pan, -1, 1);
   }
+  stopAmbientWater(): void {
+    const w = this.water;
+    if (!w) return;
+    this.water = null;
+    try { w.src.stop(); } catch { /* already stopped */ }
+  }
 }
 
 export const sfx = new Sfx();
