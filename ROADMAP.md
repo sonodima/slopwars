@@ -89,3 +89,104 @@
 | **Initial Match** | Map is selected at random from the pool. |
 | **Interlude (between rounds)** | Voting interface presented to all players. |
 | **Next Map** | Map with the plurality of votes is loaded for the subsequent round. |
+
+---
+
+## 5. Game Modes
+
+### 5.1 Lobby Integration
+- **Selection:** Host chooses the game mode from a dropdown / card interface in the pre-game lobby.
+- **Persistence:** Selected mode is displayed in the lobby header and server browser.
+- **Configuration:** Each mode exposes adjustable parameters (score limit, time limit, etc.) editable by the host before match start.
+
+---
+
+### 5.2 Free for All (FFA)
+
+#### 5.2.1 Rules
+| Parameter | Value |
+|---|---|
+| **Teams** | None — every player is an independent combatant. |
+| **Respawn** | Instant respawn at random spawn points across the map. |
+| **Friendly Fire** | N/A (no teams). |
+
+#### 5.2.2 Scoring
+| Event | Points |
+|---|---|
+| Kill | +1 |
+| Death | 0 (no penalty) |
+| Suicide | -1 |
+
+#### 5.2.3 Win Condition
+- **Score Limit:** First player to reach the configured kill threshold (default: 20) wins the match.
+- **Time Limit:** If no player reaches the score limit, the player with the highest score when the timer expires wins.
+- **Tiebreaker:** If tied at time expiry, the match enters **Sudden Death** — next kill wins.
+
+#### 5.2.4 HUD & Feedback
+- Real-time scoreboard sorted by kills (descending).
+- Personal streak announcement (e.g., "Killing Spree," "Rampage").
+- Kill feed with weapon icon.
+
+---
+
+### 5.3 Team Deathmatch (TDM)
+
+#### 5.3.1 Rules
+| Parameter | Value |
+|---|---|
+| **Teams** | Two teams (Alpha / Bravo). |
+| **Team Size** | Balanced automatically; max delta = 1 player. |
+| **Respawn** | Delayed respawn (3 s) at team-proximate spawn points. |
+| **Friendly Fire** | Off by default; host-toggleable. |
+
+#### 5.3.2 Scoring
+| Event | Team Points |
+|---|---|
+| Enemy Kill | +1 |
+| Team Kill (if FF ON) | -1 |
+| Suicide | -1 |
+
+#### 5.3.3 Win Condition
+- **Score Limit:** First team to reach the configured threshold (default: 50) wins.
+- **Time Limit:** Highest team score wins when timer expires.
+- **Tiebreaker:** If tied, match continues in **Overtime** — first team to score +2 wins.
+
+#### 5.3.4 HUD & Feedback
+- Team score displayed prominently at the top of the screen.
+- Colored player names and outlines for ally identification.
+- Team voice channel auto-assigned.
+- End-of-match MVP screen (most kills, best K/D, most assists).
+
+---
+
+### 5.4 Gun Game
+
+#### 5.4.1 Rules
+| Parameter | Value |
+|---|---|
+| **Teams** | None — free-for-all progression. |
+| **Weapon System** | Linear tier list; every player starts at Tier 1. |
+| **Advancement** | Promoted to the next weapon tier upon securing a kill. |
+| **Demotion** | Melee kill from an opponent demotes the victim by **one** tier. |
+| **Respawn** | Instant respawn; invulnerability frame: 2.0 s. |
+
+#### 5.4.2 Win Condition
+- **Final Tier Kill:** The first player to score a kill with the Tier 10 (Knife) weapon wins immediately.
+- **No Time Limit:** Match persists until a player achieves the final-tier kill.
+
+#### 5.4.3 HUD & Feedback
+- Current weapon tier icon and name displayed center-bottom.
+- Progress bar showing advancement through the 10 tiers.
+- Global announcement when a player reaches Tier 9 ("One Away!").
+- Melee kill notification includes demotion warning.
+- Leader tracker: HUD highlights the player(s) currently at the highest tier.
+
+---
+
+### 5.5 Shared Systems Across All Modes
+
+| System | Description |
+|---|---|
+| **Scoreboard** | Tab-overlay showing Kills / Deaths / Assists / Score / Ping. Updates in real time. |
+| **Interlude** | 15-second post-round lobby. Displays final standings, map vote, and mode rematch option. |
+| **Spectator** | Eliminated players (if respawn disabled) or joining players enter free-cam spectator mode. |
