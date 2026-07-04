@@ -3,15 +3,15 @@ import { MapDef, MapMeta } from "./schema";
 import { KOI } from "./koi";
 import { WATERFALL } from "./waterfall";
 import { NEON_GRAVEYARD } from "./neon";
-import { OVERGROWTH } from "./overgrowth";
+import { OFFICE } from "./office";
 
 /** every map available in rotation (order = card order in the vote UI) */
-export const MAP_POOL: MapDef[] = [KOI, WATERFALL, NEON_GRAVEYARD, OVERGROWTH];
+export const MAP_POOL: MapDef[] = [KOI, /*WATERFALL, NEON_GRAVEYARD, OFFICE*/];
 
 const BY_ID = new Map(MAP_POOL.map((m) => [m.meta.id, m]));
 
 /** default map shown in the lobby before a match picks one */
-export const DEFAULT_MAP = KOI.meta.id;
+export const DEFAULT_MAP = OFFICE.meta.id;
 
 export function mapById(id: string): MapDef {
   return BY_ID.get(id) ?? KOI;

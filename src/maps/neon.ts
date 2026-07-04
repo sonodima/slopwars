@@ -45,12 +45,18 @@ const objects: Placement[] = [
   { type: "lantern", at: [12, 2.4, 8], params: { color: NEON[3], distance: 10 } },
   { type: "lantern", at: [0, 2.4, 0], params: { color: NEON[0], distance: 12 } },
 
-  // headstone clutter (short crates) + barrels
-  { type: "crate", at: [-9, 0, -3], params: { size: 1.1 } },
-  { type: "crate", at: [10, 0, -3], params: { size: 1.1 } },
-  { type: "crate", at: [-2, 0, 9], params: { size: 1.1 } },
+  // crypt-lane clutter — plastic bins + supply crates + toolboxes
+  { type: "crate2", at: [-9, 0, -3], rot: 15 },
+  { type: "crate2", at: [-9.6, 0, -1.9], rot: -30 },
+  { type: "crate", at: [10, 0, -3], rot: -22 },
+  { type: "crate2", at: [-2, 0, 9], rot: 40 },
+  { type: "toolbox", at: [10.9, 0, -2.1], rot: 60 },
   { type: "sandbags", at: [6, 0, -1], params: { rot: 1 } },
   { type: "sandbags", at: [-6, 0, 10], params: { rot: 0 } },
+  // dead trees haunting the graveyard
+  { type: "dtree", at: [-22, 0, 8], params: { scale: 1.1 } },
+  { type: "dtree", at: [22, 0, -8], params: { scale: 1.0 } },
+  { type: "stump", at: [0, 0, 10], params: { scale: 0.9 } },
   // a deliberately fragile barrel (override: blows at 50 hp instead of 120)
   { type: "barrel", at: [0, 0, -6], params: { hp: 50 } },
   { type: "barrel", at: [-20, 0, -18] },
@@ -86,11 +92,12 @@ const spawns = [
 export const NEON_GRAVEYARD: MapDef = {
   meta: { id: "neon", name: "Neon Graveyard", theme: "Cyberpunk cemetery, rainy night" },
   env: {
-    sky: { solid: [0.02, 0.03, 0.06] },
-    fog: { color: [0.05, 0.06, 0.12], start: 14, end: 60 },
-    ambient: { color: [0.16, 0.2, 0.34], intensity: 0.5, specular: 0.5 },
-    sun: { rot: [-70, -30, 0], color: [0.32, 0.4, 0.7], strength: 0.4 },
+    sky: { hdri: "hdri/shanghai_bund.hdr" },
+    fog: { color: [0.05, 0.06, 0.12], start: 16, end: 66 },
+    ambient: { color: [0.18, 0.22, 0.36], intensity: 0.5, specular: 0.55 },
+    sun: { rot: [-70, -30, 0], color: [0.34, 0.42, 0.72], strength: 0.4 },
   },
+  textures: { dark: "neon_ground", stone: "neon_stone", wall: "neon_wall" },
   brushes,
   objects,
   spawns,

@@ -64,6 +64,9 @@ export interface MapMeta { id: string; name: string; theme: string }
 export interface MapDef {
   meta: MapMeta;
   env: MapEnv;
+  /** per-map texture palette: slot → folder under public/assets/textures/.
+   *  unbound slots fall back to DEFAULT_TEX. this is what makes maps look distinct. */
+  textures?: Partial<Record<MatId, string>>;
   brushes: Brush[];
   objects: Placement[];
   spawns: SpawnDef[];

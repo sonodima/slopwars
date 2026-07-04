@@ -9,7 +9,7 @@ import { sfx } from "./audio";
 import { loadHDRCube } from "./assets";
 import { Hud } from "./hud";
 import { GameMap } from "./map";
-import { MapTextures } from "./textures";
+import { resolveTextures } from "./textures";
 import { GameModels } from "./models";
 import { MapEnv } from "./maps/schema";
 import {
@@ -20,7 +20,6 @@ import { Net, colorFor } from "./net";
 import { Input, PlayerBody } from "./player";
 import { RemotePlayer } from "./remote";
 import { MODEL_LOAD_COUNT, loadModels } from "./models";
-import { TEXTURE_LOAD_COUNT, loadMapTextures } from "./textures";
 import {
   GamePhase, GameSnapshot, INTERMISSION, MAX_HP, Msg, PICKUP_HEAL, PICKUP_RADIUS,
   PICKUP_RESPAWN, PlayerState, POWERUPS, POWERUP_INTERVAL, POWERUP_RADIUS, PowerupKind,
@@ -38,10 +37,10 @@ class Game {
 
   // world/render refs reused across map (re)loads
   root!: Entity;
-  tex!: MapTextures;
   models!: GameModels;
-  sky!: TextureCube;
   skyMat!: SkyBoxMaterial;
+  /** HDRI path → prefiltered cube (loaded once, reused across map switches) */
+  hdriCache = new Map<string, Promise<TextureCube>>();
   sunE!: Entity;
   sun!: DirectLight;
   amb!: AmbientLight;
@@ -170,38 +169,30 @@ class Game {
     tone.enabled = true;
     tone.mode.value = TonemappingMode.ACES;
 
-    // ── load assets (textures, HDRI sky, models) with progress ──
+    // ── load models with progress (textures + HDRI load lazily, per map) ──
     this.hud.show("loading");
-    const total = TEXTURE_LOAD_COUNT + 1 + MODEL_LOAD_COUNT;
+    const total = MODEL_LOAD_COUNT + 1; // models + first map's texture/sky bundle
     let loaded = 0;
     const bump = (): void => this.hud.loadingProgress(++loaded / total);
-    const [tex, sky, models] = await Promise.all([
-      loadMapTextures(engine, bump),
-      loadHDRCube(engine, "hdri/sky.hdr").then((c) => { bump(); return c; }),
-      loadModels(engine, bump),
-    ]);
+    this.models = await loadModels(engine, bump);
 
-    // ── HDRI skybox material + image-based ambient (background mode per map) ──
+    // ── HDRI skybox material shell (its texture is set per-map by loadMap) ──
     const skyMat = new SkyBoxMaterial(engine);
-    skyMat.texture = sky;
     skyMat.textureDecodeRGBM = true;
     scene.background.sky.material = skyMat;
     scene.background.sky.mesh = PrimitiveMesh.createCuboid(engine, 2, 2, 2);
-    amb.specularTexture = sky;
     amb.specularTextureDecodeRGBM = true;
-    this.sky = sky;
     this.skyMat = skyMat;
-    this.tex = tex;
-    this.models = models;
 
-    // ── map (loads geometry + applies env; pickups/powerups built inside) ──
-    this.loadMap(DEFAULT_MAP);
+    // ── map (resolves textures + sky, builds geometry/env/pickups) ──
+    await this.loadMap(DEFAULT_MAP);
+    bump();
 
     // ── player + weapons + fx ──
     this.body = new PlayerBody(this.map);
     this.body.teleport({ x: 0, y: 0.1, z: -18 }, 180);
     this.lobbyStageRoot = root.createChild("lobby-avatars");
-    this.ws = new WeaponSystem(engine, this.camEntity, models);
+    this.ws = new WeaponSystem(engine, this.camEntity, this.models);
     this.ws.onShoot = (def, spread) => {
       if (def.throwable) this.throwNade(def.id as NadeKind);
       else this.fireHitscan(def, spread);
@@ -731,16 +722,16 @@ class Game {
             sfx.startInterlude();
           }
         } else {
-          this.hostStartRound(this.round + 1);
+          void this.hostStartRound(this.round + 1);
         }
       }
     }
   }
 
-  hostStartRound(n: number): void {
+  async hostStartRound(n: number): Promise<void> {
     // round 1 = random map; later rounds = plurality of the interlude vote
     const mapId = n === 1 ? randomMapId() : pickVotedMap(this.mapVotes);
-    this.loadMap(mapId);
+    await this.loadMap(mapId);
     this.mapVotes = {};
     this.myVote = null;
     this.hud.vote(null);
@@ -774,7 +765,7 @@ class Game {
   applyGame(g: GameSnapshot): void {
     const prevPhase = this.phase;
     // guests follow the host's loaded map
-    if (!this.net.isHost && g.map && g.map !== this.currentMapId) this.loadMap(g.map);
+    if (!this.net.isHost && g.map && g.map !== this.currentMapId) void this.loadMap(g.map);
     this.phase = g.phase;
     this.round = g.round;
     this.timeLeft = g.timeLeft;
@@ -804,8 +795,16 @@ class Game {
 
   // ─── map loading / rotation ───────────────────────────────────────────────────
 
-  /** load (or hot-swap) a map by id: rebuild geometry, env, pickups & powerups */
-  loadMap(id: string): void {
+  /** HDRI cube for a path, loaded at most once (skybox + IBL specular source) */
+  loadHdri(path: string): Promise<TextureCube> {
+    let p = this.hdriCache.get(path);
+    if (!p) { p = loadHDRCube(this.engine, path); this.hdriCache.set(path, p); }
+    return p;
+  }
+
+  /** load (or hot-swap) a map by id: resolve palette + sky, rebuild geometry,
+   *  env, pickups & powerups. async — textures/HDRI load (cached) per map. */
+  async loadMap(id: string): Promise<void> {
     // tear down old pickup/powerup visuals (map geometry is torn down by map.load)
     for (const e of this.pkEntities) e.destroy();
     for (const e of this.pwEntities) e.destroy();
@@ -814,16 +813,17 @@ class Game {
     this.pwMats = [];
     this.pwActive = [];
     const def = mapById(id);
-    this.map.load(this.engine, this.root, this.tex, this.models, def);
+    const tex = await resolveTextures(this.engine, def.textures);
+    this.map.load(this.engine, this.root, tex, this.models, def);
     this.currentMapId = id;
-    this.applyEnv(def.env);
+    await this.applyEnv(def.env);
     this.buildPickups(this.root);
     this.buildPowerups(this.root);
     this.updateAmbientWater();
   }
 
-  /** apply a map's skybox / fog / lighting identity */
-  applyEnv(env: MapEnv): void {
+  /** apply a map's skybox / fog / lighting identity (awaits its HDRI if any) */
+  async applyEnv(env: MapEnv): Promise<void> {
     const scene = this.engine.sceneManager.activeScene;
     this.sunE.transform.setRotation(env.sun.rot[0], env.sun.rot[1], env.sun.rot[2]);
     this.sun.color = new Color(env.sun.color[0], env.sun.color[1], env.sun.color[2], 1);
@@ -840,10 +840,15 @@ class Game {
       scene.fogMode = FogMode.None;
     }
     if (env.sky.hdri) {
+      const cube = await this.loadHdri(env.sky.hdri);
+      this.skyMat.texture = cube;
+      this.amb.specularTexture = cube;
       scene.background.mode = BackgroundMode.Sky;
       scene.background.sky.material = this.skyMat;
     } else {
       const s = env.sky.solid ?? [0, 0, 0];
+      // don't carry a prior map's IBL into a solid-sky map (runtime accepts null → solid ambient)
+      this.amb.specularTexture = null as unknown as TextureCube;
       scene.background.mode = BackgroundMode.SolidColor;
       scene.background.solidColor = new Color(s[0], s[1], s[2], 1);
     }
@@ -1309,7 +1314,7 @@ class Game {
       if (!this.net.isHost) return;
       this.net.broadcast({ t: "start" });
       this.enterGame();
-      this.hostStartRound(1);
+      void this.hostStartRound(1);
     };
 
     this.hud.onChat = (txt) => {
@@ -1324,7 +1329,7 @@ class Game {
       for (const id of Object.keys(this.scores)) this.scores[id] = { k: 0, d: 0 };
       this.net.broadcast({ t: "start" });
       this.enterGame();
-      this.hostStartRound(1);
+      void this.hostStartRound(1);
     };
 
     this.hud.onVote = (id) => this.castVote(id);
