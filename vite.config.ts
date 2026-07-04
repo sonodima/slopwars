@@ -11,9 +11,6 @@ function copyToDist(root: string, outDir: string, relPath: string): void {
   cpSync(from, to, { recursive: true });
 }
 
-let buildRoot = "";
-let buildOutDir = "dist";
-
 export default defineConfig({
   publicDir: false,
   base: "./",
@@ -22,17 +19,21 @@ export default defineConfig({
     chunkSizeWarningLimit: 4096,
   },
   plugins: [
-    {
-      name: "copy-public-assets",
-      apply: "build",
-      configResolved(config) {
-        buildRoot = config.root;
-        buildOutDir = config.build.outDir;
-      },
-      closeBundle() {
-        for (const relPath of DEPLOY_PUBLIC_ASSETS) copyToDist(buildRoot, buildOutDir, relPath);
-      },
-    },
+    (() => {
+      let buildRoot = "";
+      let buildOutDir = "dist";
+      return {
+        name: "copy-public-assets",
+        apply: "build",
+        configResolved(config) {
+          buildRoot = config.root;
+          buildOutDir = config.build.outDir;
+        },
+        closeBundle() {
+          for (const relPath of DEPLOY_PUBLIC_ASSETS) copyToDist(buildRoot, buildOutDir, relPath);
+        },
+      };
+    })(),
   ],
   server: {
     allowedHosts: true

@@ -11,6 +11,8 @@ const ALL_MODEL_IDS = Object.keys(MODEL_SOURCES) as ModelId[];
 export const MODEL_LOAD_COUNT = ACTIVE_MODEL_IDS.length;
 
 export async function loadModels(engine: Engine, onEach?: () => void): Promise<GameModels> {
+  // Keep every model id present so inactive-map props still degrade gracefully to
+  // null/fallback behavior if one is ever requested.
   const out = Object.fromEntries(ALL_MODEL_IDS.map((id) => [id, null])) as GameModels;
   const loaded = await Promise.all(
     ACTIVE_MODEL_IDS.map((id) =>
