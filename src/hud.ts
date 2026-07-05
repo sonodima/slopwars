@@ -16,6 +16,7 @@ export class Hud {
   onPlayAgain: (() => void) | null = null;
   onVote: ((mapId: string) => void) | null = null;
   onMode: ((mode: ModeId) => void) | null = null;
+  onSolo: (() => void) | null = null;
 
   private hitTtl = 0;
   private dmgTtl = 0;
@@ -28,6 +29,7 @@ export class Hud {
     };
     $("btn-start").onclick = () => this.onStart?.();
     $("btn-again").onclick = () => this.onPlayAgain?.();
+    $("btn-solo").onclick = () => this.onSolo?.();
     ($("inp-name") as HTMLInputElement).value = "player" + ((Math.random() * 900 + 100) | 0);
 
     const inp = $("chat-inp") as HTMLInputElement;

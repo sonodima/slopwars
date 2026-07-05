@@ -4,11 +4,24 @@
  *   - other same-origin GETs → stale-while-revalidate (instant repeat loads)
  * Cross-origin (PeerJS signalling, STUN/TURN, etc.) is left untouched.
  */
-const CACHE = "slopwars-v1";
+const CACHE = "slopwars-v2";
 const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./logo.png"];
 
+// Precache the app shell + the build's JS/CSS (from precache.json) so the game
+// boots with no network. Game assets (models/HDRI/audio) are cached at runtime
+// the first time they're fetched (see the fetch handler below).
 self.addEventListener("install", (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  e.waitUntil((async () => {
+    const cache = await caches.open(CACHE);
+    let list = SHELL.slice();
+    try {
+      const res = await fetch("./precache.json", { cache: "no-cache" });
+      if (res.ok) list = list.concat(await res.json());
+    } catch { /* offline install / no manifest → shell only */ }
+    // cache individually so one failure doesn't abort the whole install
+    await Promise.allSettled([...new Set(list)].map((u) => cache.add(u)));
+    await self.skipWaiting();
+  })());
 });
 
 self.addEventListener("activate", (e) => {

@@ -35,6 +35,17 @@ import { TouchControls } from "./touch";
 import { Settings } from "./settings";
 import { TracerPool, WeaponSystem } from "./weapons";
 
+interface BotAI {
+  id: string;
+  body: PlayerBody;
+  fireCd: number;
+  retargetCd: number;
+  targetId: string | null;
+  strafe: number;
+  strafeCd: number;
+  jumpCd: number;
+}
+
 class Game {
   engine!: Engine;
   camera!: Camera;
@@ -66,6 +77,10 @@ class Game {
   touch = new TouchControls();
   touchMode = false; // true once a touch input is seen (drives virtual controls)
   settings = new Settings();
+
+  // ── offline solo vs bots (no networking) ──
+  solo = false;
+  bots = new Map<string, BotAI>();
 
   remotes = new Map<string, RemotePlayer>();
   names = new Map<string, string>();
@@ -127,6 +142,10 @@ class Game {
   statAcc = 0;
 
   async start(): Promise<void> {
+    // register the PWA service worker up-front (offline shell) — must not wait
+    // on the heavy asset load below, so it works even if a load stalls
+    this.registerServiceWorker();
+
     const engine = await WebGLEngine.create({ canvas: "game-canvas" });
     this.engine = engine;
     engine.canvas.resizeByClientSize();
@@ -249,12 +268,12 @@ class Game {
       if (!this.inGame) sfx.startTheme();
     }, { once: true });
 
-    // register the PWA service worker (installable / offline shell) in prod only
-    if (import.meta.env.PROD && "serviceWorker" in navigator) {
-      window.addEventListener("load", () => {
-        void navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch(() => {});
-      });
-    }
+  }
+
+  /** register the PWA service worker (installable / offline shell) in prod only */
+  registerServiceWorker(): void {
+    if (!import.meta.env.PROD || !("serviceWorker" in navigator)) return;
+    void navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch(() => {});
   }
 
   // ─── input ──────────────────────────────────────────────────────────────────
@@ -619,6 +638,7 @@ class Game {
       this.camEntity.transform.rotationQuaternion = this.q;
 
       // remotes + proximity voice
+      if (this.solo) this.updateBots(dt, now);
       for (const r of this.remotes.values()) {
         r.update(now);
         const rel = this.relAudio(r.pos);
@@ -1003,6 +1023,8 @@ class Game {
     if (!this.net.players.some((p) => p.id === id)) return;
     const sp = this.pickSpawn();
     this.hpMap[id] = MAX_HP;
+    const bot = this.bots.get(id);
+    if (bot) { bot.body.teleport(sp.p, sp.yaw); bot.targetId = null; bot.fireCd = 0.4; }
     const m: Msg = { t: "spawn", id, p: [sp.p.x, sp.p.y, sp.p.z], yaw: sp.yaw };
     this.net.broadcast(m);
     // deliver the mode loadout directly (unreliable channel → don't rely on snapshot order)
@@ -1067,8 +1089,9 @@ class Game {
   }
 
   async hostStartRound(n: number): Promise<void> {
-    // round 1 = random map; later rounds = plurality of the interlude vote
-    const mapId = n === 1 ? randomMapId() : pickVotedMap(this.mapVotes);
+    // solo keeps the already-loaded (cached) map so it works fully offline;
+    // online: round 1 = random map, later rounds = plurality of the interlude vote
+    const mapId = this.solo ? this.currentMapId : n === 1 ? randomMapId() : pickVotedMap(this.mapVotes);
     await this.loadMap(mapId);
     this.mapVotes = {};
     this.myVote = null;
@@ -1233,6 +1256,7 @@ class Game {
 
   /** open the next-map vote card UI for the interlude */
   openVote(currentId: string): void {
+    if (this.solo) { this.hud.vote(null); return; } // solo keeps one map, no vote
     this.myVote = null;
     if (this.net.isHost) this.mapVotes = {};
     this.lastVoteCounts = {};
@@ -1723,6 +1747,176 @@ class Game {
 
     this.hud.onVote = (id) => this.castVote(id);
     this.hud.onMode = (id) => this.setMode(id);
+    this.hud.onSolo = () => this.startSolo();
+  }
+
+  // ─── offline solo mode (local host + bots, no PeerJS) ─────────────────────────
+
+  /** enter a local, network-free lobby populated with bots */
+  startSolo(): void {
+    sfx.unlock();
+    this.solo = true;
+    const name = ((document.getElementById("inp-name") as HTMLInputElement).value || "player").slice(0, 16);
+    // stand up a local "host" with no peer connection
+    this.net.isHost = true;
+    this.net.myId = "host";
+    this.net.lobbyCode = "OFFLINE";
+    this.net.players = [{ id: "host", name, color: colorFor("host") }];
+    this.names.set("host", name);
+    this.scores = { host: { k: 0, d: 0 } };
+    this.hpMap = { host: MAX_HP };
+    this.addBots(4);
+    this.hud.connecting(false);
+    this.hud.menuError("");
+    this.refreshLobby();
+    this.hud.show("lobby");
+    this.enterLobby();
+    if (!this.inGame) sfx.startTheme();
+  }
+
+  addBots(n: number): void {
+    this.clearBots();
+    const pool = ["Rook", "Vex", "Nyx", "Cael", "Bishop", "Dax", "Orin", "Zeph"];
+    for (let i = 0; i < n; i++) {
+      const id = "bot" + (i + 1);
+      const name = pool[i % pool.length];
+      this.names.set(id, name);
+      this.net.players.push({ id, name, color: colorFor(id) });
+      this.scores[id] = { k: 0, d: 0 };
+      this.hpMap[id] = MAX_HP;
+      this.ensureRemote(id, name);
+      const body = new PlayerBody(this.map);
+      body.teleport({ x: rand(-6, 6), y: 4, z: rand(-6, 6) }, rand(0, 360));
+      this.bots.set(id, { id, body, fireCd: 0, retargetCd: 0, targetId: null, strafe: 1, strafeCd: 0, jumpCd: 0 });
+    }
+  }
+
+  clearBots(): void {
+    for (const b of this.bots.values()) {
+      const r = this.remotes.get(b.id);
+      if (r) { r.entity.destroy(); this.remotes.delete(b.id); }
+    }
+    this.bots.clear();
+  }
+
+  /** absolute position of any combatant (local player or bot) */
+  entityPos(id: string): Vec3 {
+    if (id === this.net.myId) return this.body.pos;
+    const bot = this.bots.get(id);
+    if (bot) return bot.body.pos;
+    return this.remotes.get(id)?.pos ?? { x: 0, y: 0, z: 0 };
+  }
+
+  botIsEnemy(a: string, b: string): boolean {
+    if (a === b) return false;
+    if (MODES[this.mode].teams) return this.teams[a] !== this.teams[b];
+    return true;
+  }
+
+  botTargetAlive(id: string | null): boolean {
+    if (!id) return false;
+    if (id === this.net.myId) return this.alive;
+    return (this.hpMap[id] ?? 0) > 0;
+  }
+
+  botPickTarget(bot: BotAI): string | null {
+    let best: string | null = null, bd = Infinity;
+    const consider = (id: string, p: Vec3): void => {
+      if (!this.botIsEnemy(bot.id, id)) return;
+      const d = Math.hypot(p.x - bot.body.pos.x, p.z - bot.body.pos.z);
+      if (d < bd) { bd = d; best = id; }
+    };
+    if (this.alive) consider(this.net.myId, this.body.pos);
+    for (const other of this.bots.values()) {
+      if (other.id === bot.id || (this.hpMap[other.id] ?? 0) <= 0) continue;
+      consider(other.id, other.body.pos);
+    }
+    return best;
+  }
+
+  /** drive every bot: target, move, aim, shoot (host authority, all local) */
+  updateBots(dt: number, _now: number): void {
+    for (const bot of this.bots.values()) {
+      const r = this.remotes.get(bot.id);
+      if (!r) continue;
+      if ((this.hpMap[bot.id] ?? 0) <= 0) { r.setPose(bot.body.pos, bot.body.yaw, false, false); continue; }
+
+      const role = this.teams[bot.id];
+      const isHider = this.mode === "prophunt" && role === ROLE_HIDE;
+      const frozen = this.mode === "prophunt" && role === ROLE_SEEK && this.inPrepPhase();
+      const playing = this.phase === "play" && !frozen;
+
+      bot.retargetCd -= dt;
+      if (bot.retargetCd <= 0 || !this.botTargetAlive(bot.targetId)) {
+        bot.targetId = isHider ? null : this.botPickTarget(bot);
+        bot.retargetCd = 0.8 + Math.random() * 0.8;
+      }
+      const tgt = bot.targetId ? this.entityPos(bot.targetId) : null;
+      const eye: Vec3 = { x: bot.body.pos.x, y: bot.body.eyeY, z: bot.body.pos.z };
+
+      let fwd = 0, right = 0, jump = false, sprint = false;
+      if (tgt && !isHider) {
+        const dx = tgt.x - bot.body.pos.x, dz = tgt.z - bot.body.pos.z;
+        const dist = Math.hypot(dx, dz);
+        bot.body.yaw = Math.atan2(-dx, -dz);
+        bot.body.pitch = clamp(Math.atan2((tgt.y + 1.0) - eye.y, Math.max(0.5, dist)), -1.2, 1.2);
+        fwd = dist > 10 ? 1 : dist < 5 ? -0.5 : 0.25;
+        sprint = dist > 16;
+        bot.strafeCd -= dt;
+        if (bot.strafeCd <= 0) { bot.strafe = Math.random() < 0.5 ? -1 : 1; bot.strafeCd = 0.5 + Math.random(); }
+        right = bot.strafe * 0.7;
+        bot.jumpCd -= dt;
+        if (bot.jumpCd <= 0) { jump = Math.random() < 0.25; bot.jumpCd = 1 + Math.random() * 2.5; }
+        bot.fireCd -= dt;
+        if (playing && bot.fireCd <= 0) this.botTryShoot(bot, tgt, dist, eye);
+      } else {
+        // wander (hiders, or nobody to shoot)
+        bot.strafeCd -= dt;
+        if (bot.strafeCd <= 0) { bot.body.yaw += (Math.random() - 0.5) * 1.6; bot.strafeCd = 1 + Math.random() * 2; }
+        fwd = 0.6;
+        bot.body.pitch *= 0.9;
+      }
+
+      const input: Input = playing
+        ? { fwd, right, jump, crouch: false, sprint }
+        : { fwd: 0, right: 0, jump: false, crouch: false, sprint: false };
+      bot.body.update(dt, input, 1);
+      r.setPose(bot.body.pos, bot.body.yaw, false, true);
+    }
+  }
+
+  botTryShoot(bot: BotAI, tgt: Vec3, dist: number, eye: Vec3): void {
+    const wid: WeaponId = this.mode === "gungame" ? tierWeapon(this.tiers[bot.id] ?? 0) : "ak47";
+    const def = WEAPONS[wid];
+    if (def.melee) { // knife — only up close
+      if (dist < 2.2) this.botDealDamage(bot, def, wid, false);
+      bot.fireCd = 0.8;
+      return;
+    }
+    const tx = tgt.x - eye.x, ty = (tgt.y + 1.0) - eye.y, tz = tgt.z - eye.z;
+    const len = Math.hypot(tx, ty, tz) || 1;
+    const dir: Vec3 = { x: tx / len, y: ty / len, z: tz / len };
+    const wall = this.map.raycast(eye, dir, len);
+    if (wall && wall.dist < len - 0.5) { bot.fireCd = 0.25; return; } // no line of sight
+    // muzzle flash feedback: tracer + spatial shot
+    const reach = Math.min(len, def.range);
+    this.tracers.spawn(
+      { x: eye.x + dir.x * 0.6, y: eye.y - 0.1, z: eye.z + dir.z * 0.6 },
+      { x: eye.x + dir.x * reach, y: eye.y + dir.y * reach, z: eye.z + dir.z * reach },
+    );
+    const rel = this.relAudio(eye);
+    sfx.shot(wid, rel.pan, rel.dist);
+    // forgiving accuracy that falls off with range
+    const pHit = clamp(0.72 - dist / 60, 0.1, 0.6);
+    if (Math.random() < pHit) this.botDealDamage(bot, def, wid, Math.random() < 0.1);
+    bot.fireCd = (def.auto ? 0.5 : 0.95) * (0.8 + Math.random() * 0.7);
+  }
+
+  botDealDamage(bot: BotAI, def: WeaponDef, wid: WeaponId, hs: boolean): void {
+    if (!bot.targetId) return;
+    let dmg = def.damage * 0.5;
+    if (hs) dmg *= def.headMult;
+    this.hostApplyHit(bot.id, bot.targetId, Math.max(1, Math.round(dmg)), hs, wid);
   }
 
   /** host: slot a mid-match joiner into the active mode */
