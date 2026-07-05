@@ -114,6 +114,19 @@ export class RemotePlayer {
     this.entity.transform.setScale(1, s, 1);
   }
 
+  /** directly drive the avatar (offline bots — no interpolation buffer) */
+  setPose(pos: Vec3, yaw: number, crouched: boolean, alive: boolean): void {
+    this.pos.x = pos.x; this.pos.y = pos.y; this.pos.z = pos.z;
+    this.yaw = yaw;
+    this.crouched = crouched;
+    this.alive = alive;
+    this.entity.isActive = alive;
+    this.entity.transform.setPosition(pos.x, pos.y, pos.z);
+    this.entity.transform.setRotation(0, (yaw * 180) / Math.PI, 0);
+    const s = this.disguised ? 1 : crouched ? 0.72 : 1;
+    this.entity.transform.setScale(1, s, 1);
+  }
+
   /** ray test → { dist, head } or null. Ray in world space. */
   hitTest(o: Vec3, d: Vec3, maxDist: number): { dist: number; head: boolean } | null {
     if (!this.alive) return null;
