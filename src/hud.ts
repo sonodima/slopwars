@@ -1,8 +1,11 @@
 // ─── DOM HUD & screens ───────────────────────────────────────────────────────
-import { GameSnapshot, PlayerInfo, WEAPONS, WeaponId } from "./types";
+import { GameSnapshot, ModeId, PlayerInfo, WEAPONS, WeaponId } from "./types";
 import { MapMeta } from "./maps/schema";
+import { MODES, MODE_LIST } from "./modes";
 
 const $ = (id: string): HTMLElement => document.getElementById(id)!;
+
+const hex = (c: number): string => `#${c.toString(16).padStart(6, "0")}`;
 
 export class Hud {
   onCreate: ((name: string) => void) | null = null;
@@ -12,6 +15,7 @@ export class Hud {
   onStart: (() => void) | null = null;
   onPlayAgain: (() => void) | null = null;
   onVote: ((mapId: string) => void) | null = null;
+  onMode: ((mode: ModeId) => void) | null = null;
 
   private hitTtl = 0;
   private dmgTtl = 0;
@@ -99,15 +103,64 @@ export class Hud {
   }
 
   // ── lobby ──
-  lobby(code: string, players: PlayerInfo[], isHost: boolean): void {
+  lobby(code: string, players: PlayerInfo[], isHost: boolean, mode: ModeId): void {
     $("lobby-code").textContent = code;
     $("game-code").textContent = code;
     $("sb-code").textContent = "join code: " + code;
     $("lobby-players").innerHTML = players
-      .map((p) => `<div class="lp"><span class="dot" style="background:#${p.color.toString(16).padStart(6, "0")}"></span>${esc(p.name)}${p.id === "host" ? " <em>host</em>" : ""}</div>`)
+      .map((p) => `<div class="lp"><span class="dot" style="background:${hex(p.color)}"></span>${esc(p.name)}${p.id === "host" ? " <em>host</em>" : ""}</div>`)
       .join("");
     $("btn-start").classList.toggle("hidden", !isHost);
     $("lobby-wait").classList.toggle("hidden", isHost);
+    this.lobbyModes(mode, isHost);
+  }
+
+  /** host: clickable mode cards · guest: read-only current mode */
+  private lobbyModes(mode: ModeId, isHost: boolean): void {
+    const el = $("lobby-mode");
+    const ids = isHost ? MODE_LIST : [mode];
+    el.innerHTML = ids
+      .map((id) => {
+        const d = MODES[id];
+        const cls = `mode-card${id === mode ? " on" : ""}${isHost ? "" : " readonly"}`;
+        return `<div class="${cls}" data-mode="${id}"><div class="mn">${esc(d.name)}</div><div class="mb">${esc(d.blurb)}</div></div>`;
+      })
+      .join("");
+    if (isHost) {
+      for (const c of Array.from(el.children)) {
+        c.addEventListener("click", () => this.onMode?.((c as HTMLElement).dataset.mode as ModeId));
+      }
+    }
+  }
+
+  /** top-center team score (TDM sides / Prop Hunt seeker-vs-hider). null hides. */
+  teamScoreHud(a: { name: string; score: number; color: number } | null, b?: { name: string; score: number; color: number }): void {
+    const el = $("hud-teams");
+    if (!a || !b) { el.classList.add("hidden"); return; }
+    el.classList.remove("hidden");
+    el.innerHTML =
+      `<span class="tn" style="color:${hex(a.color)}">${esc(a.name)}</span>` +
+      `<span style="color:${hex(a.color)}">${a.score}</span>` +
+      `<span class="dash">—</span>` +
+      `<span style="color:${hex(b.color)}">${b.score}</span>` +
+      `<span class="tn" style="color:${hex(b.color)}">${esc(b.name)}</span>`;
+  }
+
+  /** prop-hunt role / status line. Empty text hides. */
+  roleHud(text: string, kind: "hide" | "seek" | "prep" | ""): void {
+    const el = $("hud-role");
+    if (!text) { el.classList.add("hidden"); return; }
+    el.classList.remove("hidden");
+    el.className = kind; // sets color via #hud-role.<kind>
+    el.textContent = text;
+  }
+
+  /** gun-game tier + current weapon. tier < 0 hides. */
+  tierHud(tier: number, max: number, weapon: string): void {
+    const el = $("hud-tier");
+    if (tier < 0) { el.classList.add("hidden"); return; }
+    el.classList.remove("hidden");
+    el.innerHTML = `${esc(weapon)}<span class="tp">tier ${tier + 1}/${max + 1}</span>`;
   }
 
   // ── in-game ──
@@ -219,7 +272,8 @@ export class Hud {
   clickToPlay(on: boolean): void { $("click-to-play").classList.toggle("hidden", !on); }
 
   // ── end screen ──
-  end(players: PlayerInfo[], scores: GameSnapshot["scores"], isHost: boolean): void {
+  end(players: PlayerInfo[], scores: GameSnapshot["scores"], isHost: boolean, title = "Match over"): void {
+    $("end-title").textContent = title;
     const rows = players
       .map((p) => ({ p, s: scores[p.id] ?? { k: 0, d: 0 } }))
       .sort((a, b) => b.s.k - a.s.k);

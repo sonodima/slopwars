@@ -133,6 +133,8 @@ export interface PlayerState {
 
 export type GamePhase = "lobby" | "play" | "inter" | "over";
 
+export type ModeId = "ffa" | "tdm" | "gungame" | "prophunt";
+
 export interface GameSnapshot {
   phase: GamePhase;
   round: number;
@@ -140,6 +142,10 @@ export interface GameSnapshot {
   scores: Record<string, { k: number; d: number }>;
   pk: number[]; // pickup respawn timers (0 = available)
   map: string;  // currently loaded map id
+  mode: ModeId; // active game mode
+  teams?: Record<string, number>;  // tdm: 0/1 side · prophunt: 0 seeker / 1 hider
+  teamScore?: [number, number];    // tdm: side scores · prophunt: [seeker, hider] round wins
+  tiers?: Record<string, number>;  // gungame: player → weapon-ladder tier
 }
 
 export type Msg =
@@ -166,6 +172,9 @@ export type Msg =
   | { t: "pwtake"; i: number; who: string; k: PowerupKind }  // host → all: player took powerup i
   | { t: "mapvote"; map: string }                            // guest → host: vote for next map
   | { t: "votes"; counts: Record<string, number> }           // host → all: live vote tally
+  | { t: "mode"; mode: ModeId }                              // host → all: lobby mode selection
+  | { t: "role"; role: number; prop: number }                // host → one: prophunt role + disguise
+  | { t: "tier"; tier: number }                              // host → one: gungame tier changed
   | { t: "ping"; ts: number }
   | { t: "pong"; ts: number }
   | { t: "leave" };
