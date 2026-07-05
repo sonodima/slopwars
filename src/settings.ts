@@ -10,18 +10,21 @@ export interface SettingsState {
   sensitivity: number; // look-speed multiplier (mouse + touch)
   fov: number; // vertical FOV in degrees (hip-fire)
   showStats: boolean; // perf overlay
+  name: string; // persisted callsign
 }
 
 const KEY = "slopwars.settings";
 
-const DEFAULTS: SettingsState = { quality: "high", sensitivity: 1, fov: 75, showStats: true };
+const DEFAULTS: SettingsState = { quality: "high", sensitivity: 1, fov: 75, showStats: true, name: "" };
 
 function load(): SettingsState {
+  let s: SettingsState = { ...DEFAULTS };
   try {
     const raw = localStorage.getItem(KEY);
-    if (raw) return { ...DEFAULTS, ...JSON.parse(raw) };
+    if (raw) s = { ...DEFAULTS, ...JSON.parse(raw) };
   } catch { /* ignore corrupt / unavailable storage */ }
-  return { ...DEFAULTS };
+  if (!s.name) s.name = "player" + ((Math.random() * 900 + 100) | 0);
+  return s;
 }
 
 export class Settings {
@@ -55,6 +58,12 @@ export class Settings {
     try { localStorage.setItem(KEY, JSON.stringify(this.state)); } catch { /* ignore */ }
     this.refresh();
     this.onChange(this.state);
+  }
+
+  /** persist an edited callsign (trimmed to 16 chars, never blank in storage) */
+  setName(v: string): void {
+    this.state = { ...this.state, name: v.slice(0, 16) };
+    try { localStorage.setItem(KEY, JSON.stringify(this.state)); } catch { /* ignore */ }
   }
 
   /** push current state into the controls */

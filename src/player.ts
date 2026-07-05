@@ -20,6 +20,7 @@ export class PlayerBody {
   private wasOnGround = false;
   landed = false; // set true for one frame on landing
   jumped = false;
+  gravityScale = 1; // host match-rule gravity multiplier
 
   constructor(private map: GameMap) {}
 
@@ -67,7 +68,7 @@ export class PlayerBody {
       this.airAccel(wx, wz, maxSpeed, dt);
     }
 
-    this.vel.y -= MOVE.gravity * dt;
+    this.vel.y -= MOVE.gravity * this.gravityScale * dt;
 
     this.move(dt);
 

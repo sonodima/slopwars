@@ -1,5 +1,5 @@
 // ─── DOM HUD & screens ───────────────────────────────────────────────────────
-import { GameSnapshot, ModeId, PlayerInfo, WEAPONS, WeaponId } from "./types";
+import { CFG_BOUNDS, GameSnapshot, MatchConfig, ModeId, PlayerInfo, WEAPONS, WeaponId } from "./types";
 import { MapMeta } from "./maps/schema";
 import { MODES, MODE_LIST } from "./modes";
 
@@ -16,7 +16,8 @@ export class Hud {
   onPlayAgain: (() => void) | null = null;
   onVote: ((mapId: string) => void) | null = null;
   onMode: ((mode: ModeId) => void) | null = null;
-  onSolo: (() => void) | null = null;
+  onCfg: ((patch: Partial<MatchConfig>) => void) | null = null;
+  onHome: (() => void) | null = null;
 
   private hitTtl = 0;
   private dmgTtl = 0;
@@ -29,8 +30,7 @@ export class Hud {
     };
     $("btn-start").onclick = () => this.onStart?.();
     $("btn-again").onclick = () => this.onPlayAgain?.();
-    $("btn-solo").onclick = () => this.onSolo?.();
-    ($("inp-name") as HTMLInputElement).value = "player" + ((Math.random() * 900 + 100) | 0);
+    $("btn-home").onclick = () => this.onHome?.();
 
     const inp = $("chat-inp") as HTMLInputElement;
     inp.addEventListener("keydown", (e) => {
@@ -105,7 +105,7 @@ export class Hud {
   }
 
   // ── lobby ──
-  lobby(code: string, players: PlayerInfo[], isHost: boolean, mode: ModeId): void {
+  lobby(code: string, players: PlayerInfo[], isHost: boolean, mode: ModeId, cfg: MatchConfig): void {
     $("lobby-code").textContent = code;
     $("game-code").textContent = code;
     $("sb-code").textContent = "join code: " + code;
@@ -115,6 +115,62 @@ export class Hud {
     $("btn-start").classList.toggle("hidden", !isHost);
     $("lobby-wait").classList.toggle("hidden", isHost);
     this.lobbyModes(mode, isHost);
+    this.lobbyRules(mode, cfg, isHost);
+  }
+
+  /** host: editable match-rules panel · guest: read-only summary */
+  private lobbyRules(mode: ModeId, cfg: MatchConfig, isHost: boolean): void {
+    const el = $("lobby-rules");
+    const forceThird = MODES[mode].forceThird === true;
+    if (!isHost) {
+      // guests see a compact read-only summary
+      const cam = forceThird || cfg.thirdPerson ? "Third-person" : "First-person";
+      el.innerHTML =
+        `<div class="rule-ro">${cfg.bots} bots · ${cfg.rounds} rounds · ${Math.round(cfg.roundTime / 60)} min · ${cam}` +
+        `${cfg.gravity !== 1 ? ` · grav ${cfg.gravity.toFixed(1)}×` : ""}${cfg.speed !== 1 ? ` · spd ${cfg.speed.toFixed(1)}×` : ""}</div>`;
+      return;
+    }
+    const [bMin, bMax] = CFG_BOUNDS.bots;
+    const [rMin, rMax] = CFG_BOUNDS.rounds;
+    const [tMin, tMax] = CFG_BOUNDS.roundTime;
+    const [gMin, gMax] = CFG_BOUNDS.gravity;
+    const [sMin, sMax] = CFG_BOUNDS.speed;
+    const slider = (key: string, label: string, min: number, max: number, step: number, val: number, disp: string): string =>
+      `<label>${label} · <b id="rule-${key}-v">${disp}</b></label>` +
+      `<input type="range" class="rng" id="rule-${key}" min="${min}" max="${max}" step="${step}" value="${val}">`;
+    const camSeg = forceThird
+      ? `<label>Camera</label><div class="rule-ro">Third-person (Prop Hunt)</div>`
+      : `<label>Camera</label><div class="seg" id="rule-cam">` +
+        `<button data-v="first"${cfg.thirdPerson ? "" : " class=\"on\""}>First</button>` +
+        `<button data-v="third"${cfg.thirdPerson ? " class=\"on\"" : ""}>Third</button></div>`;
+    el.innerHTML =
+      slider("bots", "Bots", bMin, bMax, 1, cfg.bots, String(cfg.bots)) +
+      slider("rounds", "Rounds", rMin, rMax, 1, cfg.rounds, String(cfg.rounds)) +
+      slider("time", "Round time", tMin, tMax, 30, cfg.roundTime, `${Math.round(cfg.roundTime / 60 * 10) / 10} min`) +
+      camSeg +
+      slider("grav", "Gravity", gMin, gMax, 0.1, cfg.gravity, `${cfg.gravity.toFixed(1)}×`) +
+      slider("speed", "Speed", sMin, sMax, 0.1, cfg.speed, `${cfg.speed.toFixed(1)}×`);
+
+    const bind = (key: string, fn: (v: number) => Partial<MatchConfig>, disp: (v: number) => string): void => {
+      const inp = document.getElementById(`rule-${key}`) as HTMLInputElement | null;
+      if (!inp) return;
+      inp.addEventListener("input", () => {
+        const v = parseFloat(inp.value);
+        const lbl = document.getElementById(`rule-${key}-v`);
+        if (lbl) lbl.textContent = disp(v);
+        this.onCfg?.(fn(v));
+      });
+    };
+    bind("bots", (v) => ({ bots: v }), (v) => String(v));
+    bind("rounds", (v) => ({ rounds: v }), (v) => String(v));
+    bind("time", (v) => ({ roundTime: v }), (v) => `${Math.round(v / 60 * 10) / 10} min`);
+    bind("grav", (v) => ({ gravity: v }), (v) => `${v.toFixed(1)}×`);
+    bind("speed", (v) => ({ speed: v }), (v) => `${v.toFixed(1)}×`);
+    if (!forceThird) {
+      for (const c of Array.from($("rule-cam").children)) {
+        c.addEventListener("click", () => this.onCfg?.({ thirdPerson: (c as HTMLElement).dataset.v === "third" }));
+      }
+    }
   }
 
   /** host: clickable mode cards · guest: read-only current mode */
@@ -176,10 +232,10 @@ export class Hud {
     $("hud-ammo").textContent = reloading ? "…" : mag < 0 ? "—" : reserve < 0 ? `${mag}` : `${mag} / ${reserve}`;
   }
 
-  timer(phase: string, round: number, t: number): void {
+  timer(phase: string, round: number, t: number, rounds = 4): void {
     const m = Math.floor(t / 60), s = Math.floor(t % 60);
     $("hud-time").textContent = `${m}:${s.toString().padStart(2, "0")}`;
-    $("hud-round").textContent = phase === "inter" ? "next round…" : `round ${round}/4`;
+    $("hud-round").textContent = phase === "inter" ? "next round…" : `round ${round}/${rounds}`;
   }
 
   kill(killer: string, victim: string, w: WeaponId, hs: boolean): void {

@@ -1,8 +1,6 @@
 // ─── Map pool: registry of playable maps + selection helpers ─────────────────
 import { MapDef, MapMeta } from "./schema";
 import { KOI } from "./koi";
-import { WATERFALL } from "./waterfall";
-import { NEON_GRAVEYARD } from "./neon";
 import { OFFICE } from "./office";
 
 /** every map available in rotation (order = card order in the vote UI) */

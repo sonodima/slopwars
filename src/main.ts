@@ -21,9 +21,9 @@ import { Input, PlayerBody } from "./player";
 import { RemotePlayer } from "./remote";
 import { MODEL_LOAD_COUNT, loadModels } from "./models";
 import {
-  GamePhase, GameSnapshot, INTERMISSION, MAX_HP, ModeId, Msg, PICKUP_HEAL, PICKUP_RADIUS,
-  PICKUP_RESPAWN, PlayerState, POWERUPS, POWERUP_INTERVAL, POWERUP_RADIUS, PowerupKind,
-  QUAD_MULT, RAPID_MULT, ROUNDS_PER_GAME, ROUND_TIME, SPEED_MULT, TICK_RATE,
+  DEFAULT_CONFIG, GamePhase, GameSnapshot, INTERMISSION, MatchConfig, MAX_HP, ModeId, Msg,
+  PICKUP_HEAL, PICKUP_RADIUS, PICKUP_RESPAWN, PlayerState, POWERUPS, POWERUP_INTERVAL,
+  POWERUP_RADIUS, PowerupKind, QUAD_MULT, RAPID_MULT, SPEED_MULT, TICK_RATE,
   Vec3, WEAPONS, WeaponDef, WeaponId, LOADOUT, clamp, rand, randomPowerup,
 } from "./types";
 import {
@@ -78,9 +78,16 @@ class Game {
   touchMode = false; // true once a touch input is seen (drives virtual controls)
   settings = new Settings();
 
-  // ── offline solo vs bots (no networking) ──
-  solo = false;
+  // ── AI opponents (host-driven; may coexist with human guests) ──
   bots = new Map<string, BotAI>();
+
+  // ── host match rules (mirrored to guests) ──
+  cfg: MatchConfig = { ...DEFAULT_CONFIG };
+
+  // third-person self avatar (shown when the camera is behind the player)
+  selfAvatar!: Entity;
+  selfParts: Entity[] = [];
+  selfCrate!: Entity;
 
   remotes = new Map<string, RemotePlayer>();
   names = new Map<string, string>();
@@ -227,6 +234,7 @@ class Game {
     this.body = new PlayerBody(this.map);
     this.body.teleport({ x: 0, y: 0.1, z: -18 }, 180);
     this.lobbyStageRoot = root.createChild("lobby-avatars");
+    this.buildSelfAvatar(root);
     this.ws = new WeaponSystem(engine, this.camEntity, this.models);
     this.ws.onShoot = (def, spread) => {
       if (def.throwable) this.throwNade(def.id as NadeKind);
@@ -303,7 +311,7 @@ class Game {
     document.addEventListener("mousedown", (e) => {
       if (!this.locked || !this.inGame || this.hud.chatOpen) return;
       if (e.button === 0) { this.fireHeld = true; this.triedFireQueued = true; }
-      if (e.button === 2 && this.ws.def().scope && this.alive) {
+      if (e.button === 2 && this.ws.def().scope && this.alive && !this.thirdPersonActive()) {
         this.ws.setScope(!this.ws.scoped);
         this.applyScopeFov();
       }
@@ -321,7 +329,7 @@ class Game {
       // Esc toggles settings (works from the menu too); chat handles its own Esc
       if (e.code === "Escape") {
         if (this.settings.isOpen()) this.settings.close();
-        else if (this.inGame && !this.hud.chatOpen) this.settings.open();
+        else if (this.inGame && !this.hud.chatOpen) this.openSettings();
         return;
       }
       if (!this.inGame) return;
@@ -357,6 +365,81 @@ class Game {
     this.camera.fieldOfView = this.ws.scoped ? 22 : this.settings.state.fov;
     this.hud.scope(this.ws.scoped);
     this.hud.crosshair(!this.ws.scoped && this.alive);
+  }
+
+  // ─── camera perspective (first / third person) ────────────────────────────────
+
+  /** true when the camera should sit behind the avatar (host rule or forced by mode) */
+  thirdPersonActive(): boolean {
+    return this.inGame && (this.cfg.thirdPerson || MODES[this.mode].forceThird === true);
+  }
+
+  /** build the local player's visible avatar (only rendered in third-person) */
+  buildSelfAvatar(root: Entity): void {
+    this.selfAvatar = this.buildAvatar(root, colorFor(this.net.myId || "host"));
+    this.selfParts = this.selfAvatar.children.slice();
+    // crate disguise (prop hunt) — hidden until needed
+    this.selfCrate = this.selfAvatar.createChild("crate");
+    const m = new BlinnPhongMaterial(this.engine);
+    m.baseColor = new Color(0.42, 0.3, 0.16, 1);
+    const box = this.selfCrate.createChild("c");
+    box.transform.setPosition(0, 0.42, 0);
+    const r = box.addComponent(MeshRenderer);
+    r.mesh = PrimitiveMesh.createCuboid(this.engine, 0.84, 0.84, 0.84);
+    r.setMaterial(m);
+    r.castShadows = true;
+    this.selfCrate.isActive = false;
+    this.selfAvatar.isActive = false;
+  }
+
+  /** position the camera + local avatar for the current perspective */
+  updateSelfView(eye: number, pitch: number): void {
+    const third = this.thirdPersonActive();
+    const isProp = this.mode === "prophunt" && this.myRole === ROLE_HIDE;
+    // first-person weapon viewmodel only makes sense in first-person, non-prop
+    this.ws.showViewmodel(!third && !isProp);
+
+    if (!third || !this.alive) {
+      // first person: camera at the eye, avatar hidden
+      this.camEntity.transform.setPosition(this.body.pos.x, eye, this.body.pos.z);
+      if (this.selfAvatar) this.selfAvatar.isActive = false;
+      return;
+    }
+
+    // third person: pull the camera back along the aim, avoiding wall clip
+    const cp = Math.cos(pitch), sp = Math.sin(pitch);
+    const dir: Vec3 = { x: -Math.sin(this.body.yaw) * cp, y: sp, z: -Math.cos(this.body.yaw) * cp };
+    const rx = Math.cos(this.body.yaw), rz = -Math.sin(this.body.yaw); // right vector
+    let back = 3.0;
+    const o: Vec3 = { x: this.body.pos.x, y: eye, z: this.body.pos.z };
+    const nd: Vec3 = { x: -dir.x, y: -dir.y, z: -dir.z };
+    const hit = this.map.raycast(o, nd, back + 0.4);
+    if (hit) back = Math.max(0.6, hit.dist - 0.4);
+    const cx = o.x + nd.x * back + rx * 0.55;
+    const cy = o.y + nd.y * back + 0.35;
+    const cz = o.z + nd.z * back + rz * 0.55;
+    this.camEntity.transform.setPosition(cx, cy, cz);
+
+    // show the avatar (humanoid or prop crate) standing at the player's feet
+    const a = this.selfAvatar;
+    a.isActive = true;
+    a.transform.setPosition(this.body.pos.x, this.body.pos.y, this.body.pos.z);
+    a.transform.setRotation(0, (this.body.yaw * 180) / Math.PI, 0);
+    const scaleY = isProp ? 1 : this.body.crouched ? 0.72 : 1;
+    a.transform.setScale(1, scaleY, 1);
+    for (const p of this.selfParts) p.isActive = !isProp;
+    this.selfCrate.isActive = isProp;
+  }
+
+  /** apply host physics rules (gravity/speed scale) to every local body */
+  applyPhysicsConfig(): void {
+    if (this.body) this.body.gravityScale = this.cfg.gravity;
+    for (const b of this.bots.values()) b.body.gravityScale = this.cfg.gravity;
+  }
+
+  /** true when a real (non-bot) remote player is in the lobby/match */
+  hasHumanGuests(): boolean {
+    return this.net.players.some((p) => p.id !== this.net.myId && !this.bots.has(p.id));
   }
 
   // ─── mode-specific local loadout ──────────────────────────────────────────────
@@ -435,7 +518,7 @@ class Game {
       if (this.myRole === ROLE_HIDE) {
         this.hud.roleHud("You are a prop · hide & stay still", "hide");
       } else if (this.inPrepPhase()) {
-        const s = Math.ceil(this.timeLeft - (ROUND_TIME - PROPHUNT_PREP));
+        const s = Math.ceil(this.timeLeft - (this.cfg.roundTime - PROPHUNT_PREP));
         this.hud.roleHud(`Seeker · hunt begins in ${s}s`, "prep");
       } else {
         this.hud.roleHud(`Seeker · hiders left: ${this.countHiders()}`, "seek");
@@ -490,11 +573,28 @@ class Game {
   bindSettings(): void {
     this.settings.build();
     this.settings.onChange = () => this.applySettings();
-    document.getElementById("btn-gear")!.addEventListener("click", () => this.settings.open());
+    document.getElementById("btn-gear")!.addEventListener("click", () => this.openSettings());
     document.getElementById("tc-settings")!.addEventListener("pointerdown", (e) => {
-      e.preventDefault(); e.stopPropagation(); this.settings.open();
+      e.preventDefault(); e.stopPropagation(); this.openSettings();
     });
+    document.getElementById("set-leave")!.addEventListener("click", () => this.leaveToMenu());
+
+    // callsign: persisted across reloads, editable from the menu + settings
+    const menuName = document.getElementById("inp-name") as HTMLInputElement;
+    const setName = document.getElementById("set-name") as HTMLInputElement;
+    menuName.value = this.settings.state.name;
+    setName.value = this.settings.state.name;
+    menuName.addEventListener("input", () => { this.settings.setName(menuName.value); setName.value = this.settings.state.name; });
+    setName.addEventListener("input", () => { this.settings.setName(setName.value); menuName.value = this.settings.state.name; });
+
     this.applySettings();
+  }
+
+  /** open the settings overlay, revealing the in-match "leave" control only in-game */
+  openSettings(): void {
+    document.getElementById("set-leave")!.classList.toggle("hidden", !this.inGame);
+    (document.getElementById("set-name") as HTMLInputElement).value = this.settings.state.name;
+    this.settings.open();
   }
 
   /** re-apply every live setting (called on change + at boot) */
@@ -562,7 +662,7 @@ class Game {
     t.onCrouch = (down) => { if (down) this.keys.add("ControlLeft"); else this.keys.delete("ControlLeft"); };
     t.onScore = (down) => { this.sbOpen = down; };
     t.onScope = () => {
-      if (this.ws.def().scope && this.alive) { this.ws.setScope(!this.ws.scoped); this.applyScopeFov(); }
+      if (this.ws.def().scope && this.alive && !this.thirdPersonActive()) { this.ws.setScope(!this.ws.scoped); this.applyScopeFov(); }
     };
     t.onReload = () => { if (this.alive) this.ws.reload(); };
     t.onWeapon = (i) => { if (this.alive && this.canSwitchWeapon()) { this.ws.select(LOADOUT[i]); this.applyScopeFov(); } };
@@ -609,7 +709,7 @@ class Game {
       const frozen = this.mode === "prophunt" && this.myRole === ROLE_SEEK && this.inPrepPhase();
       const canPlay = this.alive && this.phase === "play" && !frozen;
       const speedBuff = this.buff?.kind === "speed" ? SPEED_MULT : 1;
-      this.body.update(dt, canPlay ? inp : { fwd: 0, right: 0, jump: false, crouch: false, sprint: false }, this.ws.def().moveFactor * speedBuff);
+      this.body.update(dt, canPlay ? inp : { fwd: 0, right: 0, jump: false, crouch: false, sprint: false }, this.ws.def().moveFactor * speedBuff * this.cfg.speed);
 
       if (this.body.jumped) sfx.jump();
       if (this.body.landed) sfx.land();
@@ -631,14 +731,15 @@ class Game {
       this.tracers.update(dt);
       this.nades.update(dt, now);
 
-      // camera transform
+      // camera transform (first- or third-person)
       const eye = this.body.eyeY;
-      this.camEntity.transform.setPosition(this.body.pos.x, eye, this.body.pos.z);
-      Quaternion.rotationYawPitchRoll(this.body.yaw, this.body.pitch + this.ws.recoilPitch, 0, this.q);
+      const pitch = this.body.pitch + this.ws.recoilPitch;
+      Quaternion.rotationYawPitchRoll(this.body.yaw, pitch, 0, this.q);
       this.camEntity.transform.rotationQuaternion = this.q;
+      this.updateSelfView(eye, pitch);
 
       // remotes + proximity voice
-      if (this.solo) this.updateBots(dt, now);
+      if (this.net.isHost && this.bots.size) this.updateBots(dt, now);
       for (const r of this.remotes.values()) {
         r.update(now);
         const rel = this.relAudio(r.pos);
@@ -710,7 +811,7 @@ class Game {
         this.hostClock(dt);
       }
 
-      this.hud.timer(this.phase, this.round, this.timeLeft);
+      this.hud.timer(this.phase, this.round, this.timeLeft, this.cfg.rounds);
       this.hud.scoreboard(this.sbOpen || this.phase === "inter", this.net.players, this.scores, this.net.myId);
       this.updateModeVisuals();
       this.updateModeHud();
@@ -969,7 +1070,7 @@ class Game {
 
   /** true during the Prop-Hunt hide window at the start of a round */
   inPrepPhase(): boolean {
-    return this.mode === "prophunt" && this.phase === "play" && this.timeLeft > ROUND_TIME - PROPHUNT_PREP;
+    return this.mode === "prophunt" && this.phase === "play" && this.timeLeft > this.cfg.roundTime - PROPHUNT_PREP;
   }
 
   /** host: mode-specific consequences of a kill (team score, gungame ladder, prophunt end) */
@@ -1069,7 +1170,7 @@ class Game {
             if (this.livingHiders() > 0) this.teamScore[ROLE_HIDE]++;
             else this.teamScore[ROLE_SEEK]++;
           }
-          if (this.round >= ROUNDS_PER_GAME) {
+          if (this.round >= this.cfg.rounds) {
             this.phase = "over";
             this.pushGame();
             this.enterEnd();
@@ -1089,9 +1190,10 @@ class Game {
   }
 
   async hostStartRound(n: number): Promise<void> {
-    // solo keeps the already-loaded (cached) map so it works fully offline;
-    // online: round 1 = random map, later rounds = plurality of the interlude vote
-    const mapId = this.solo ? this.currentMapId : n === 1 ? randomMapId() : pickVotedMap(this.mapVotes);
+    // round 1 = random map; later rounds = plurality of the interlude vote when
+    // there are human guests to vote, otherwise just keep rotating randomly
+    const mapId = n === 1 ? randomMapId()
+      : this.hasHumanGuests() ? pickVotedMap(this.mapVotes) : this.currentMapId;
     await this.loadMap(mapId);
     this.mapVotes = {};
     this.myVote = null;
@@ -1099,7 +1201,8 @@ class Game {
 
     this.phase = "play";
     this.round = n;
-    this.timeLeft = ROUND_TIME;
+    this.timeLeft = this.cfg.roundTime;
+    this.applyPhysicsConfig();
     this.pkTimers = this.map.pickupSpots.map(() => 0);
     for (const e of this.pkEntities) e.isActive = true;
     this.pwSpawnAcc = 0;
@@ -1143,7 +1246,7 @@ class Game {
     return {
       phase: this.phase, round: this.round, timeLeft: this.timeLeft, scores: this.scores,
       pk: this.pkTimers.map((t) => Math.ceil(t)), map: this.currentMapId,
-      mode: this.mode, teams: this.teams, teamScore: this.teamScore, tiers: this.tiers,
+      mode: this.mode, cfg: this.cfg, teams: this.teams, teamScore: this.teamScore, tiers: this.tiers,
     };
   }
 
@@ -1157,6 +1260,7 @@ class Game {
     this.scores = g.scores;
     // mirror mode state (guests)
     if (g.mode) this.mode = g.mode;
+    if (g.cfg) { this.cfg = g.cfg; if (!this.net.isHost) this.applyPhysicsConfig(); }
     if (g.teams) this.teams = g.teams;
     if (g.teamScore) this.teamScore = g.teamScore;
     if (g.tiers) this.tiers = g.tiers;
@@ -1177,6 +1281,7 @@ class Game {
 
   enterEnd(): void {
     this.inGame = false;
+    if (this.selfAvatar) this.selfAvatar.isActive = false;
     document.exitPointerLock();
     this.hud.end(this.net.players, this.scores, this.net.isHost, this.resultTitle());
     this.hud.show("end");
@@ -1256,7 +1361,7 @@ class Game {
 
   /** open the next-map vote card UI for the interlude */
   openVote(currentId: string): void {
-    if (this.solo) { this.hud.vote(null); return; } // solo keeps one map, no vote
+    if (!this.hasHumanGuests()) { this.hud.vote(null); return; } // no human voters → keep rotating
     this.myVote = null;
     if (this.net.isHost) this.mapVotes = {};
     this.lastVoteCounts = {};
@@ -1611,6 +1716,13 @@ class Game {
         this.refreshLobby();
         break;
       }
+      case "cfg": {
+        // host → all: lobby match-rules changed
+        this.cfg = m.cfg;
+        this.applyPhysicsConfig();
+        this.refreshLobby();
+        break;
+      }
       case "role": {
         // host → me: prop-hunt role for this round
         this.myRole = m.role;
@@ -1725,6 +1837,7 @@ class Game {
 
     this.hud.onStart = () => {
       if (!this.net.isHost) return;
+      this.addBots(this.cfg.bots);
       this.net.broadcast({ t: "start" });
       this.enterGame();
       void this.hostStartRound(1);
@@ -1739,6 +1852,7 @@ class Game {
 
     this.hud.onPlayAgain = () => {
       if (!this.net.isHost) return;
+      this.addBots(this.cfg.bots);
       for (const id of Object.keys(this.scores)) this.scores[id] = { k: 0, d: 0 };
       this.net.broadcast({ t: "start" });
       this.enterGame();
@@ -1747,31 +1861,23 @@ class Game {
 
     this.hud.onVote = (id) => this.castVote(id);
     this.hud.onMode = (id) => this.setMode(id);
-    this.hud.onSolo = () => this.startSolo();
+    this.hud.onCfg = (patch) => this.setCfg(patch);
+    this.hud.onHome = () => this.leaveToMenu();
   }
 
-  // ─── offline solo mode (local host + bots, no PeerJS) ─────────────────────────
-
-  /** enter a local, network-free lobby populated with bots */
-  startSolo(): void {
-    sfx.unlock();
-    this.solo = true;
-    const name = ((document.getElementById("inp-name") as HTMLInputElement).value || "player").slice(0, 16);
-    // stand up a local "host" with no peer connection
-    this.net.isHost = true;
-    this.net.myId = "host";
-    this.net.lobbyCode = "OFFLINE";
-    this.net.players = [{ id: "host", name, color: colorFor("host") }];
-    this.names.set("host", name);
-    this.scores = { host: { k: 0, d: 0 } };
-    this.hpMap = { host: MAX_HP };
-    this.addBots(4);
-    this.hud.connecting(false);
-    this.hud.menuError("");
+  /** host: change a match rule, mirror to guests, re-apply live physics */
+  setCfg(patch: Partial<MatchConfig>): void {
+    if (!this.net.isHost || this.phase !== "lobby") return;
+    this.cfg = { ...this.cfg, ...patch };
+    this.applyPhysicsConfig();
+    this.net.broadcast({ t: "cfg", cfg: this.cfg });
     this.refreshLobby();
-    this.hud.show("lobby");
-    this.enterLobby();
-    if (!this.inGame) sfx.startTheme();
+  }
+
+  /** leave the current lobby/match and return to the home screen */
+  leaveToMenu(): void {
+    try { this.net.leave(); } catch { /* ignore */ }
+    location.reload(); // cleanest full reset back to the menu
   }
 
   addBots(n: number): void {
@@ -1780,14 +1886,17 @@ class Game {
     for (let i = 0; i < n; i++) {
       const id = "bot" + (i + 1);
       const name = pool[i % pool.length];
+      const info = { id, name, color: colorFor(id) };
       this.names.set(id, name);
-      this.net.players.push({ id, name, color: colorFor(id) });
+      this.net.players.push(info);
       this.scores[id] = { k: 0, d: 0 };
       this.hpMap[id] = MAX_HP;
       this.ensureRemote(id, name);
       const body = new PlayerBody(this.map);
+      body.gravityScale = this.cfg.gravity;
       body.teleport({ x: rand(-6, 6), y: 4, z: rand(-6, 6) }, rand(0, 360));
       this.bots.set(id, { id, body, fireCd: 0, retargetCd: 0, targetId: null, strafe: 1, strafeCd: 0, jumpCd: 0 });
+      this.net.broadcast({ t: "pjoin", p: info }); // let guests see the bot
     }
   }
 
@@ -1795,6 +1904,10 @@ class Game {
     for (const b of this.bots.values()) {
       const r = this.remotes.get(b.id);
       if (r) { r.entity.destroy(); this.remotes.delete(b.id); }
+      this.net.players = this.net.players.filter((p) => p.id !== b.id);
+      delete this.scores[b.id];
+      delete this.hpMap[b.id];
+      this.net.broadcast({ t: "pleave", id: b.id });
     }
     this.bots.clear();
   }
@@ -1830,6 +1943,10 @@ class Game {
     for (const other of this.bots.values()) {
       if (other.id === bot.id || (this.hpMap[other.id] ?? 0) <= 0) continue;
       consider(other.id, other.body.pos);
+    }
+    for (const r of this.remotes.values()) {
+      if (this.bots.has(r.id) || (this.hpMap[r.id] ?? 0) <= 0) continue;
+      consider(r.id, r.pos); // human guests are targets too
     }
     return best;
   }
@@ -1880,7 +1997,7 @@ class Game {
       const input: Input = playing
         ? { fwd, right, jump, crouch: false, sprint }
         : { fwd: 0, right: 0, jump: false, crouch: false, sprint: false };
-      bot.body.update(dt, input, 1);
+      bot.body.update(dt, input, this.cfg.speed);
       r.setPose(bot.body.pos, bot.body.yaw, false, true);
     }
   }
@@ -1898,6 +2015,8 @@ class Game {
     const dir: Vec3 = { x: tx / len, y: ty / len, z: tz / len };
     const wall = this.map.raycast(eye, dir, len);
     if (wall && wall.dist < len - 0.5) { bot.fireCd = 0.25; return; } // no line of sight
+    // let guests render the bot's shot (tracer + spatial audio)
+    this.net.broadcast({ t: "shot", id: bot.id, o: [eye.x, eye.y, eye.z], d: [dir.x, dir.y, dir.z], w: wid });
     // muzzle flash feedback: tracer + spatial shot
     const reach = Math.min(len, def.range);
     this.tracers.spawn(
@@ -1944,7 +2063,7 @@ class Game {
   }
 
   refreshLobby(): void {
-    this.hud.lobby(this.net.lobbyCode, this.net.players, this.net.isHost, this.mode);
+    this.hud.lobby(this.net.lobbyCode, this.net.players, this.net.isHost, this.mode, this.cfg);
     this.refreshLobbyAvatars();
   }
 
@@ -1953,6 +2072,7 @@ class Game {
   enterLobby(): void {
     this.lobbyView = true;
     this.ws.showViewmodel(false);
+    if (this.selfAvatar) this.selfAvatar.isActive = false;
     this.refreshLobbyAvatars();
   }
 
@@ -2053,3 +2173,5 @@ function falloff(def: WeaponDef, dist: number): number {
 
 const game = new Game();
 void game.start();
+// dev-only handle for debugging in the console (stripped from production builds)
+if (import.meta.env.DEV) (window as unknown as { __game: Game }).__game = game;

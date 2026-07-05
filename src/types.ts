@@ -10,6 +10,27 @@ export const INTERMISSION = 10; // s
 export const RESPAWN_TIME = 3; // s
 export const MAX_HP = 100;
 
+// ─── Host-configurable match rules (set in the lobby, mirrored to guests) ─────
+export interface MatchConfig {
+  bots: number;        // number of AI opponents to add (0 = pure multiplayer)
+  rounds: number;      // rounds per match
+  roundTime: number;   // seconds per round
+  thirdPerson: boolean; // camera behind the avatar (forced on for Prop Hunt)
+  gravity: number;     // gravity scale (1 = normal)
+  speed: number;       // movement-speed scale (1 = normal)
+}
+export const DEFAULT_CONFIG: MatchConfig = {
+  bots: 3, rounds: ROUNDS_PER_GAME, roundTime: ROUND_TIME, thirdPerson: false, gravity: 1, speed: 1,
+};
+// slider bounds (shared by lobby UI + clamping)
+export const CFG_BOUNDS = {
+  bots: [0, 7] as const,
+  rounds: [1, 9] as const,
+  roundTime: [60, 480] as const, // 1–8 min
+  gravity: [0.4, 1.8] as const,
+  speed: [0.6, 1.8] as const,
+};
+
 // movement (quake/krunker style)
 export const MOVE = {
   eyeHeight: 1.62,
@@ -143,6 +164,7 @@ export interface GameSnapshot {
   pk: number[]; // pickup respawn timers (0 = available)
   map: string;  // currently loaded map id
   mode: ModeId; // active game mode
+  cfg?: MatchConfig; // host match rules
   teams?: Record<string, number>;  // tdm: 0/1 side · prophunt: 0 seeker / 1 hider
   teamScore?: [number, number];    // tdm: side scores · prophunt: [seeker, hider] round wins
   tiers?: Record<string, number>;  // gungame: player → weapon-ladder tier
@@ -173,6 +195,7 @@ export type Msg =
   | { t: "mapvote"; map: string }                            // guest → host: vote for next map
   | { t: "votes"; counts: Record<string, number> }           // host → all: live vote tally
   | { t: "mode"; mode: ModeId }                              // host → all: lobby mode selection
+  | { t: "cfg"; cfg: MatchConfig }                           // host → all: lobby match-rules change
   | { t: "role"; role: number; prop: number }                // host → one: prophunt role + disguise
   | { t: "tier"; tier: number }                              // host → one: gungame tier changed
   | { t: "ping"; ts: number }
