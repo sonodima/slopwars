@@ -11,16 +11,17 @@ export const RESPAWN_TIME = 3; // s
 export const MAX_HP = 100;
 
 // ─── Host-configurable match rules (set in the lobby, mirrored to guests) ─────
+export type BotLevel = "easy" | "normal" | "hard";
 export interface MatchConfig {
   bots: number;        // number of AI opponents to add (0 = pure multiplayer)
+  difficulty: BotLevel; // bot skill
   rounds: number;      // rounds per match
   roundTime: number;   // seconds per round
-  thirdPerson: boolean; // camera behind the avatar (forced on for Prop Hunt)
   gravity: number;     // gravity scale (1 = normal)
   speed: number;       // movement-speed scale (1 = normal)
 }
 export const DEFAULT_CONFIG: MatchConfig = {
-  bots: 3, rounds: ROUNDS_PER_GAME, roundTime: ROUND_TIME, thirdPerson: false, gravity: 1, speed: 1,
+  bots: 0, difficulty: "normal", rounds: ROUNDS_PER_GAME, roundTime: ROUND_TIME, gravity: 1, speed: 1,
 };
 // slider bounds (shared by lobby UI + clamping)
 export const CFG_BOUNDS = {
@@ -29,6 +30,13 @@ export const CFG_BOUNDS = {
   roundTime: [60, 480] as const, // 1–8 min
   gravity: [0.4, 1.8] as const,
   speed: [0.6, 1.8] as const,
+};
+export const BOT_LEVELS: BotLevel[] = ["easy", "normal", "hard"];
+/** per-difficulty bot tuning: hit chance base, fire-cadence scale, damage scale */
+export const BOT_TUNING: Record<BotLevel, { aim: number; rate: number; dmg: number }> = {
+  easy:   { aim: 0.5,  rate: 1.4, dmg: 0.7 },
+  normal: { aim: 0.72, rate: 1.0, dmg: 1.0 },
+  hard:   { aim: 0.9,  rate: 0.7, dmg: 1.3 },
 };
 
 // movement (quake/krunker style)

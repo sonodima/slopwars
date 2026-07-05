@@ -29,11 +29,18 @@ export class Net {
   /** host: called when a new guest says hello; must return init payload */
   onHello: ((id: string, name: string) => Msg) | null = null;
 
+  /** pick a palette colour not currently used by any player (falls back to hash) */
+  pickColor(seed: string): number {
+    const used = new Set(this.players.map((p) => p.color));
+    for (const c of COLOR_PALETTE) if (!used.has(c)) return c;
+    return colorFor(seed);
+  }
+
   host(myName: string): void {
     this.isHost = true;
     this.lobbyCode = code();
     this.myId = "host";
-    this.players = [{ id: "host", name: myName, color: colorFor("host") }];
+    this.players = [{ id: "host", name: myName, color: COLOR_PALETTE[0] }];
     const p = new Peer(PREFIX + this.lobbyCode);
     this.peer = p;
     p.on("open", () => this.onReady?.());
@@ -44,7 +51,7 @@ export class Net {
         if (m.t === "hello") {
           const id = conn.peer;
           this.conns.set(id, conn);
-          const info: PlayerInfo = { id, name: (m.name || "player").slice(0, 16), color: colorFor(id) };
+          const info: PlayerInfo = { id, name: (m.name || "player").slice(0, 16), color: this.pickColor(id) };
           this.players.push(info);
           const init = this.onHello?.(id, info.name);
           if (init) conn.send(init);
@@ -111,6 +118,11 @@ export class Net {
     this.peer?.destroy();
   }
 
+  /** the synced colour a player was assigned (falls back to hash) */
+  colorOf(id: string): number {
+    return this.players.find((p) => p.id === id)?.color ?? colorFor(id);
+  }
+
   /** real PeerJS id for a player id */
   realId(pid: string): string { return pid === "host" ? PREFIX + this.lobbyCode : pid; }
   /** player id from a real PeerJS id */
@@ -118,6 +130,12 @@ export class Net {
 
   destroy(): void { this.peer?.destroy(); }
 }
+
+/** distinct, high-contrast player colours (assigned in join order by the host) */
+export const COLOR_PALETTE: number[] = [
+  0xd8b878, 0x4d8dff, 0xe0553f, 0x5fd08a, 0xc23fff, 0xffd23f,
+  0x3fd0ff, 0xff7ab5, 0x9be04d, 0xff9a3f,
+];
 
 export function colorFor(id: string): number {
   let h = 0;

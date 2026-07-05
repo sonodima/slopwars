@@ -1,5 +1,5 @@
 // ─── DOM HUD & screens ───────────────────────────────────────────────────────
-import { CFG_BOUNDS, GameSnapshot, MatchConfig, ModeId, PlayerInfo, WEAPONS, WeaponId } from "./types";
+import { BOT_LEVELS, BotLevel, CFG_BOUNDS, GameSnapshot, MatchConfig, ModeId, PlayerInfo, WEAPONS, WeaponId } from "./types";
 import { MapMeta } from "./maps/schema";
 import { MODES, MODE_LIST } from "./modes";
 
@@ -94,6 +94,11 @@ export class Hud {
     $("load-pct").textContent = `${pct}%`;
   }
 
+  /** name of the asset currently being fetched (loading screen) */
+  loadingLabel(name: string): void {
+    $("load-asset").textContent = name;
+  }
+
   menuError(msg: string): void {
     const e = $("menu-err");
     e.textContent = msg;
@@ -118,16 +123,16 @@ export class Hud {
     this.lobbyRules(mode, cfg, isHost);
   }
 
-  /** host: editable match-rules panel · guest: read-only summary */
-  private lobbyRules(mode: ModeId, cfg: MatchConfig, isHost: boolean): void {
+  /** host: compact editable match-rules grid · guest: read-only summary */
+  private lobbyRules(_mode: ModeId, cfg: MatchConfig, isHost: boolean): void {
     const el = $("lobby-rules");
-    const forceThird = MODES[mode].forceThird === true;
+    const mins = (s: number): string => `${Math.round(s / 60 * 10) / 10} min`;
     if (!isHost) {
-      // guests see a compact read-only summary
-      const cam = forceThird || cfg.thirdPerson ? "Third-person" : "First-person";
+      const botTxt = cfg.bots > 0 ? `${cfg.bots} bots · ${cfg.difficulty}` : "no bots";
       el.innerHTML =
-        `<div class="rule-ro">${cfg.bots} bots · ${cfg.rounds} rounds · ${Math.round(cfg.roundTime / 60)} min · ${cam}` +
-        `${cfg.gravity !== 1 ? ` · grav ${cfg.gravity.toFixed(1)}×` : ""}${cfg.speed !== 1 ? ` · spd ${cfg.speed.toFixed(1)}×` : ""}</div>`;
+        `<div class="rule-ro">${botTxt} · ${cfg.rounds} rounds · ${mins(cfg.roundTime)}` +
+        `${cfg.gravity !== 1 ? ` · grav ${cfg.gravity.toFixed(1)}×` : ""}` +
+        `${cfg.speed !== 1 ? ` · spd ${cfg.speed.toFixed(1)}×` : ""}</div>`;
       return;
     }
     const [bMin, bMax] = CFG_BOUNDS.bots;
@@ -135,21 +140,21 @@ export class Hud {
     const [tMin, tMax] = CFG_BOUNDS.roundTime;
     const [gMin, gMax] = CFG_BOUNDS.gravity;
     const [sMin, sMax] = CFG_BOUNDS.speed;
-    const slider = (key: string, label: string, min: number, max: number, step: number, val: number, disp: string): string =>
-      `<label>${label} · <b id="rule-${key}-v">${disp}</b></label>` +
-      `<input type="range" class="rng" id="rule-${key}" min="${min}" max="${max}" step="${step}" value="${val}">`;
-    const camSeg = forceThird
-      ? `<label>Camera</label><div class="rule-ro">Third-person (Prop Hunt)</div>`
-      : `<label>Camera</label><div class="seg" id="rule-cam">` +
-        `<button data-v="first"${cfg.thirdPerson ? "" : " class=\"on\""}>First</button>` +
-        `<button data-v="third"${cfg.thirdPerson ? " class=\"on\"" : ""}>Third</button></div>`;
+    const cell = (key: string, label: string, min: number, max: number, step: number, val: number, disp: string): string =>
+      `<div class="rule"><label>${label} · <b id="rule-${key}-v">${disp}</b></label>` +
+      `<input type="range" class="rng" id="rule-${key}" min="${min}" max="${max}" step="${step}" value="${val}"></div>`;
+    const diff = `<div class="rule rule-wide"><label>Bot difficulty</label><div class="seg" id="rule-diff">` +
+      BOT_LEVELS.map((d) => `<button data-v="${d}"${d === cfg.difficulty ? " class=\"on\"" : ""}>${d}</button>`).join("") +
+      `</div></div>`;
     el.innerHTML =
-      slider("bots", "Bots", bMin, bMax, 1, cfg.bots, String(cfg.bots)) +
-      slider("rounds", "Rounds", rMin, rMax, 1, cfg.rounds, String(cfg.rounds)) +
-      slider("time", "Round time", tMin, tMax, 30, cfg.roundTime, `${Math.round(cfg.roundTime / 60 * 10) / 10} min`) +
-      camSeg +
-      slider("grav", "Gravity", gMin, gMax, 0.1, cfg.gravity, `${cfg.gravity.toFixed(1)}×`) +
-      slider("speed", "Speed", sMin, sMax, 0.1, cfg.speed, `${cfg.speed.toFixed(1)}×`);
+      `<div class="rules-grid">` +
+      cell("bots", "Bots", bMin, bMax, 1, cfg.bots, String(cfg.bots)) +
+      cell("rounds", "Rounds", rMin, rMax, 1, cfg.rounds, String(cfg.rounds)) +
+      cell("time", "Round", tMin, tMax, 30, cfg.roundTime, mins(cfg.roundTime)) +
+      cell("grav", "Gravity", gMin, gMax, 0.1, cfg.gravity, `${cfg.gravity.toFixed(1)}×`) +
+      cell("speed", "Speed", sMin, sMax, 0.1, cfg.speed, `${cfg.speed.toFixed(1)}×`) +
+      diff +
+      `</div>`;
 
     const bind = (key: string, fn: (v: number) => Partial<MatchConfig>, disp: (v: number) => string): void => {
       const inp = document.getElementById(`rule-${key}`) as HTMLInputElement | null;
@@ -163,13 +168,11 @@ export class Hud {
     };
     bind("bots", (v) => ({ bots: v }), (v) => String(v));
     bind("rounds", (v) => ({ rounds: v }), (v) => String(v));
-    bind("time", (v) => ({ roundTime: v }), (v) => `${Math.round(v / 60 * 10) / 10} min`);
+    bind("time", (v) => ({ roundTime: v }), mins);
     bind("grav", (v) => ({ gravity: v }), (v) => `${v.toFixed(1)}×`);
     bind("speed", (v) => ({ speed: v }), (v) => `${v.toFixed(1)}×`);
-    if (!forceThird) {
-      for (const c of Array.from($("rule-cam").children)) {
-        c.addEventListener("click", () => this.onCfg?.({ thirdPerson: (c as HTMLElement).dataset.v === "third" }));
-      }
+    for (const c of Array.from($("rule-diff").children)) {
+      c.addEventListener("click", () => this.onCfg?.({ difficulty: (c as HTMLElement).dataset.v as BotLevel }));
     }
   }
 

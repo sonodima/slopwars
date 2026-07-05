@@ -16,12 +16,12 @@ import {
   DEFAULT_MAP, mapById, mapMetas, pickVotedMap, randomMapId, tallyVotes,
 } from "./maps";
 import { HE_DAMAGE, HE_RADIUS, MOL_RADIUS, MOL_TICK_DMG, NadeKind, Projectiles } from "./nades";
-import { Net, colorFor } from "./net";
+import { Net } from "./net";
 import { Input, PlayerBody } from "./player";
 import { RemotePlayer } from "./remote";
 import { MODEL_LOAD_COUNT, loadModels } from "./models";
 import {
-  DEFAULT_CONFIG, GamePhase, GameSnapshot, INTERMISSION, MatchConfig, MAX_HP, ModeId, Msg,
+  BOT_TUNING, DEFAULT_CONFIG, GamePhase, GameSnapshot, INTERMISSION, MatchConfig, MAX_HP, ModeId, Msg,
   PICKUP_HEAL, PICKUP_RADIUS, PICKUP_RESPAWN, PlayerState, POWERUPS, POWERUP_INTERVAL,
   POWERUP_RADIUS, PowerupKind, QUAD_MULT, RAPID_MULT, SPEED_MULT, TICK_RATE,
   Vec3, WEAPONS, WeaponDef, WeaponId, LOADOUT, clamp, rand, randomPowerup,
@@ -83,11 +83,10 @@ class Game {
 
   // ── host match rules (mirrored to guests) ──
   cfg: MatchConfig = { ...DEFAULT_CONFIG };
+  leaving = false; // set during an intentional leave (suppresses the unload prompt)
 
-  // third-person self avatar (shown when the camera is behind the player)
+  // third-person self avatar (a Prop-Hunt crate — the only third-person case)
   selfAvatar!: Entity;
-  selfParts: Entity[] = [];
-  selfCrate!: Entity;
 
   remotes = new Map<string, RemotePlayer>();
   names = new Map<string, string>();
@@ -215,7 +214,10 @@ class Game {
     this.hud.show("loading");
     const total = MODEL_LOAD_COUNT + 1; // models + first map's texture/sky bundle
     let loaded = 0;
-    const bump = (): void => this.hud.loadingProgress(++loaded / total);
+    const bump = (name?: string): void => {
+      this.hud.loadingProgress(++loaded / total);
+      if (name) this.hud.loadingLabel(name);
+    };
     this.models = await loadModels(engine, bump);
 
     // ── HDRI skybox material shell (its texture is set per-map by loadMap) ──
@@ -227,8 +229,9 @@ class Game {
     this.skyMat = skyMat;
 
     // ── map (resolves textures + sky, builds geometry/env/pickups) ──
+    this.hud.loadingLabel("map & textures");
     await this.loadMap(DEFAULT_MAP);
-    bump();
+    bump("ready");
 
     // ── player + weapons + fx ──
     this.body = new PlayerBody(this.map);
@@ -250,7 +253,13 @@ class Game {
     this.nades.onExplode = (c, _owner, local) => { if (local) this.explodeDamage(c); };
     this.nades.onFireTick = (c, _owner, local) => { if (local) this.fireTickDamage(c); };
 
-    window.addEventListener("beforeunload", () => this.net.leave());
+    window.addEventListener("beforeunload", (e) => {
+      // warn before an accidental navigation/close mid-match (skipped on an
+      // intentional "leave to menu", which sets `this.leaving`). Don't tear the
+      // connection down here — the user may cancel; peers detect the drop on close.
+      if (this.inGame && !this.leaving) { e.preventDefault(); e.returnValue = ""; return; }
+      this.net.leave();
+    });
     this.bindInput();
     this.bindTouch();
     this.bindSettings();
@@ -361,43 +370,44 @@ class Game {
     });
   }
 
+  /** the local player is currently an unarmed Prop-Hunt hider */
+  isHider(): boolean {
+    return this.mode === "prophunt" && this.myRole === ROLE_HIDE;
+  }
+
   applyScopeFov(): void {
     this.camera.fieldOfView = this.ws.scoped ? 22 : this.settings.state.fov;
     this.hud.scope(this.ws.scoped);
-    this.hud.crosshair(!this.ws.scoped && this.alive);
+    this.hud.crosshair(!this.ws.scoped && this.alive && !this.isHider());
   }
 
   // ─── camera perspective (first / third person) ────────────────────────────────
 
-  /** true when the camera should sit behind the avatar (host rule or forced by mode) */
+  /** true when the camera should sit behind the avatar. Only Prop-Hunt hiders
+   *  (who are disguised props) play in third-person; everyone else is first. */
   thirdPersonActive(): boolean {
-    return this.inGame && (this.cfg.thirdPerson || MODES[this.mode].forceThird === true);
+    return this.inGame && this.mode === "prophunt" && this.myRole === ROLE_HIDE;
   }
 
-  /** build the local player's visible avatar (only rendered in third-person) */
+  /** build the local player's third-person avatar (a Prop-Hunt crate) */
   buildSelfAvatar(root: Entity): void {
-    this.selfAvatar = this.buildAvatar(root, colorFor(this.net.myId || "host"));
-    this.selfParts = this.selfAvatar.children.slice();
-    // crate disguise (prop hunt) — hidden until needed
-    this.selfCrate = this.selfAvatar.createChild("crate");
+    this.selfAvatar = root.createChild("self-avatar");
     const m = new BlinnPhongMaterial(this.engine);
     m.baseColor = new Color(0.42, 0.3, 0.16, 1);
-    const box = this.selfCrate.createChild("c");
+    const box = this.selfAvatar.createChild("c");
     box.transform.setPosition(0, 0.42, 0);
     const r = box.addComponent(MeshRenderer);
     r.mesh = PrimitiveMesh.createCuboid(this.engine, 0.84, 0.84, 0.84);
     r.setMaterial(m);
     r.castShadows = true;
-    this.selfCrate.isActive = false;
     this.selfAvatar.isActive = false;
   }
 
   /** position the camera + local avatar for the current perspective */
   updateSelfView(eye: number, pitch: number): void {
     const third = this.thirdPersonActive();
-    const isProp = this.mode === "prophunt" && this.myRole === ROLE_HIDE;
-    // first-person weapon viewmodel only makes sense in first-person, non-prop
-    this.ws.showViewmodel(!third && !isProp);
+    // hiders never show a first-person viewmodel; everyone else does (first-person)
+    this.ws.showViewmodel(!third);
 
     if (!third || !this.alive) {
       // first person: camera at the eye, avatar hidden
@@ -406,7 +416,7 @@ class Game {
       return;
     }
 
-    // third person: pull the camera back along the aim, avoiding wall clip
+    // third person (Prop-Hunt hider): pull the camera back along the aim
     const cp = Math.cos(pitch), sp = Math.sin(pitch);
     const dir: Vec3 = { x: -Math.sin(this.body.yaw) * cp, y: sp, z: -Math.cos(this.body.yaw) * cp };
     const rx = Math.cos(this.body.yaw), rz = -Math.sin(this.body.yaw); // right vector
@@ -420,15 +430,11 @@ class Game {
     const cz = o.z + nd.z * back + rz * 0.55;
     this.camEntity.transform.setPosition(cx, cy, cz);
 
-    // show the avatar (humanoid or prop crate) standing at the player's feet
+    // show the crate disguise standing at the player's feet
     const a = this.selfAvatar;
     a.isActive = true;
     a.transform.setPosition(this.body.pos.x, this.body.pos.y, this.body.pos.z);
     a.transform.setRotation(0, (this.body.yaw * 180) / Math.PI, 0);
-    const scaleY = isProp ? 1 : this.body.crouched ? 0.72 : 1;
-    a.transform.setScale(1, scaleY, 1);
-    for (const p of this.selfParts) p.isActive = !isProp;
-    this.selfCrate.isActive = isProp;
   }
 
   /** apply host physics rules (gravity/speed scale) to every local body */
@@ -447,9 +453,10 @@ class Game {
   /** pick the right weapon set for the local player given the active mode */
   applyLoadout(): void {
     this.myRole = this.teams[this.net.myId] ?? ROLE_SEEK;
+    this.updateCombatUI();
     if (this.mode === "gungame") { this.applyTier(this.tiers[this.net.myId] ?? 0); return; }
     if (this.mode === "prophunt" && this.myRole === ROLE_HIDE) {
-      // hider: becomes a prop — melee only, no viewmodel
+      // hider: an unarmed prop — no viewmodel, no weapon
       this.ws.showViewmodel(false);
       this.ws.select("knife");
       this.applyScopeFov();
@@ -457,6 +464,12 @@ class Game {
     }
     this.ws.showViewmodel(this.inGame);
     this.ws.select("ak47");
+  }
+
+  /** show/hide combat controls: Prop-Hunt hiders are unarmed props */
+  updateCombatUI(): void {
+    document.body.classList.toggle("hider", this.inGame && this.isHider());
+    this.applyScopeFov(); // refresh crosshair visibility for the new role
   }
 
   /** gungame: lock the local player to their current tier's weapon (full ammo) */
@@ -579,13 +592,10 @@ class Game {
     });
     document.getElementById("set-leave")!.addEventListener("click", () => this.leaveToMenu());
 
-    // callsign: persisted across reloads, editable from the menu + settings
+    // callsign: set on the first (menu) screen, persisted across reloads
     const menuName = document.getElementById("inp-name") as HTMLInputElement;
-    const setName = document.getElementById("set-name") as HTMLInputElement;
     menuName.value = this.settings.state.name;
-    setName.value = this.settings.state.name;
-    menuName.addEventListener("input", () => { this.settings.setName(menuName.value); setName.value = this.settings.state.name; });
-    setName.addEventListener("input", () => { this.settings.setName(setName.value); menuName.value = this.settings.state.name; });
+    menuName.addEventListener("input", () => this.settings.setName(menuName.value));
 
     this.applySettings();
   }
@@ -593,7 +603,6 @@ class Game {
   /** open the settings overlay, revealing the in-match "leave" control only in-game */
   openSettings(): void {
     document.getElementById("set-leave")!.classList.toggle("hidden", !this.inGame);
-    (document.getElementById("set-name") as HTMLInputElement).value = this.settings.state.name;
     this.settings.open();
   }
 
@@ -705,8 +714,9 @@ class Game {
         crouch: this.keys.has("ControlLeft") || this.keys.has("KeyC"),
         sprint: this.keys.has("ShiftLeft") || this.keys.has("ShiftRight") || this.touch.sprint,
       };
-      // prop hunt: seekers are frozen during the hide window
+      // prop hunt: seekers are frozen during the hide window; hiders are unarmed props
       const frozen = this.mode === "prophunt" && this.myRole === ROLE_SEEK && this.inPrepPhase();
+      const isHider = this.mode === "prophunt" && this.myRole === ROLE_HIDE;
       const canPlay = this.alive && this.phase === "play" && !frozen;
       const speedBuff = this.buff?.kind === "speed" ? SPEED_MULT : 1;
       this.body.update(dt, canPlay ? inp : { fwd: 0, right: 0, jump: false, crouch: false, sprint: false }, this.ws.def().moveFactor * speedBuff * this.cfg.speed);
@@ -719,8 +729,8 @@ class Game {
         if (this.stepAcc > 3.2) { this.stepAcc = 0; sfx.footstep(); }
       }
 
-      // fire
-      if (canPlay && (this.fireHeld || this.triedFireQueued)) {
+      // fire (Prop-Hunt hiders are unarmed and cannot shoot)
+      if (canPlay && !isHider && (this.fireHeld || this.triedFireQueued)) {
         if (this.ws.def().auto || this.triedFireQueued) {
           this.ws.tryFire(this.body.horizontalSpeed(), this.body.onGround);
         }
@@ -1282,6 +1292,7 @@ class Game {
   enterEnd(): void {
     this.inGame = false;
     if (this.selfAvatar) this.selfAvatar.isActive = false;
+    document.body.classList.remove("hider");
     document.exitPointerLock();
     this.hud.end(this.net.players, this.scores, this.net.isHost, this.resultTitle());
     this.hud.show("end");
@@ -1548,19 +1559,24 @@ class Game {
     };
 
     n.onError = (err) => {
-      if (!this.inGame && this.phase === "lobby") {
-        this.hud.connecting(false);
-        this.hud.menuError(err.includes("Could not connect") || err.includes("peer-unavailable") ? "Lobby not found." : err);
-        this.hud.show("menu");
-      } else if (!this.net.isHost && err.includes("Lost connection")) {
-        // host gone → whole lobby dead; back to menu
+      this.hud.connecting(false);
+      const established = this.net.players.length > 0; // we already received the host's init
+      const lost = err.includes("Lost connection") || err.includes("Connection failed");
+      if (!this.net.isHost && established && lost) {
+        // host gone → the lobby/match is over for this client; return home
         this.inGame = false;
+        this.leaving = true;
         this.exitLobby();
         document.exitPointerLock();
         this.hud.menuError("Host left — lobby closed.");
-        this.hud.connecting(false);
         this.hud.show("menu");
         window.setTimeout(() => location.reload(), 1200);
+      } else if (!this.inGame && this.phase === "lobby") {
+        this.hud.menuError(
+          err.includes("Could not connect") || err.includes("peer-unavailable") || err.includes("Connection failed")
+            ? "Lobby not found." : err,
+        );
+        this.hud.show("menu");
       } else {
         this.hud.banner("Connection lost");
       }
@@ -1572,7 +1588,7 @@ class Game {
   ensureRemote(id: string, name: string): RemotePlayer {
     let r = this.remotes.get(id);
     if (!r) {
-      r = new RemotePlayer(this.engine, this.engine.sceneManager.activeScene.getRootEntity()!, id, name, colorFor(id));
+      r = new RemotePlayer(this.engine, this.engine.sceneManager.activeScene.getRootEntity()!, id, name, this.net.colorOf(id));
       this.remotes.set(id, r);
     }
     return r;
@@ -1672,7 +1688,7 @@ class Game {
       }
       case "chat": {
         const from = this.net.isHost ? fromId : m.id;
-        this.hud.chatMsg(this.names.get(from) ?? "?", colorFor(from), m.txt);
+        this.hud.chatMsg(this.names.get(from) ?? "?", this.net.colorOf(from), m.txt);
         if (this.net.isHost) this.net.broadcast({ t: "chat", id: from, txt: m.txt }, fromId);
         break;
       }
@@ -1844,7 +1860,7 @@ class Game {
     };
 
     this.hud.onChat = (txt) => {
-      this.hud.chatMsg(this.names.get(this.net.myId) ?? "me", colorFor(this.net.myId), txt);
+      this.hud.chatMsg(this.names.get(this.net.myId) ?? "me", this.net.colorOf(this.net.myId), txt);
       const m: Msg = { t: "chat", id: this.net.myId, txt };
       if (this.net.isHost) this.net.broadcast(m);
       else this.net.send(m);
@@ -1876,6 +1892,7 @@ class Game {
 
   /** leave the current lobby/match and return to the home screen */
   leaveToMenu(): void {
+    this.leaving = true; // suppress the beforeunload confirm for this intentional exit
     try { this.net.leave(); } catch { /* ignore */ }
     location.reload(); // cleanest full reset back to the menu
   }
@@ -1886,7 +1903,7 @@ class Game {
     for (let i = 0; i < n; i++) {
       const id = "bot" + (i + 1);
       const name = pool[i % pool.length];
-      const info = { id, name, color: colorFor(id) };
+      const info = { id, name, color: this.net.pickColor(id) };
       this.names.set(id, name);
       this.net.players.push(info);
       this.scores[id] = { k: 0, d: 0 };
@@ -2003,11 +2020,12 @@ class Game {
   }
 
   botTryShoot(bot: BotAI, tgt: Vec3, dist: number, eye: Vec3): void {
+    const tune = BOT_TUNING[this.cfg.difficulty];
     const wid: WeaponId = this.mode === "gungame" ? tierWeapon(this.tiers[bot.id] ?? 0) : "ak47";
     const def = WEAPONS[wid];
     if (def.melee) { // knife — only up close
       if (dist < 2.2) this.botDealDamage(bot, def, wid, false);
-      bot.fireCd = 0.8;
+      bot.fireCd = 0.8 * tune.rate;
       return;
     }
     const tx = tgt.x - eye.x, ty = (tgt.y + 1.0) - eye.y, tz = tgt.z - eye.z;
@@ -2025,15 +2043,15 @@ class Game {
     );
     const rel = this.relAudio(eye);
     sfx.shot(wid, rel.pan, rel.dist);
-    // forgiving accuracy that falls off with range
-    const pHit = clamp(0.72 - dist / 60, 0.1, 0.6);
-    if (Math.random() < pHit) this.botDealDamage(bot, def, wid, Math.random() < 0.1);
-    bot.fireCd = (def.auto ? 0.5 : 0.95) * (0.8 + Math.random() * 0.7);
+    // accuracy that falls off with range, scaled by bot difficulty
+    const pHit = clamp(tune.aim - dist / 60, 0.08, tune.aim);
+    if (Math.random() < pHit) this.botDealDamage(bot, def, wid, Math.random() < 0.12 * tune.aim / 0.72);
+    bot.fireCd = (def.auto ? 0.5 : 0.95) * tune.rate * (0.8 + Math.random() * 0.7);
   }
 
   botDealDamage(bot: BotAI, def: WeaponDef, wid: WeaponId, hs: boolean): void {
     if (!bot.targetId) return;
-    let dmg = def.damage * 0.5;
+    let dmg = def.damage * 0.5 * BOT_TUNING[this.cfg.difficulty].dmg;
     if (hs) dmg *= def.headMult;
     this.hostApplyHit(bot.id, bot.targetId, Math.max(1, Math.round(dmg)), hs, wid);
   }
@@ -2073,6 +2091,7 @@ class Game {
     this.lobbyView = true;
     this.ws.showViewmodel(false);
     if (this.selfAvatar) this.selfAvatar.isActive = false;
+    document.body.classList.remove("hider");
     this.refreshLobbyAvatars();
   }
 
