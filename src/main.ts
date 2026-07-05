@@ -28,6 +28,7 @@ import {
 } from "./types";
 import { Voice } from "./voice";
 import { TouchControls } from "./touch";
+import { Settings } from "./settings";
 import { TracerPool, WeaponSystem } from "./weapons";
 
 class Game {
@@ -60,6 +61,7 @@ class Game {
   voice = new Voice();
   touch = new TouchControls();
   touchMode = false; // true once a touch input is seen (drives virtual controls)
+  settings = new Settings();
 
   remotes = new Map<string, RemotePlayer>();
   names = new Map<string, string>();
@@ -117,7 +119,7 @@ class Game {
     const engine = await WebGLEngine.create({ canvas: "game-canvas" });
     this.engine = engine;
     engine.canvas.resizeByClientSize();
-    window.addEventListener("resize", () => engine.canvas.resizeByClientSize());
+    window.addEventListener("resize", () => this.applyResolution());
 
     const scene = engine.sceneManager.activeScene;
     const root = scene.createRootEntity("root");
@@ -213,6 +215,7 @@ class Game {
     window.addEventListener("beforeunload", () => this.net.leave());
     this.bindInput();
     this.bindTouch();
+    this.bindSettings();
     this.wireNet();
     this.wireHud();
 
@@ -263,7 +266,7 @@ class Game {
 
     document.addEventListener("mousemove", (e) => {
       if (!this.locked || !this.inGame) return;
-      const sens = 0.0022 * (this.ws.scoped ? 0.35 : 1);
+      const sens = 0.0022 * this.settings.state.sensitivity * (this.ws.scoped ? 0.35 : 1);
       this.body.look(e.movementX, e.movementY, sens);
     });
 
@@ -285,6 +288,12 @@ class Game {
     }, { passive: true });
 
     document.addEventListener("keydown", (e) => {
+      // Esc toggles settings (works from the menu too); chat handles its own Esc
+      if (e.code === "Escape") {
+        if (this.settings.isOpen()) this.settings.close();
+        else if (this.inGame && !this.hud.chatOpen) this.settings.open();
+        return;
+      }
       if (!this.inGame) return;
       if (this.hud.chatOpen) return; // chat input handles its own keys
       if (e.code === "Tab") { e.preventDefault(); this.sbOpen = true; }
@@ -315,9 +324,67 @@ class Game {
   }
 
   applyScopeFov(): void {
-    this.camera.fieldOfView = this.ws.scoped ? 22 : 75;
+    this.camera.fieldOfView = this.ws.scoped ? 22 : this.settings.state.fov;
     this.hud.scope(this.ws.scoped);
     this.hud.crosshair(!this.ws.scoped && this.alive);
+  }
+
+  // ─── settings (graphics quality preset + aim / fov / hud prefs) ───────────────
+
+  bindSettings(): void {
+    this.settings.build();
+    this.settings.onChange = () => this.applySettings();
+    document.getElementById("btn-gear")!.addEventListener("click", () => this.settings.open());
+    document.getElementById("tc-settings")!.addEventListener("pointerdown", (e) => {
+      e.preventDefault(); e.stopPropagation(); this.settings.open();
+    });
+    this.applySettings();
+  }
+
+  /** re-apply every live setting (called on change + at boot) */
+  applySettings(): void {
+    this.applyGraphics();
+    this.applyScopeFov(); // picks up fov
+    document.getElementById("stats")!.classList.toggle("hidden", !this.settings.state.showStats);
+  }
+
+  /** map the quality preset onto concrete camera/scene/render knobs */
+  applyGraphics(): void {
+    const scene = this.engine.sceneManager.activeScene;
+    const cam = this.camera;
+    switch (this.settings.state.quality) {
+      case "low":
+        cam.msaaSamples = MSAASamples.None;
+        cam.enableHDR = false;
+        cam.enablePostProcess = false;
+        this.sun.shadowType = ShadowType.None;
+        break;
+      case "medium":
+        cam.msaaSamples = MSAASamples.TwoX;
+        cam.enableHDR = true;
+        cam.enablePostProcess = true;
+        this.sun.shadowType = ShadowType.SoftLow;
+        scene.shadowResolution = ShadowResolution.Medium;
+        scene.shadowDistance = 45;
+        break;
+      default: // high
+        cam.msaaSamples = MSAASamples.FourX;
+        cam.enableHDR = true;
+        cam.enablePostProcess = true;
+        this.sun.shadowType = ShadowType.SoftHigh;
+        scene.shadowResolution = ShadowResolution.High;
+        scene.shadowDistance = 70;
+        break;
+    }
+    this.applyResolution();
+  }
+
+  /** render-buffer scale: trade sharpness for framerate on the lower presets */
+  applyResolution(): void {
+    const scale = this.settings.state.quality === "low" ? 0.6
+      : this.settings.state.quality === "medium" ? 0.85 : 1;
+    const canvas = this.engine.canvas as unknown as { resizeByClientSize(pixelRatio?: number): void };
+    canvas.resizeByClientSize((window.devicePixelRatio || 1) * scale);
   }
 
   // ─── touch controls + device adaptation ───────────────────────────────────────
@@ -327,7 +394,7 @@ class Game {
     t.onLook = (dx, dy) => {
       if (!this.inGame || this.hud.chatOpen) return;
       if (!(this.alive && this.phase === "play")) return;
-      const sens = 0.005 * (this.ws.scoped ? 0.35 : 1);
+      const sens = 0.005 * this.settings.state.sensitivity * (this.ws.scoped ? 0.35 : 1);
       this.body.look(dx, dy, sens);
     };
     t.onFire = (down) => {
@@ -494,7 +561,7 @@ class Game {
     // stats overlay
     this.fpsE += (1 / Math.max(dt, 1e-4) - this.fpsE) * 0.08;
     this.statAcc += dt;
-    if (this.statAcc >= 0.25 && this.inGame) {
+    if (this.statAcc >= 0.25 && this.inGame && this.settings.state.showStats) {
       this.statAcc = 0;
       const tris = this.map.tris + this.remotes.size * 48 + 220;
       this.hud.stats(

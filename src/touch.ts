@@ -40,6 +40,7 @@ export class TouchControls {
   private lookId = -1;
   private lookX = 0;
   private lookY = 0;
+  private fireId = -1;
   private wepEls: HTMLElement[] = [];
   private built = false;
 
@@ -62,7 +63,7 @@ export class TouchControls {
   /** release everything (mode switch / pointer loss) */
   private reset(): void {
     this.moveX = 0; this.moveY = 0; this.sprint = false;
-    this.joyId = -1; this.lookId = -1;
+    this.joyId = -1; this.lookId = -1; this.fireId = -1;
     if (this.knob) this.knob.style.transform = "";
     this.onFire(false); this.onJump(false); this.onCrouch(false); this.onScore(false);
     for (const el of document.querySelectorAll(".tcb.on, .tc-wep.on")) el.classList.remove("on");
@@ -154,7 +155,7 @@ export class TouchControls {
   }
 
   private bindButtons(): void {
-    this.hold($("tc-fire"), this.onFire);
+    this.fireButton($("tc-fire"));
     this.hold($("tc-jump"), this.onJump);
     this.hold($("tc-crouch"), this.onCrouch);
     this.hold($("tc-scores"), this.onScore);
@@ -162,6 +163,37 @@ export class TouchControls {
     this.tap($("tc-scope"), () => this.onScope());
     this.tap($("tc-chat"), () => this.onChat());
     this.tap($("tc-mic"), () => this.onMic());
+  }
+
+  /** Fire button that doubles as a look pad: hold to fire, and sliding the
+   *  same finger without lifting keeps firing while aiming the camera — so
+   *  full-auto weapons can be tracked onto a target one-thumbed. */
+  private fireButton(el: HTMLElement): void {
+    let fx = 0, fy = 0;
+    el.addEventListener("pointerdown", (e) => {
+      if (this.fireId !== -1) return;
+      e.preventDefault(); e.stopPropagation();
+      this.fireId = e.pointerId;
+      el.setPointerCapture(e.pointerId);
+      el.classList.add("on");
+      fx = e.clientX; fy = e.clientY;
+      this.onFire(true);
+    });
+    el.addEventListener("pointermove", (e) => {
+      if (e.pointerId !== this.fireId) return;
+      e.preventDefault();
+      const dx = e.clientX - fx, dy = e.clientY - fy;
+      fx = e.clientX; fy = e.clientY;
+      if (dx || dy) this.onLook(dx, dy);
+    });
+    const up = (e: PointerEvent): void => {
+      if (e.pointerId !== this.fireId) return;
+      this.fireId = -1;
+      el.classList.remove("on");
+      this.onFire(false);
+    };
+    el.addEventListener("pointerup", up);
+    el.addEventListener("pointercancel", up);
   }
 
   /** press-and-hold button → callback(down) with pointer capture so release is reliable */
