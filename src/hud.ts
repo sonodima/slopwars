@@ -73,6 +73,7 @@ export class Hud {
 
   show(screen: "loading" | "menu" | "lobby" | "game" | "end"): void {
     for (const s of ["loading", "menu", "lobby", "game", "end"]) $(`scr-${s}`).classList.toggle("hidden", s !== screen);
+    document.body.dataset.screen = screen; // drives the portrait rotate-hint (touch)
   }
 
   loadingProgress(frac: number): void {
