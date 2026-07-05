@@ -59,7 +59,9 @@
 
   /* ── lobby (3D backdrop) ── */
   #scr-lobby{background:linear-gradient(100deg,rgba(8,7,5,.85) 0%,rgba(8,7,5,.4) 36%,rgba(8,7,5,0) 62%);
-    align-items:flex-start;justify-content:center;padding-left:7vw}
+    align-items:flex-start;justify-content:center;overflow-y:auto;
+    padding:max(18px,env(safe-area-inset-top)) max(18px,env(safe-area-inset-right))
+            max(18px,env(safe-area-inset-bottom)) max(7vw,env(safe-area-inset-left))}
   #scr-lobby .panel{min-width:330px}
   #lobby-title{font-size:38px;letter-spacing:12px;color:var(--sand);text-transform:uppercase;font-weight:700;
     text-shadow:0 0 26px rgba(216,184,120,.35)}
@@ -106,10 +108,15 @@
     background:rgba(10,9,6,.55);border-left:2px solid var(--green);padding:4px 9px}
   #voice.off{color:#7a705c;border-left-color:#7a705c}
 
-  #crosshair{position:absolute;left:50%;top:50%;width:22px;height:22px;transform:translate(-50%,-50%)}
-  #crosshair::before,#crosshair::after{content:"";position:absolute;background:rgba(150,255,120,.95);box-shadow:0 0 3px #000}
-  #crosshair::before{left:50%;top:0;width:2px;height:100%;transform:translateX(-50%);clip-path:polygon(0 0,100% 0,100% 32%,0 32%,0 68%,100% 68%,100% 100%,0 100%)}
-  #crosshair::after{top:50%;left:0;height:2px;width:100%;transform:translateY(-50%);clip-path:polygon(0 0,32% 0,32% 100%,0 100%,68% 0,100% 0,100% 100%,68% 100%)}
+  /* clean 4-rect crosshair: four green bars around a small center gap */
+  #crosshair{position:absolute;left:50%;top:50%;width:0;height:0}
+  #crosshair i{position:absolute;background:#6bff4d;box-shadow:0 0 2px rgba(0,0,0,.9)}
+  #crosshair .t,#crosshair .b{width:2px;height:6px;left:-1px}
+  #crosshair .l,#crosshair .r{height:2px;width:6px;top:-1px}
+  #crosshair .t{bottom:4px}
+  #crosshair .b{top:4px}
+  #crosshair .l{right:4px}
+  #crosshair .r{left:4px}
 
   #hitmarker{position:absolute;left:50%;top:50%;width:26px;height:26px;transform:translate(-50%,-50%) rotate(45deg)}
   #hitmarker::before,#hitmarker::after{content:"";position:absolute;background:#fff;box-shadow:0 0 4px #000}
@@ -166,18 +173,32 @@
 
   /* ═══ responsive / small-screen scaling ═══ */
   .screen h1{font-size:clamp(34px,9vw,64px);letter-spacing:clamp(6px,2vw,14px)}
-  .panel{min-width:min(340px,88vw);max-width:94vw}
+  #lobby-title{font-size:clamp(26px,7vw,38px);letter-spacing:clamp(6px,2.4vw,12px)}
+  .panel{min-width:min(340px,90vw);max-width:min(420px,94vw);max-height:84vh;max-height:84dvh;overflow-y:auto}
   #lobby-code{font-size:clamp(26px,7vw,40px);letter-spacing:clamp(6px,2.5vw,12px)}
+  /* honour notches / dynamic island / home indicators on menu-style screens */
+  #scr-menu,#scr-loading,#scr-end,#settings{
+    padding:max(16px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right))
+            max(16px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left));overflow-y:auto}
+
+  /* phones (portrait or small): scale the whole UI down to fit */
+  @media (max-width:640px){
+    .screen h1{font-size:clamp(30px,11vw,48px)}
+    .panel{padding:18px 20px;min-width:0;width:min(440px,92vw)}
+    .panel label{margin:11px 0 4px;font-size:9px}
+    .panel input{font-size:15px;padding:9px 11px}
+    button{padding:11px 16px;font-size:12px;margin-top:12px}
+    #lobby-code{margin:4px 0 12px}
+  }
   /* short landscape (phones held sideways): tighten vertical rhythm + allow scroll */
   @media (max-height:520px){
-    .screen{justify-content:flex-start;overflow-y:auto;padding-top:14px;padding-bottom:14px}
-    .screen h1{font-size:clamp(28px,7vw,44px);margin-bottom:2px}
+    .screen{justify-content:flex-start}
+    .screen h1{font-size:clamp(26px,6vw,42px);margin-bottom:2px}
     .screen .sub{margin-bottom:14px}
     .panel{padding:14px 18px}
     .panel label{margin:7px 0 3px}
     button{padding:9px 16px;margin-top:9px}
-    .keys{margin-top:12px;line-height:1.55}
-    #scr-lobby{align-items:flex-start;padding-left:0}
+    #scr-lobby{align-items:flex-start;padding-left:max(4vw,env(safe-area-inset-left))}
     #lobby-code{margin:4px 0 10px}
   }
   /* keyboard hints are desktop-only; show a touch primer instead */
@@ -195,6 +216,11 @@
   .mode-card.readonly:hover{border-color:var(--line)}
   .mode-card .mn{font-size:13px;letter-spacing:2px;color:var(--sand);text-transform:uppercase;font-weight:700}
   .mode-card .mb{font-size:9px;letter-spacing:.3px;color:#8d8471;margin-top:3px;line-height:1.35}
+  /* host match-rules panel (sliders + camera segmented) */
+  #lobby-rules{margin-top:2px}
+  #lobby-rules .rng{margin:8px 0 2px}
+  #lobby-rules .seg{margin-top:4px}
+  #lobby-rules .rule-ro{font-size:11px;letter-spacing:1px;color:#a89a7c;margin:4px 0 2px;line-height:1.5}
   /* in-game mode HUD (team score / role / gungame tier) */
   #hud-teams{position:absolute;top:64px;left:50%;transform:translateX(-50%);display:flex;gap:12px;align-items:center;
     font-family:var(--mono);font-size:20px;font-weight:700;letter-spacing:1px;white-space:nowrap;
@@ -245,6 +271,8 @@
   .tgl.on{background:rgba(143,191,77,.3);border-color:var(--green)}
   .tgl.on i{transform:translateX(20px);background:var(--green)}
   #set-done{margin-top:22px}
+  #set-leave{margin-top:18px;background:transparent;border:1px solid var(--red);color:var(--red)}
+  #set-leave:hover{background:rgba(224,72,58,.14);filter:none}
 
   /* ═══ on-screen touch controls (only in touch mode, in-game) ═══ */
   #tc-ui{position:absolute;inset:0;z-index:5;display:none;pointer-events:none;touch-action:none;
@@ -258,17 +286,17 @@
 
   .tcb{pointer-events:auto;touch-action:none;-webkit-user-select:none;user-select:none;
     font-family:var(--font);text-transform:uppercase;letter-spacing:1px;font-weight:700;margin:0;padding:0;
-    width:auto;color:var(--sand);background:rgba(16,14,10,.42);border:1.5px solid var(--line);border-radius:50%;
+    width:auto;color:var(--sand);background:rgba(16,14,10,.62);border:1.5px solid var(--line);border-radius:50%;
     display:flex;align-items:center;justify-content:center;text-align:center;line-height:1;
-    box-shadow:0 4px 14px rgba(0,0,0,.4);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)}
+    box-shadow:0 4px 14px rgba(0,0,0,.4)}
   .tcb.on{background:rgba(216,184,120,.9);border-color:var(--sand);color:#171307;
     box-shadow:0 0 16px rgba(216,184,120,.5)}
 
   /* movement joystick, bottom-left */
   #tc-move{position:absolute;pointer-events:auto;touch-action:none;
     left:max(22px,env(safe-area-inset-left));bottom:max(22px,env(safe-area-inset-bottom));
-    width:132px;height:132px;border-radius:50%;background:rgba(16,14,10,.32);
-    border:1.5px solid var(--line);backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px)}
+    width:132px;height:132px;border-radius:50%;background:rgba(16,14,10,.42);
+    border:1.5px solid var(--line)}
   #tc-knob{position:absolute;left:50%;top:50%;width:56px;height:56px;margin:-28px 0 0 -28px;border-radius:50%;
     background:rgba(216,184,120,.85);border:1.5px solid var(--sand);box-shadow:0 0 14px rgba(216,184,120,.4)}
 
@@ -290,8 +318,8 @@
   #tc-weapons::-webkit-scrollbar{display:none}
   .tc-wep{pointer-events:auto;touch-action:none;-webkit-user-select:none;user-select:none;flex:0 0 auto;
     width:auto;min-width:46px;margin:0;padding:7px 8px;border-radius:8px;font-family:var(--font);font-weight:700;
-    font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--sand);background:rgba(16,14,10,.55);
-    border:1.5px solid var(--line);text-align:center;backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)}
+    font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--sand);background:rgba(16,14,10,.72);
+    border:1.5px solid var(--line);text-align:center}
   .tc-wep .k{display:block;font-family:var(--mono);font-size:8px;color:var(--sand-dim)}
   .tc-wep.on{background:rgba(216,184,120,.9);border-color:var(--sand);color:#171307}
   .tc-wep.on .k{color:#3a2f12}
@@ -344,7 +372,6 @@
 <!-- ═══ MENU ═══ -->
 <div id="scr-menu" class="screen hidden">
   <h1>SlopWars</h1>
-  <div class="sub">browser fps · online p2p or solo vs bots</div>
   <div class="panel">
     <label>callsign</label>
     <input id="inp-name" maxlength="16" spellcheck="false">
@@ -354,30 +381,20 @@
       <input id="inp-code" maxlength="5" placeholder="XXXXX" spellcheck="false">
     </div>
     <button id="btn-join" class="ghost">Join lobby</button>
-    <div class="or-sep"><span>or</span></div>
-    <button id="btn-solo" class="ghost">Play offline · solo vs bots</button>
     <div id="menu-err" class="err hidden"></div>
     <div id="menu-conn" class="conn hidden">connecting…</div>
-  </div>
-  <div class="keys kbd-only">
-    <b>wasd</b> move · <b>shift</b> sprint · <b>space</b> jump (hold = bhop) · <b>ctrl</b> crouch<br>
-    <b>lmb</b> fire · <b>rmb</b> scope · <b>r</b> reload · <b>1-6</b> / <b>wheel</b> weapons (5 nade, 6 molotov)<br><b>t</b> chat · <b>v</b> mic · <b>tab</b> scores
-  </div>
-  <div class="keys touch-only">
-    <b>left stick</b> move (push far to sprint) · <b>drag right</b> look<br>
-    <b>fire · jump · crouch · reload</b> buttons · <b>ads</b> to scope · tap a <b>weapon</b><br>add to home screen for fullscreen · rotate to landscape
   </div>
 </div>
 
 <!-- ═══ LOBBY ═══ -->
 <div id="scr-lobby" class="screen hidden">
   <div id="lobby-title">SlopWars</div>
-  <div id="lobby-sub">lobby</div>
-  <div class="panel">
+  <div class="panel lobby-panel">
     <label style="text-align:center">share this code</label>
     <div id="lobby-code"></div>
     <label>game mode</label>
     <div id="lobby-mode"></div>
+    <div id="lobby-rules"></div>
     <label>operators</label>
     <div id="lobby-players"></div>
     <button id="btn-start">Start match</button>
@@ -389,7 +406,7 @@
 <div id="scr-game" class="screen hidden">
   <div id="dmg-vignette" class="hidden"></div>
   <div id="scope" class="hidden"></div>
-  <div id="crosshair" class="hidden"></div>
+  <div id="crosshair" class="hidden"><i class="t"></i><i class="r"></i><i class="b"></i><i class="l"></i></div>
   <div id="hitmarker" class="hidden"></div>
   <div class="hud-top"><div id="hud-time">4:00</div><div id="hud-round">round 1/4</div></div>
   <div id="hud-teams" class="hidden"></div>
@@ -454,6 +471,7 @@
     <div class="sb-head"><span>operator</span><span>K</span><span>D</span></div>
     <div id="end-rows"></div>
     <button id="btn-again">Play again</button>
+    <button id="btn-home" class="ghost">Home</button>
   </div>
 </div>
 
@@ -462,6 +480,8 @@
 <div id="settings" class="screen hidden">
   <div class="panel set-panel">
     <h2 class="set-title">Settings</h2>
+    <label>Callsign</label>
+    <input id="set-name" maxlength="16" spellcheck="false">
     <label>Graphics quality</label>
     <div class="seg" id="set-quality">
       <button data-v="low">Low</button>
@@ -476,6 +496,7 @@
       <span>Performance stats</span>
       <button class="tgl" id="set-stats" role="switch" aria-pressed="true"><i></i></button>
     </div>
+    <button id="set-leave" class="danger hidden">Leave match</button>
     <button id="set-done">Done</button>
   </div>
 </div>
