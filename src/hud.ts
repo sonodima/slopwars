@@ -65,6 +65,12 @@ export class Hud {
     const e = $("voice");
     e.textContent = state === "on" ? "🎙 voice on · V" : state === "muted" ? "🎙 muted · V" : "🎙 no mic";
     e.classList.toggle("off", state !== "on");
+    // touch: the standalone indicator is hidden; reflect state on the mic button
+    const mic = document.getElementById("tc-mic");
+    if (mic) {
+      mic.classList.toggle("mic-on", state === "on");
+      mic.classList.toggle("mic-muted", state === "muted");
+    }
   }
 
   private name(): string {

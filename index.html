@@ -182,6 +182,40 @@
   body.touch .kbd-only{display:none}
   body.touch .touch-only{display:block}
 
+  /* ═══ settings overlay ═══ */
+  #btn-gear{position:fixed;top:max(14px,env(safe-area-inset-top));right:max(14px,env(safe-area-inset-right));
+    z-index:31;width:42px;height:42px;padding:0;margin:0;border-radius:50%;font-size:20px;line-height:1;
+    background:rgba(16,14,10,.6);border:1px solid var(--line);color:var(--sand);cursor:pointer;
+    display:flex;align-items:center;justify-content:center;backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)}
+  #btn-gear:hover{border-color:var(--sand)}
+  body[data-screen="game"] #btn-gear,body[data-screen="loading"] #btn-gear{display:none}
+  #settings{z-index:50;background:rgba(6,5,4,.86);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)}
+  .set-panel{min-width:min(380px,92vw);max-width:94vw}
+  .set-title{font-size:22px;letter-spacing:6px;color:var(--sand);text-transform:uppercase;font-weight:700;
+    text-align:center;margin-bottom:6px}
+  /* segmented preset control */
+  .seg{display:flex;gap:8px}
+  .seg button{flex:1;width:auto;margin:0;padding:11px 6px;background:transparent;border:1px solid var(--line);
+    color:var(--sand-dim);border-radius:0}
+  .seg button:hover{border-color:var(--sand);filter:none}
+  .seg button.on{background:var(--sand);color:#171307;border-color:var(--sand)}
+  /* range sliders */
+  .rng{-webkit-appearance:none;appearance:none;width:100%;height:4px;margin:12px 0 4px;
+    background:rgba(216,184,120,.22);border:none;border-radius:2px;outline:none;cursor:pointer;touch-action:none}
+  .rng::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:20px;height:20px;border-radius:50%;
+    background:var(--sand);border:2px solid #171307;box-shadow:0 0 8px rgba(216,184,120,.5);cursor:pointer}
+  .rng::-moz-range-thumb{width:20px;height:20px;border-radius:50%;background:var(--sand);border:2px solid #171307;cursor:pointer}
+  /* toggle switch */
+  .set-toggle{display:flex;align-items:center;justify-content:space-between;margin-top:18px;
+    font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--sand-dim)}
+  .tgl{position:relative;width:46px;height:26px;padding:0;margin:0;border-radius:13px;background:rgba(216,184,120,.15);
+    border:1px solid var(--line);cursor:pointer;transition:background .12s}
+  .tgl i{position:absolute;top:2px;left:2px;width:20px;height:20px;border-radius:50%;background:var(--sand-dim);
+    transition:transform .12s,background .12s}
+  .tgl.on{background:rgba(143,191,77,.3);border-color:var(--green)}
+  .tgl.on i{transform:translateX(20px);background:var(--green)}
+  #set-done{margin-top:22px}
+
   /* ═══ on-screen touch controls (only in touch mode, in-game) ═══ */
   #tc-ui{position:absolute;inset:0;z-index:5;display:none;pointer-events:none;touch-action:none;
     -webkit-touch-callout:none}
@@ -236,6 +270,10 @@
   #tc-util{position:absolute;pointer-events:none;display:flex;gap:8px;
     left:max(12px,env(safe-area-inset-left));top:max(12px,env(safe-area-inset-top))}
   #tc-util .tcb{width:44px;height:44px;font-size:16px;letter-spacing:0}
+  #tc-mic.mic-on{border-color:var(--green);box-shadow:0 0 12px rgba(143,191,77,.4)}
+  #tc-muted,#tc-mic.mic-muted{border-color:var(--red)}
+  /* the floating text mic indicator is redundant on touch (state shown on the button) */
+  body.touch #voice{display:none}
 
   /* reflow the HUD around the thumbs when touch controls are present */
   body.touch #scr-game .hud-bl{left:max(20px,env(safe-area-inset-left));
@@ -360,6 +398,7 @@
       <button class="tcb" id="tc-scores" title="scoreboard">▤</button>
       <button class="tcb" id="tc-chat" title="chat">💬</button>
       <button class="tcb" id="tc-mic" title="mic">🎙</button>
+      <button class="tcb" id="tc-settings" title="settings">⚙</button>
     </div>
   </div>
 </div>
@@ -378,6 +417,29 @@
     <div class="sb-head"><span>operator</span><span>K</span><span>D</span></div>
     <div id="end-rows"></div>
     <button id="btn-again">Play again</button>
+  </div>
+</div>
+
+<!-- ═══ SETTINGS OVERLAY ═══ -->
+<button id="btn-gear" title="settings" aria-label="settings">⚙</button>
+<div id="settings" class="screen hidden">
+  <div class="panel set-panel">
+    <h2 class="set-title">Settings</h2>
+    <label>Graphics quality</label>
+    <div class="seg" id="set-quality">
+      <button data-v="low">Low</button>
+      <button data-v="medium">Medium</button>
+      <button data-v="high">High</button>
+    </div>
+    <label>Look sensitivity · <b id="set-sens-val">1.00</b></label>
+    <input type="range" class="rng" id="set-sens" min="0.2" max="3" step="0.05">
+    <label>Field of view · <b id="set-fov-val">75</b>°</label>
+    <input type="range" class="rng" id="set-fov" min="60" max="100" step="1">
+    <div class="set-toggle">
+      <span>Performance stats</span>
+      <button class="tgl" id="set-stats" role="switch" aria-pressed="true"><i></i></button>
+    </div>
+    <button id="set-done">Done</button>
   </div>
 </div>
 
