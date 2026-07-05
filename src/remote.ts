@@ -13,13 +13,23 @@ export class RemotePlayer {
   yaw = 0;
   crouched = false;
   alive = true;
+  disguised = false; // prop-hunt: rendered as a crate
 
   private buf: Sample[] = [];
+  private engine: Engine;
+  private bodyMat: BlinnPhongMaterial;
+  private origColor: number;
+  private appliedColor = -2;      // last team colour applied (-1 = original)
+  private parts: Entity[] = [];   // humanoid limbs (hidden while disguised)
+  private crate: Entity | null = null;
 
   constructor(engine: Engine, parent: Entity, public id: string, public name: string, color: number) {
+    this.engine = engine;
+    this.origColor = color;
     this.entity = parent.createChild("rp-" + id);
     const c = new Color(((color >> 16) & 255) / 255, ((color >> 8) & 255) / 255, (color & 255) / 255, 1);
     const mBody = new BlinnPhongMaterial(engine); mBody.baseColor = c;
+    this.bodyMat = mBody;
     const mDark = new BlinnPhongMaterial(engine); mDark.baseColor = new Color(0.15, 0.14, 0.13, 1);
     const mSkin = new BlinnPhongMaterial(engine); mSkin.baseColor = new Color(0.85, 0.65, 0.5, 1);
 
@@ -33,11 +43,43 @@ export class RemotePlayer {
       return e;
     };
 
-    mk("legs", 0, 0.45, 0, 0.5, 0.9, 0.32, mDark);
-    mk("torso", 0, 1.22, 0, 0.62, 0.64, 0.36, mBody);
-    mk("head", 0, 1.72, 0, 0.3, 0.3, 0.3, mSkin);
-    mk("gun", 0.28, 1.3, -0.35, 0.06, 0.08, 0.55, mDark);
+    this.parts.push(mk("legs", 0, 0.45, 0, 0.5, 0.9, 0.32, mDark));
+    this.parts.push(mk("torso", 0, 1.22, 0, 0.62, 0.64, 0.36, mBody));
+    this.parts.push(mk("head", 0, 1.72, 0, 0.3, 0.3, 0.3, mSkin));
+    this.parts.push(mk("gun", 0.28, 1.3, -0.35, 0.06, 0.08, 0.55, mDark));
     this.entity.isActive = false;
+  }
+
+  /** tint the body for team play, or pass null to restore the player's colour */
+  setTeamColor(color: number | null): void {
+    const key = color ?? -1;
+    if (key === this.appliedColor) return;
+    this.appliedColor = key;
+    const c = color ?? this.origColor;
+    this.bodyMat.baseColor = new Color(((c >> 16) & 255) / 255, ((c >> 8) & 255) / 255, (c & 255) / 255, 1);
+  }
+
+  /** prop-hunt: swap the humanoid for a wooden crate disguise */
+  setDisguise(on: boolean): void {
+    if (on === this.disguised) return;
+    this.disguised = on;
+    for (const p of this.parts) p.isActive = !on;
+    if (on) {
+      if (!this.crate) {
+        this.crate = this.entity.createChild("crate");
+        const m = new BlinnPhongMaterial(this.engine);
+        m.baseColor = new Color(0.42, 0.3, 0.16, 1);
+        const box = this.crate.createChild("c");
+        box.transform.setPosition(0, 0.42, 0);
+        const r = box.addComponent(MeshRenderer);
+        r.mesh = PrimitiveMesh.createCuboid(this.engine, 0.84, 0.84, 0.84);
+        r.setMaterial(m);
+        r.castShadows = true;
+      }
+      this.crate.isActive = true;
+    } else if (this.crate) {
+      this.crate.isActive = false;
+    }
   }
 
   push(s: PlayerState, time: number): void {
@@ -68,13 +110,22 @@ export class RemotePlayer {
     this.entity.isActive = this.alive;
     this.entity.transform.setPosition(this.pos.x, this.pos.y, this.pos.z);
     this.entity.transform.setRotation(0, (this.yaw * 180) / Math.PI, 0);
-    const s = this.crouched ? 0.72 : 1;
+    const s = this.disguised ? 1 : this.crouched ? 0.72 : 1; // crate doesn't crouch
     this.entity.transform.setScale(1, s, 1);
   }
 
   /** ray test → { dist, head } or null. Ray in world space. */
   hitTest(o: Vec3, d: Vec3, maxDist: number): { dist: number; head: boolean } | null {
     if (!this.alive) return null;
+    if (this.disguised) {
+      // crate hitbox — no headshots on a prop
+      const crate: AABB = {
+        min: { x: this.pos.x - 0.44, y: this.pos.y, z: this.pos.z - 0.44 },
+        max: { x: this.pos.x + 0.44, y: this.pos.y + 0.86, z: this.pos.z + 0.44 },
+      };
+      const cHit = rayAABB(o, d, crate, maxDist);
+      return cHit ? { dist: cHit.dist, head: false } : null;
+    }
     const sy = this.crouched ? 0.72 : 1;
     // body AABB (world, yaw-agnostic approximation)
     const body: AABB = {

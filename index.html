@@ -182,6 +182,33 @@
   body.touch .kbd-only{display:none}
   body.touch .touch-only{display:block}
 
+  /* ═══ game modes ═══ */
+  /* lobby mode picker */
+  #lobby-mode{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:4px}
+  .mode-card{padding:8px 10px;border:1px solid var(--line);background:rgba(10,9,6,.4);cursor:pointer;transition:border-color .1s,background .1s}
+  .mode-card:hover{border-color:var(--sand)}
+  .mode-card.on{border-color:var(--sand);background:rgba(216,184,120,.14);box-shadow:0 0 0 1px var(--sand)}
+  .mode-card.readonly{cursor:default;grid-column:1/-1}
+  .mode-card.readonly:hover{border-color:var(--line)}
+  .mode-card .mn{font-size:13px;letter-spacing:2px;color:var(--sand);text-transform:uppercase;font-weight:700}
+  .mode-card .mb{font-size:9px;letter-spacing:.3px;color:#8d8471;margin-top:3px;line-height:1.35}
+  /* in-game mode HUD (team score / role / gungame tier) */
+  #hud-teams{position:absolute;top:64px;left:50%;transform:translateX(-50%);display:flex;gap:12px;align-items:center;
+    font-family:var(--mono);font-size:20px;font-weight:700;letter-spacing:1px;white-space:nowrap;
+    background:rgba(10,9,6,.62);border:1px solid var(--line);padding:4px 16px}
+  #hud-teams .tn{font-family:var(--font);font-size:10px;letter-spacing:2px;text-transform:uppercase;font-weight:700}
+  #hud-teams .dash{color:var(--sand-dim);font-weight:400}
+  #hud-role{position:absolute;top:106px;left:50%;transform:translateX(-50%);font-size:13px;letter-spacing:3px;
+    text-transform:uppercase;font-weight:700;text-align:center;color:var(--sand);
+    background:rgba(10,9,6,.72);border:1px solid var(--line);padding:6px 18px}
+  #hud-role.hide{color:var(--green);border-color:var(--green);text-shadow:0 0 10px rgba(143,191,77,.5)}
+  #hud-role.prep{color:var(--sand);border-color:var(--sand)}
+  #hud-role.seek{color:#f0e8d5}
+  #hud-tier{position:absolute;top:106px;left:50%;transform:translateX(-50%);font-size:14px;letter-spacing:2px;
+    text-transform:uppercase;font-weight:700;color:var(--sand);text-align:center;
+    background:rgba(10,9,6,.72);border:1px solid var(--line);padding:6px 18px}
+  #hud-tier .tp{display:inline-block;margin-left:8px;color:var(--sand-dim);font-family:var(--mono)}
+
   /* ═══ settings overlay ═══ */
   #btn-gear{position:fixed;top:max(14px,env(safe-area-inset-top));right:max(14px,env(safe-area-inset-right));
     z-index:31;width:42px;height:42px;padding:0;margin:0;border-radius:50%;font-size:20px;line-height:1;
@@ -344,6 +371,8 @@
   <div class="panel">
     <label style="text-align:center">share this code</label>
     <div id="lobby-code"></div>
+    <label>game mode</label>
+    <div id="lobby-mode"></div>
     <label>operators</label>
     <div id="lobby-players"></div>
     <button id="btn-start">Start match</button>
@@ -358,6 +387,9 @@
   <div id="crosshair" class="hidden"></div>
   <div id="hitmarker" class="hidden"></div>
   <div class="hud-top"><div id="hud-time">4:00</div><div id="hud-round">round 1/4</div></div>
+  <div id="hud-teams" class="hidden"></div>
+  <div id="hud-role" class="hidden"></div>
+  <div id="hud-tier" class="hidden"></div>
   <div id="buff" class="hidden"></div>
   <div id="stats"></div>
   <div id="game-code"></div>
@@ -413,7 +445,7 @@
 <!-- ═══ END ═══ -->
 <div id="scr-end" class="screen hidden">
   <div class="panel">
-    <h2>Match over</h2>
+    <h2 id="end-title">Match over</h2>
     <div class="sb-head"><span>operator</span><span>K</span><span>D</span></div>
     <div id="end-rows"></div>
     <button id="btn-again">Play again</button>

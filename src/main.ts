@@ -21,11 +21,15 @@ import { Input, PlayerBody } from "./player";
 import { RemotePlayer } from "./remote";
 import { MODEL_LOAD_COUNT, loadModels } from "./models";
 import {
-  GamePhase, GameSnapshot, INTERMISSION, MAX_HP, Msg, PICKUP_HEAL, PICKUP_RADIUS,
+  GamePhase, GameSnapshot, INTERMISSION, MAX_HP, ModeId, Msg, PICKUP_HEAL, PICKUP_RADIUS,
   PICKUP_RESPAWN, PlayerState, POWERUPS, POWERUP_INTERVAL, POWERUP_RADIUS, PowerupKind,
-  QUAD_MULT, RAPID_MULT, RESPAWN_TIME, ROUNDS_PER_GAME, ROUND_TIME, SPEED_MULT, TICK_RATE,
+  QUAD_MULT, RAPID_MULT, ROUNDS_PER_GAME, ROUND_TIME, SPEED_MULT, TICK_RATE,
   Vec3, WEAPONS, WeaponDef, WeaponId, LOADOUT, clamp, rand, randomPowerup,
 } from "./types";
+import {
+  DEFAULT_MODE, GUNGAME_FINAL, MODES, PROPHUNT_PREP, ROLE_HIDE, ROLE_SEEK,
+  TEAM_COLORS, TEAM_NAMES, seekerCount, tierWeapon,
+} from "./modes";
 import { Voice } from "./voice";
 import { TouchControls } from "./touch";
 import { Settings } from "./settings";
@@ -79,6 +83,13 @@ class Game {
   timeLeft = 0;
   scores: Record<string, { k: number; d: number }> = {};
   hpMap: Record<string, number> = {}; // host only
+
+  // ── game modes ──
+  mode: ModeId = DEFAULT_MODE;
+  teams: Record<string, number> = {};   // tdm: side 0/1 · prophunt: 0 seeker / 1 hide
+  teamScore: [number, number] = [0, 0]; // tdm side scores · prophunt [seeker, hider] wins
+  tiers: Record<string, number> = {};   // gungame: player → weapon-ladder tier
+  myRole = ROLE_SEEK;                    // prophunt: local role (mirror of teams[myId])
 
   myHp = MAX_HP;
   alive = true;
@@ -282,7 +293,7 @@ class Game {
     document.addEventListener("contextmenu", (e) => { if (this.inGame) e.preventDefault(); });
 
     document.addEventListener("wheel", (e) => {
-      if (!this.locked || !this.inGame || !this.alive) return;
+      if (!this.locked || !this.inGame || !this.alive || !this.canSwitchWeapon()) return;
       this.ws.cycle(e.deltaY > 0 ? 1 : -1);
       this.applyScopeFov();
     }, { passive: true });
@@ -315,7 +326,7 @@ class Game {
       this.keys.add(e.code);
       if (e.code === "KeyR") this.ws.reload();
       const wi = ["Digit1", "Digit2", "Digit3", "Digit4", "Digit5", "Digit6"].indexOf(e.code);
-      if (wi >= 0 && this.alive) { this.ws.select(LOADOUT[wi]); this.applyScopeFov(); }
+      if (wi >= 0 && this.alive && this.canSwitchWeapon()) { this.ws.select(LOADOUT[wi]); this.applyScopeFov(); }
     });
     document.addEventListener("keyup", (e) => {
       if (e.code === "Tab") this.sbOpen = false;
@@ -327,6 +338,132 @@ class Game {
     this.camera.fieldOfView = this.ws.scoped ? 22 : this.settings.state.fov;
     this.hud.scope(this.ws.scoped);
     this.hud.crosshair(!this.ws.scoped && this.alive);
+  }
+
+  // ─── mode-specific local loadout ──────────────────────────────────────────────
+
+  /** pick the right weapon set for the local player given the active mode */
+  applyLoadout(): void {
+    this.myRole = this.teams[this.net.myId] ?? ROLE_SEEK;
+    if (this.mode === "gungame") { this.applyTier(this.tiers[this.net.myId] ?? 0); return; }
+    if (this.mode === "prophunt" && this.myRole === ROLE_HIDE) {
+      // hider: becomes a prop — melee only, no viewmodel
+      this.ws.showViewmodel(false);
+      this.ws.select("knife");
+      this.applyScopeFov();
+      return;
+    }
+    this.ws.showViewmodel(this.inGame);
+    this.ws.select("ak47");
+  }
+
+  /** gungame: lock the local player to their current tier's weapon (full ammo) */
+  applyTier(tier: number): void {
+    const w = tierWeapon(tier);
+    const d = WEAPONS[w];
+    if (!d.melee) this.ws.ammo[w] = { mag: d.mag, reserve: d.reserve < 0 ? -1 : d.reserve };
+    this.ws.showViewmodel(this.inGame);
+    this.ws.select(w);
+    this.applyScopeFov();
+    this.refreshAmmoHud();
+  }
+
+  /** manual weapon switching is disabled in gungame + for prop-hunt hiders */
+  canSwitchWeapon(): boolean {
+    return this.mode !== "gungame" && !(this.mode === "prophunt" && this.myRole === ROLE_HIDE);
+  }
+
+  /** per-frame: team colours + prop-hunt disguises on remote avatars */
+  updateModeVisuals(): void {
+    for (const r of this.remotes.values()) {
+      if (this.mode === "tdm") {
+        r.setDisguise(false);
+        r.setTeamColor(TEAM_COLORS[this.teams[r.id] ?? 0]);
+      } else if (this.mode === "prophunt") {
+        r.setDisguise(this.teams[r.id] === ROLE_HIDE);
+        r.setTeamColor(null);
+      } else {
+        r.setDisguise(false);
+        r.setTeamColor(null);
+      }
+    }
+  }
+
+  /** per-frame: mode HUD (team score / gungame tier / prop-hunt role) */
+  updateModeHud(): void {
+    if (this.mode === "tdm") {
+      this.hud.teamScoreHud(
+        { name: TEAM_NAMES[0], score: this.teamScore[0], color: TEAM_COLORS[0] },
+        { name: TEAM_NAMES[1], score: this.teamScore[1], color: TEAM_COLORS[1] },
+      );
+    } else if (this.mode === "prophunt") {
+      this.hud.teamScoreHud(
+        { name: "Seekers", score: this.teamScore[0], color: TEAM_COLORS[0] },
+        { name: "Hiders", score: this.teamScore[1], color: TEAM_COLORS[1] },
+      );
+    } else {
+      this.hud.teamScoreHud(null);
+    }
+
+    if (this.mode === "gungame") {
+      const tier = this.tiers[this.net.myId] ?? 0;
+      this.hud.tierHud(tier, GUNGAME_FINAL, WEAPONS[tierWeapon(tier)].name);
+    } else {
+      this.hud.tierHud(-1, 0, "");
+    }
+
+    if (this.mode === "prophunt" && this.phase === "play") {
+      if (this.myRole === ROLE_HIDE) {
+        this.hud.roleHud("You are a prop · hide & stay still", "hide");
+      } else if (this.inPrepPhase()) {
+        const s = Math.ceil(this.timeLeft - (ROUND_TIME - PROPHUNT_PREP));
+        this.hud.roleHud(`Seeker · hunt begins in ${s}s`, "prep");
+      } else {
+        this.hud.roleHud(`Seeker · hiders left: ${this.countHiders()}`, "seek");
+      }
+    } else {
+      this.hud.roleHud("", "");
+    }
+  }
+
+  /** hiders still alive (works on host + guests via avatar liveness) */
+  countHiders(): number {
+    let n = 0;
+    for (const p of this.net.players) {
+      if (this.teams[p.id] !== ROLE_HIDE) continue;
+      const alive = p.id === this.net.myId ? this.alive : (this.remotes.get(p.id)?.alive ?? false);
+      if (alive) n++;
+    }
+    return n;
+  }
+
+  /** end-screen headline for the finished match */
+  resultTitle(): string {
+    if (this.mode === "tdm") {
+      const [a, b] = this.teamScore;
+      if (a === b) return "Draw";
+      return `${TEAM_NAMES[a > b ? 0 : 1]} wins`;
+    }
+    if (this.mode === "prophunt") {
+      const [s, h] = this.teamScore;
+      if (s === h) return "Prop Hunt · draw";
+      return s > h ? "Seekers win" : "Hiders win";
+    }
+    if (this.mode === "gungame") {
+      let best = "", bt = -1;
+      for (const p of this.net.players) {
+        const t = this.tiers[p.id] ?? 0;
+        if (t > bt) { bt = t; best = this.names.get(p.id) ?? p.name; }
+      }
+      return best ? `${best} wins` : "Match over";
+    }
+    // ffa: top killer
+    let best = "", bk = -1;
+    for (const p of this.net.players) {
+      const k = this.scores[p.id]?.k ?? 0;
+      if (k > bk) { bk = k; best = this.names.get(p.id) ?? p.name; }
+    }
+    return best ? `${best} wins` : "Match over";
   }
 
   // ─── settings (graphics quality preset + aim / fov / hud prefs) ───────────────
@@ -409,7 +546,7 @@ class Game {
       if (this.ws.def().scope && this.alive) { this.ws.setScope(!this.ws.scoped); this.applyScopeFov(); }
     };
     t.onReload = () => { if (this.alive) this.ws.reload(); };
-    t.onWeapon = (i) => { if (this.alive) { this.ws.select(LOADOUT[i]); this.applyScopeFov(); } };
+    t.onWeapon = (i) => { if (this.alive && this.canSwitchWeapon()) { this.ws.select(LOADOUT[i]); this.applyScopeFov(); } };
     t.onChat = () => { this.keys.clear(); this.fireHeld = false; this.hud.openChat(); };
     t.onMic = () => {
       if (this.voice.micOk) { this.voice.setMuted(!this.voice.muted); this.hud.voice(this.voice.muted ? "muted" : "on"); }
@@ -449,7 +586,9 @@ class Game {
         crouch: this.keys.has("ControlLeft") || this.keys.has("KeyC"),
         sprint: this.keys.has("ShiftLeft") || this.keys.has("ShiftRight") || this.touch.sprint,
       };
-      const canPlay = this.alive && this.phase === "play";
+      // prop hunt: seekers are frozen during the hide window
+      const frozen = this.mode === "prophunt" && this.myRole === ROLE_SEEK && this.inPrepPhase();
+      const canPlay = this.alive && this.phase === "play" && !frozen;
       const speedBuff = this.buff?.kind === "speed" ? SPEED_MULT : 1;
       this.body.update(dt, canPlay ? inp : { fwd: 0, right: 0, jump: false, crouch: false, sprint: false }, this.ws.def().moveFactor * speedBuff);
 
@@ -553,6 +692,8 @@ class Game {
 
       this.hud.timer(this.phase, this.round, this.timeLeft);
       this.hud.scoreboard(this.sbOpen || this.phase === "inter", this.net.players, this.scores, this.net.myId);
+      this.updateModeVisuals();
+      this.updateModeHud();
     } else if (this.lobbyView) {
       this.updateLobbyCamera(now);
     }
@@ -710,9 +851,12 @@ class Game {
     const m: Msg = { t: "nade", id: this.net.myId, k: kind, o: [o.x, o.y, o.z], v: [v.x, v.y, v.z] };
     if (this.net.isHost) this.net.broadcast(m);
     else this.net.send(m);
-    // last one thrown → back to rifle
+    // last one thrown → back to rifle (but keep the gungame/prophunt weapon lock)
     if (this.ws.ammo[kind].mag <= 0) window.setTimeout(() => {
-      if (this.alive && this.ws.current === kind) { this.ws.select("ak47"); this.applyScopeFov(); }
+      if (this.alive && this.ws.current === kind) {
+        if (this.mode === "gungame") this.applyTier(this.tiers[this.net.myId] ?? 0);
+        else if (this.canSwitchWeapon()) { this.ws.select("ak47"); this.applyScopeFov(); }
+      }
     }, 500);
   }
 
@@ -776,6 +920,10 @@ class Game {
     if (this.phase !== "play") return;
     const hp = this.hpMap[victim];
     if (hp === undefined || hp <= 0) return;
+    // team modes: no friendly fire (TDM sides / Prop Hunt roles)
+    if (MODES[this.mode].teams && attacker !== victim && this.teams[attacker] === this.teams[victim]) return;
+    // prep phase: seekers can't hurt hiders while the hiders are still scattering
+    if (this.mode === "prophunt" && this.inPrepPhase()) return;
     const nhp = Math.max(0, hp - dmg);
     this.hpMap[victim] = nhp;
     const from = this.posOf(attacker);
@@ -790,9 +938,59 @@ class Game {
       const killMsg: Msg = { t: "kill", k: attacker, v: victim, w, hs: hs ? 1 : 0 };
       this.net.broadcast(killMsg);
       this.applyLocal(killMsg);
+      this.hostModeOnKill(attacker, victim, w);
       this.pushGame();
-      window.setTimeout(() => this.hostSpawn(victim), RESPAWN_TIME * 1000);
+      const respawn = MODES[this.mode].respawn;
+      // prop hunt: dead hiders don't respawn (they stay out for the round)
+      const noRespawn = this.mode === "prophunt" && this.teams[victim] === ROLE_HIDE;
+      if (!noRespawn) window.setTimeout(() => this.hostSpawn(victim), respawn * 1000);
     }
+  }
+
+  /** true during the Prop-Hunt hide window at the start of a round */
+  inPrepPhase(): boolean {
+    return this.mode === "prophunt" && this.phase === "play" && this.timeLeft > ROUND_TIME - PROPHUNT_PREP;
+  }
+
+  /** host: mode-specific consequences of a kill (team score, gungame ladder, prophunt end) */
+  hostModeOnKill(attacker: string, victim: string, w: WeaponId): void {
+    if (attacker === victim) return;
+    if (this.mode === "tdm") {
+      const t = this.teams[attacker];
+      if (t === 0 || t === 1) this.teamScore[t]++;
+    } else if (this.mode === "gungame") {
+      const cur = this.tiers[attacker] ?? 0;
+      if (cur >= GUNGAME_FINAL) { this.hostGunGameWin(attacker); return; }
+      this.hostSetTier(attacker, cur + 1);
+      if (w === "knife") { // a melee kill demotes the victim one tier
+        this.hostSetTier(victim, Math.max(0, (this.tiers[victim] ?? 0) - 1));
+      }
+    } else if (this.mode === "prophunt") {
+      // hider eliminated → if that was the last one, seekers take the round now
+      if (this.teams[victim] === ROLE_HIDE && this.livingHiders() === 0) this.timeLeft = 0.02;
+    }
+  }
+
+  hostSetTier(id: string, tier: number): void {
+    this.tiers[id] = tier;
+    if (id === this.net.myId) this.applyTier(tier);
+    else this.net.sendTo(id, { t: "tier", tier });
+  }
+
+  hostGunGameWin(winner: string): void {
+    this.hud.banner(`${this.names.get(winner) ?? "player"} reached the knife!`, 3000);
+    this.phase = "over";
+    this.pushGame();
+    this.enterEnd();
+  }
+
+  /** count of hiders still alive (host, prop hunt) */
+  livingHiders(): number {
+    let n = 0;
+    for (const p of this.net.players) {
+      if (this.teams[p.id] === ROLE_HIDE && (this.hpMap[p.id] ?? 0) > 0) n++;
+    }
+    return n;
   }
 
   posOf(id: string): Vec3 {
@@ -807,6 +1005,11 @@ class Game {
     this.hpMap[id] = MAX_HP;
     const m: Msg = { t: "spawn", id, p: [sp.p.x, sp.p.y, sp.p.z], yaw: sp.yaw };
     this.net.broadcast(m);
+    // deliver the mode loadout directly (unreliable channel → don't rely on snapshot order)
+    if (id !== this.net.myId) {
+      if (this.mode === "prophunt") this.net.sendTo(id, { t: "role", role: this.teams[id] ?? ROLE_SEEK, prop: 0 });
+      else if (this.mode === "gungame") this.net.sendTo(id, { t: "tier", tier: this.tiers[id] ?? 0 });
+    }
     this.applyLocal(m);
   }
 
@@ -839,6 +1042,11 @@ class Game {
       if (this.gameAcc >= 1) { this.gameAcc = 0; this.pushGame(); }
       if (this.timeLeft <= 0) {
         if (this.phase === "play") {
+          // prop hunt: whoever's left standing takes the round
+          if (this.mode === "prophunt") {
+            if (this.livingHiders() > 0) this.teamScore[ROLE_HIDE]++;
+            else this.teamScore[ROLE_SEEK]++;
+          }
           if (this.round >= ROUNDS_PER_GAME) {
             this.phase = "over";
             this.pushGame();
@@ -874,12 +1082,32 @@ class Game {
     this.pwSpawnAcc = 0;
     for (let i = 0; i < this.pwActive.length; i++) { this.pwActive[i] = null; if (this.pwEntities[i]) this.pwEntities[i].isActive = false; }
     this.clearBuff();
+    this.hostSetupRoundMode(n);
     for (const p of this.net.players) this.hpMap[p.id] = MAX_HP;
-    this.pushGame();
+    this.pushGame(); // sync mode/teams/tiers before spawns carry the loadout
     for (const p of this.net.players) this.hostSpawn(p.id);
     sfx.stopInterlude();
-    this.hud.banner(`${this.map.meta.name} · Round ${n} — go!`);
+    const modeName = MODES[this.mode].name;
+    this.hud.banner(`${modeName} · ${this.map.meta.name} — Round ${n}`);
     sfx.roundStart();
+  }
+
+  /** host: (re)assign teams / roles / gungame tiers for a round */
+  hostSetupRoundMode(n: number): void {
+    const ids = this.net.players.map((p) => p.id);
+    if (n === 1) { this.teamScore = [0, 0]; this.tiers = {}; }
+    this.teams = {};
+    if (this.mode === "tdm") {
+      const shuffled = [...ids].sort(() => Math.random() - 0.5);
+      shuffled.forEach((id, i) => { this.teams[id] = i % 2; });
+    } else if (this.mode === "prophunt") {
+      const shuffled = [...ids].sort(() => Math.random() - 0.5);
+      const seekers = seekerCount(ids.length);
+      shuffled.forEach((id, i) => { this.teams[id] = i < seekers ? ROLE_SEEK : ROLE_HIDE; });
+    } else if (this.mode === "gungame") {
+      for (const id of ids) if (this.tiers[id] === undefined) this.tiers[id] = 0;
+    }
+    this.myRole = this.teams[this.net.myId] ?? ROLE_SEEK;
   }
 
   pushGame(): void {
@@ -889,7 +1117,11 @@ class Game {
   }
 
   gameSnap(): GameSnapshot {
-    return { phase: this.phase, round: this.round, timeLeft: this.timeLeft, scores: this.scores, pk: this.pkTimers.map((t) => Math.ceil(t)), map: this.currentMapId };
+    return {
+      phase: this.phase, round: this.round, timeLeft: this.timeLeft, scores: this.scores,
+      pk: this.pkTimers.map((t) => Math.ceil(t)), map: this.currentMapId,
+      mode: this.mode, teams: this.teams, teamScore: this.teamScore, tiers: this.tiers,
+    };
   }
 
   applyGame(g: GameSnapshot): void {
@@ -900,6 +1132,13 @@ class Game {
     this.round = g.round;
     this.timeLeft = g.timeLeft;
     this.scores = g.scores;
+    // mirror mode state (guests)
+    if (g.mode) this.mode = g.mode;
+    if (g.teams) this.teams = g.teams;
+    if (g.teamScore) this.teamScore = g.teamScore;
+    if (g.tiers) this.tiers = g.tiers;
+    if (!this.net.isHost) this.myRole = this.teams[this.net.myId] ?? ROLE_SEEK;
+    if (g.phase === "lobby") this.refreshLobby(); // keep the lobby mode label in sync
     // map-vote UI opens during the interlude, closes when the round starts
     if (prevPhase !== "inter" && g.phase === "inter") this.openVote(g.map);
     if (g.phase !== "inter" && prevPhase === "inter") this.hud.vote(null);
@@ -916,7 +1155,7 @@ class Game {
   enterEnd(): void {
     this.inGame = false;
     document.exitPointerLock();
-    this.hud.end(this.net.players, this.scores, this.net.isHost);
+    this.hud.end(this.net.players, this.scores, this.net.isHost, this.resultTitle());
     this.hud.show("end");
     sfx.death();
     sfx.stopInterlude();
@@ -1157,6 +1396,7 @@ class Game {
       this.ensureRemote(id, name);
       this.hpMap[id] = MAX_HP;
       this.scores[id] = this.scores[id] ?? { k: 0, d: 0 };
+      this.assignLateJoiner(id);
       // late joiner mid-game → spawn them
       if (this.phase === "play") window.setTimeout(() => this.hostSpawn(id), 400);
       this.refreshLobby();
@@ -1341,6 +1581,25 @@ class Game {
         this.hud.voteCounts(m.counts, this.myVote);
         break;
       }
+      case "mode": {
+        // host → all: lobby mode selection changed
+        this.mode = m.mode;
+        this.refreshLobby();
+        break;
+      }
+      case "role": {
+        // host → me: prop-hunt role for this round
+        this.myRole = m.role;
+        this.teams[this.net.myId] = m.role;
+        if (this.inGame && this.alive) this.applyLoadout();
+        break;
+      }
+      case "tier": {
+        // host → me: gungame tier changed
+        this.tiers[this.net.myId] = m.tier;
+        if (this.inGame && this.mode === "gungame") this.applyTier(m.tier);
+        break;
+      }
       case "ping": {
         if (this.net.isHost) this.net.sendTo(fromId, { t: "pong", ts: m.ts });
         break;
@@ -1381,7 +1640,7 @@ class Game {
       this.hud.kill(this.names.get(m.k) ?? "?", this.names.get(m.v) ?? "?", m.w, m.hs === 1);
       if (m.v === this.net.myId) {
         this.alive = false;
-        this.respawnAt = performance.now() / 1000 + RESPAWN_TIME;
+        this.respawnAt = performance.now() / 1000 + MODES[this.mode].respawn;
         this.hud.crosshair(false);
         this.ws.setScope(false);
         this.applyScopeFov();
@@ -1401,7 +1660,7 @@ class Game {
         this.ws.ammo.awp = { mag: 5, reserve: 15 };
         this.ws.ammo.he = { mag: 2, reserve: -1 };
         this.ws.ammo.mol = { mag: 1, reserve: -1 };
-        this.ws.select("ak47");
+        this.applyLoadout(); // mode-aware weapon (gungame tier / prophunt disguise)
         this.applyScopeFov();
         this.hud.hp(this.myHp);
         this.hud.respawnOverlay(null);
@@ -1463,10 +1722,35 @@ class Game {
     };
 
     this.hud.onVote = (id) => this.castVote(id);
+    this.hud.onMode = (id) => this.setMode(id);
+  }
+
+  /** host: slot a mid-match joiner into the active mode */
+  assignLateJoiner(id: string): void {
+    if (this.mode === "tdm") {
+      let a = 0, b = 0;
+      for (const p of this.net.players) {
+        if (p.id === id) continue;
+        if (this.teams[p.id] === 1) b++; else if (this.teams[p.id] === 0) a++;
+      }
+      this.teams[id] = a <= b ? 0 : 1; // fill the smaller side
+    } else if (this.mode === "prophunt") {
+      this.teams[id] = ROLE_SEEK; // mid-round joiners hunt
+    } else if (this.mode === "gungame") {
+      this.tiers[id] = this.tiers[id] ?? 0;
+    }
+  }
+
+  /** host: change the lobby's game mode and tell everyone */
+  setMode(id: ModeId): void {
+    if (!this.net.isHost || this.phase !== "lobby") return;
+    this.mode = id;
+    this.net.broadcast({ t: "mode", mode: id });
+    this.refreshLobby();
   }
 
   refreshLobby(): void {
-    this.hud.lobby(this.net.lobbyCode, this.net.players, this.net.isHost);
+    this.hud.lobby(this.net.lobbyCode, this.net.players, this.net.isHost, this.mode);
     this.refreshLobbyAvatars();
   }
 
