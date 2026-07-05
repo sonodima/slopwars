@@ -7,14 +7,13 @@ export interface ModeDef {
   blurb: string;
   teams: boolean;      // two-sided (TDM sides / Prop Hunt roles)
   respawn: number;     // respawn delay (s)
-  forceThird?: boolean; // camera is locked to third-person (no first-person option)
 }
 
 export const MODES: Record<ModeId, ModeDef> = {
   ffa:      { id: "ffa",      name: "Free for All",    blurb: "Everyone for themselves — most kills wins.",          teams: false, respawn: 3 },
   tdm:      { id: "tdm",      name: "Team Deathmatch", blurb: "Alpha vs Bravo — highest team score wins.",           teams: true,  respawn: 3 },
   gungame:  { id: "gungame",  name: "Gun Game",        blurb: "Every kill upgrades your gun. First to the knife wins.", teams: false, respawn: 2 },
-  prophunt: { id: "prophunt", name: "Prop Hunt",       blurb: "Hiders disguise as crates. Seekers hunt them down.",  teams: true,  respawn: 3, forceThird: true },
+  prophunt: { id: "prophunt", name: "Prop Hunt",       blurb: "Hiders disguise as crates. Seekers hunt them down.",  teams: true,  respawn: 3 },
 };
 
 export const MODE_LIST: ModeId[] = ["ffa", "tdm", "gungame", "prophunt"];

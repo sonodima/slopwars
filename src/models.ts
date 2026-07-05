@@ -51,13 +51,14 @@ export type GameModels = Record<ModelId, GLTFResource | null>;
 
 export const MODEL_LOAD_COUNT = Object.keys(SOURCES).length;
 
-export async function loadModels(engine: Engine, onEach?: () => void): Promise<GameModels> {
+export async function loadModels(engine: Engine, onEach?: (name: string) => void): Promise<GameModels> {
   const ids = Object.keys(SOURCES) as ModelId[];
+  const pretty = (id: ModelId): string => SOURCES[id].replace(/[_-]+/g, " ").trim();
   const loaded = await Promise.all(
     ids.map((id) =>
       loadGLTF(engine, `models/${SOURCES[id]}/${SOURCES[id]}.gltf`)
-        .then((r): GLTFResource | null => { onEach?.(); return r; })
-        .catch((e): GLTFResource | null => { console.warn("[model] failed:", id, e); onEach?.(); return null; }),
+        .then((r): GLTFResource | null => { onEach?.(pretty(id)); return r; })
+        .catch((e): GLTFResource | null => { console.warn("[model] failed:", id, e); onEach?.(pretty(id)); return null; }),
     ),
   );
   const out = {} as GameModels;
