@@ -2,9 +2,19 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <link rel="icon" href="./logo.png">
 <title>SlopWars — web fps</title>
+<!-- ── PWA / installable / native-feel on iOS + Android ── -->
+<link rel="manifest" href="./manifest.webmanifest">
+<meta name="theme-color" content="#0d0c0a">
+<meta name="color-scheme" content="dark">
+<meta name="application-name" content="SlopWars">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="SlopWars">
+<link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
 <style>
   :root{
     --sand:#d8b878; --sand-dim:#a68b58; --ink:#0d0c0a; --panel:rgba(16,14,10,.88);
@@ -14,9 +24,12 @@
   }
   *{margin:0;padding:0;box-sizing:border-box}
   html,body{width:100%;height:100%;overflow:hidden;background:var(--ink);font-family:var(--font);color:#e8e0cf;
-    -webkit-user-select:none;user-select:none}
+    -webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;
+    overscroll-behavior:none;touch-action:none}
   .hidden{display:none!important}
-  #game-canvas{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:crosshair}
+  #game-canvas{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:crosshair;touch-action:none}
+  /* touch devices don't have a mouse cursor to hide */
+  body.touch #game-canvas{cursor:none}
 
   /* ── screens ── */
   .screen{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;
@@ -28,7 +41,7 @@
     box-shadow:0 24px 60px rgba(0,0,0,.6)}
   .panel label{display:block;font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--sand-dim);margin:14px 0 5px}
   .panel input{width:100%;background:#0a0906;border:1px solid var(--line);color:#f0e8d5;padding:10px 12px;
-    font-family:var(--mono);font-size:15px;letter-spacing:2px;outline:none;text-transform:uppercase}
+    font-family:var(--mono);font-size:16px;letter-spacing:2px;outline:none;text-transform:uppercase}
   .panel input:focus{border-color:var(--sand)}
   button{cursor:pointer;font-family:var(--font);text-transform:uppercase;letter-spacing:3px;font-size:13px;font-weight:700;
     background:var(--sand);color:#171307;border:none;padding:12px 22px;width:100%;margin-top:16px;transition:filter .1s}
@@ -147,6 +160,106 @@
   .vc .vt{font-size:10px;letter-spacing:.5px;color:#8d8471;margin-top:4px;line-height:1.35;min-height:26px}
   .vc .vcount{font-family:var(--mono);font-size:22px;font-weight:700;color:#f0e8d5;margin-top:8px}
   .vc .vcur{position:absolute;top:6px;right:8px;font-size:8px;letter-spacing:2px;color:var(--sand-dim);text-transform:uppercase}
+
+  /* ═══ responsive / small-screen scaling ═══ */
+  .screen h1{font-size:clamp(34px,9vw,64px);letter-spacing:clamp(6px,2vw,14px)}
+  .panel{min-width:min(340px,88vw);max-width:94vw}
+  #lobby-code{font-size:clamp(26px,7vw,40px);letter-spacing:clamp(6px,2.5vw,12px)}
+  /* short landscape (phones held sideways): tighten vertical rhythm + allow scroll */
+  @media (max-height:520px){
+    .screen{justify-content:flex-start;overflow-y:auto;padding-top:14px;padding-bottom:14px}
+    .screen h1{font-size:clamp(28px,7vw,44px);margin-bottom:2px}
+    .screen .sub{margin-bottom:14px}
+    .panel{padding:14px 18px}
+    .panel label{margin:7px 0 3px}
+    button{padding:9px 16px;margin-top:9px}
+    .keys{margin-top:12px;line-height:1.55}
+    #scr-lobby{align-items:flex-start;padding-left:0}
+    #lobby-code{margin:4px 0 10px}
+  }
+  /* keyboard hints are desktop-only; show a touch primer instead */
+  .touch-only{display:none}
+  body.touch .kbd-only{display:none}
+  body.touch .touch-only{display:block}
+
+  /* ═══ on-screen touch controls (only in touch mode, in-game) ═══ */
+  #tc-ui{position:absolute;inset:0;z-index:5;display:none;pointer-events:none;touch-action:none;
+    -webkit-touch-callout:none}
+  body.touch #scr-game:not(.hidden) #tc-ui{display:block}
+  #tc-look{position:absolute;inset:0;pointer-events:auto;touch-action:none}
+  /* keep interactive HUD (map vote, chat) tappable above the look layer */
+  #vote,#chat-bar{z-index:6}
+  #respawn,#banner{z-index:8}
+  body.touch #click-to-play{display:none!important}
+
+  .tcb{pointer-events:auto;touch-action:none;-webkit-user-select:none;user-select:none;
+    font-family:var(--font);text-transform:uppercase;letter-spacing:1px;font-weight:700;margin:0;padding:0;
+    width:auto;color:var(--sand);background:rgba(16,14,10,.42);border:1.5px solid var(--line);border-radius:50%;
+    display:flex;align-items:center;justify-content:center;text-align:center;line-height:1;
+    box-shadow:0 4px 14px rgba(0,0,0,.4);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)}
+  .tcb.on{background:rgba(216,184,120,.9);border-color:var(--sand);color:#171307;
+    box-shadow:0 0 16px rgba(216,184,120,.5)}
+
+  /* movement joystick, bottom-left */
+  #tc-move{position:absolute;pointer-events:auto;touch-action:none;
+    left:max(22px,env(safe-area-inset-left));bottom:max(22px,env(safe-area-inset-bottom));
+    width:132px;height:132px;border-radius:50%;background:rgba(16,14,10,.32);
+    border:1.5px solid var(--line);backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px)}
+  #tc-knob{position:absolute;left:50%;top:50%;width:56px;height:56px;margin:-28px 0 0 -28px;border-radius:50%;
+    background:rgba(216,184,120,.85);border:1.5px solid var(--sand);box-shadow:0 0 14px rgba(216,184,120,.4)}
+
+  /* right-side action cluster */
+  #tc-actions{position:absolute;pointer-events:none;display:flex;align-items:flex-end;gap:12px;
+    right:max(20px,env(safe-area-inset-right));bottom:max(20px,env(safe-area-inset-bottom))}
+  .tc-col{display:flex;flex-direction:column;gap:12px;align-items:center}
+  #tc-fire{width:88px;height:88px;font-size:14px;color:#f0e8d5;border-color:var(--red);
+    background:rgba(224,72,58,.28)}
+  #tc-fire.on{background:rgba(224,72,58,.92);border-color:var(--red);color:#fff;
+    box-shadow:0 0 18px rgba(224,72,58,.6)}
+  #tc-jump{width:66px;height:66px;font-size:12px}
+  #tc-crouch,#tc-reload,#tc-scope{width:60px;height:60px;font-size:11px}
+
+  /* weapon strip, bottom-center */
+  #tc-weapons{position:absolute;pointer-events:none;left:50%;transform:translateX(-50%);
+    bottom:max(12px,env(safe-area-inset-bottom));display:flex;gap:6px;max-width:46vw;
+    overflow-x:auto;padding:2px;scrollbar-width:none}
+  #tc-weapons::-webkit-scrollbar{display:none}
+  .tc-wep{pointer-events:auto;touch-action:none;-webkit-user-select:none;user-select:none;flex:0 0 auto;
+    width:auto;min-width:46px;margin:0;padding:7px 8px;border-radius:8px;font-family:var(--font);font-weight:700;
+    font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--sand);background:rgba(16,14,10,.55);
+    border:1.5px solid var(--line);text-align:center;backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)}
+  .tc-wep .k{display:block;font-family:var(--mono);font-size:8px;color:var(--sand-dim)}
+  .tc-wep.on{background:rgba(216,184,120,.9);border-color:var(--sand);color:#171307}
+  .tc-wep.on .k{color:#3a2f12}
+
+  /* top-left utility buttons (scores hold, chat, mic) */
+  #tc-util{position:absolute;pointer-events:none;display:flex;gap:8px;
+    left:max(12px,env(safe-area-inset-left));top:max(12px,env(safe-area-inset-top))}
+  #tc-util .tcb{width:44px;height:44px;font-size:16px;letter-spacing:0}
+
+  /* reflow the HUD around the thumbs when touch controls are present */
+  body.touch #scr-game .hud-bl{left:max(20px,env(safe-area-inset-left));
+    bottom:calc(max(20px,env(safe-area-inset-bottom)) + 150px)}
+  body.touch #hud-hp{font-size:38px}
+  body.touch #scr-game .hud-br{right:max(20px,env(safe-area-inset-right));
+    bottom:calc(max(20px,env(safe-area-inset-bottom)) + 246px)}
+  body.touch #hud-ammo{font-size:28px}
+  body.touch #stats{top:calc(max(12px,env(safe-area-inset-top)) + 52px);left:max(12px,env(safe-area-inset-left))}
+  body.touch #game-code{right:max(14px,env(safe-area-inset-right))}
+  body.touch #killfeed{right:max(14px,env(safe-area-inset-right))}
+  body.touch .hud-top{top:max(12px,env(safe-area-inset-top))}
+
+  /* rotate-to-landscape nudge, only on touch + portrait while in a match */
+  #rotate-hint{position:absolute;inset:0;z-index:40;display:none;flex-direction:column;
+    align-items:center;justify-content:center;gap:14px;background:radial-gradient(ellipse at center,#161206,#080705);
+    text-align:center;padding:24px}
+  #rotate-hint .ico{font-size:52px;animation:rotate-nudge 1.8s ease-in-out infinite}
+  #rotate-hint .t{font-size:14px;letter-spacing:4px;text-transform:uppercase;color:var(--sand)}
+  #rotate-hint .s{font-size:11px;letter-spacing:2px;color:var(--sand-dim)}
+  @keyframes rotate-nudge{0%,100%{transform:rotate(-12deg)}50%{transform:rotate(78deg)}}
+  @media (orientation:portrait){
+    body.touch[data-screen="game"] #rotate-hint{display:flex}
+  }
 </style>
 </head>
 <body>
@@ -176,9 +289,13 @@
     <div id="menu-err" class="err hidden"></div>
     <div id="menu-conn" class="conn hidden">connecting…</div>
   </div>
-  <div class="keys">
+  <div class="keys kbd-only">
     <b>wasd</b> move · <b>shift</b> sprint · <b>space</b> jump (hold = bhop) · <b>ctrl</b> crouch<br>
     <b>lmb</b> fire · <b>rmb</b> scope · <b>r</b> reload · <b>1-6</b> / <b>wheel</b> weapons (5 nade, 6 molotov)<br><b>t</b> chat · <b>v</b> mic · <b>tab</b> scores
+  </div>
+  <div class="keys touch-only">
+    <b>left stick</b> move (push far to sprint) · <b>drag right</b> look<br>
+    <b>fire · jump · crouch · reload</b> buttons · <b>ads</b> to scope · tap a <b>weapon</b><br>add to home screen for fullscreen · rotate to landscape
   </div>
 </div>
 
@@ -222,6 +339,36 @@
   <div id="vote" class="hidden"><div class="vh">vote next map</div><div id="vote-cards"></div></div>
   <div id="respawn" class="hidden"><div class="d">eliminated</div><div id="respawn-t">3</div></div>
   <div id="click-to-play" class="hidden">click to play</div>
+
+  <!-- ═══ ON-SCREEN TOUCH CONTROLS (shown only in touch mode) ═══ -->
+  <div id="tc-ui">
+    <div id="tc-look"></div>
+    <div id="tc-move"><div id="tc-knob"></div></div>
+    <div id="tc-weapons"></div>
+    <div id="tc-actions">
+      <div class="tc-col">
+        <button class="tcb" id="tc-reload">RLD</button>
+        <button class="tcb" id="tc-crouch">CR</button>
+        <button class="tcb" id="tc-jump">JMP</button>
+      </div>
+      <div class="tc-col">
+        <button class="tcb" id="tc-scope">ADS</button>
+        <button class="tcb" id="tc-fire">FIRE</button>
+      </div>
+    </div>
+    <div id="tc-util">
+      <button class="tcb" id="tc-scores" title="scoreboard">▤</button>
+      <button class="tcb" id="tc-chat" title="chat">💬</button>
+      <button class="tcb" id="tc-mic" title="mic">🎙</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ ROTATE-TO-LANDSCAPE HINT (touch + portrait, in match) ═══ -->
+<div id="rotate-hint">
+  <div class="ico">📱</div>
+  <div class="t">rotate your device</div>
+  <div class="s">SlopWars plays in landscape</div>
 </div>
 
 <!-- ═══ END ═══ -->

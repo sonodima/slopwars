@@ -27,6 +27,7 @@ import {
   Vec3, WEAPONS, WeaponDef, WeaponId, LOADOUT, clamp, rand, randomPowerup,
 } from "./types";
 import { Voice } from "./voice";
+import { TouchControls } from "./touch";
 import { TracerPool, WeaponSystem } from "./weapons";
 
 class Game {
@@ -57,6 +58,8 @@ class Game {
   hud = new Hud();
   net = new Net();
   voice = new Voice();
+  touch = new TouchControls();
+  touchMode = false; // true once a touch input is seen (drives virtual controls)
 
   remotes = new Map<string, RemotePlayer>();
   names = new Map<string, string>();
@@ -209,6 +212,7 @@ class Game {
 
     window.addEventListener("beforeunload", () => this.net.leave());
     this.bindInput();
+    this.bindTouch();
     this.wireNet();
     this.wireHud();
 
@@ -230,6 +234,13 @@ class Game {
       sfx.unlock();
       if (!this.inGame) sfx.startTheme();
     }, { once: true });
+
+    // register the PWA service worker (installable / offline shell) in prod only
+    if (import.meta.env.PROD && "serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        void navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch(() => {});
+      });
+    }
   }
 
   // ─── input ──────────────────────────────────────────────────────────────────
@@ -239,14 +250,15 @@ class Game {
 
     document.addEventListener("pointerlockchange", () => {
       this.locked = document.pointerLockElement === canvas;
-      if (this.inGame) this.hud.clickToPlay(!this.locked);
+      if (this.inGame && !this.touchMode) this.hud.clickToPlay(!this.locked);
       if (!this.locked) { this.keys.clear(); this.fireHeld = false; }
     });
     canvas.addEventListener("click", () => {
+      if (this.touchMode) return; // touch mode drives look/fire without pointer lock
       if (this.inGame && !this.locked) canvas.requestPointerLock();
     });
     document.getElementById("click-to-play")!.addEventListener("click", () => {
-      if (this.inGame && !this.locked) canvas.requestPointerLock();
+      if (this.inGame && !this.locked && !this.touchMode) canvas.requestPointerLock();
     });
 
     document.addEventListener("mousemove", (e) => {
@@ -308,16 +320,67 @@ class Game {
     this.hud.crosshair(!this.ws.scoped && this.alive);
   }
 
+  // ─── touch controls + device adaptation ───────────────────────────────────────
+
+  bindTouch(): void {
+    const t = this.touch;
+    t.onLook = (dx, dy) => {
+      if (!this.inGame || this.hud.chatOpen) return;
+      if (!(this.alive && this.phase === "play")) return;
+      const sens = 0.005 * (this.ws.scoped ? 0.35 : 1);
+      this.body.look(dx, dy, sens);
+    };
+    t.onFire = (down) => {
+      if (this.hud.chatOpen) { this.fireHeld = false; return; }
+      this.fireHeld = down;
+      if (down) this.triedFireQueued = true;
+    };
+    t.onJump = (down) => { if (down) this.keys.add("Space"); else this.keys.delete("Space"); };
+    t.onCrouch = (down) => { if (down) this.keys.add("ControlLeft"); else this.keys.delete("ControlLeft"); };
+    t.onScore = (down) => { this.sbOpen = down; };
+    t.onScope = () => {
+      if (this.ws.def().scope && this.alive) { this.ws.setScope(!this.ws.scoped); this.applyScopeFov(); }
+    };
+    t.onReload = () => { if (this.alive) this.ws.reload(); };
+    t.onWeapon = (i) => { if (this.alive) { this.ws.select(LOADOUT[i]); this.applyScopeFov(); } };
+    t.onChat = () => { this.keys.clear(); this.fireHeld = false; this.hud.openChat(); };
+    t.onMic = () => {
+      if (this.voice.micOk) { this.voice.setMuted(!this.voice.muted); this.hud.voice(this.voice.muted ? "muted" : "on"); }
+    };
+    t.build();
+
+    // Adapt to the input device: switch to virtual controls the moment a touch
+    // is seen, and back to mouse/keyboard on real mouse input (last one wins).
+    // Desktop play is never altered — the touch overlay stays hidden + inert.
+    const setMode = (on: boolean): void => {
+      if (on === this.touchMode) return;
+      this.touchMode = on;
+      document.body.classList.toggle("touch", on);
+      this.touch.setEnabled(on);
+      this.touch.setWeapon(this.ws.current);
+      if (on && this.inGame) { this.hud.clickToPlay(false); document.exitPointerLock(); }
+    };
+    window.addEventListener("pointerdown", (e) => {
+      if (e.pointerType === "touch") setMode(true);
+      else if (e.pointerType === "mouse") setMode(false);
+    }, { capture: true });
+    window.addEventListener("pointermove", (e) => {
+      if (e.pointerType === "mouse" && (e.movementX || e.movementY)) setMode(false);
+    }, { capture: true });
+  }
+
   // ─── loop ───────────────────────────────────────────────────────────────────
 
   tick(dt: number, now: number): void {
     if (this.inGame) {
+      const kFwd = (this.keys.has("KeyW") ? 1 : 0) - (this.keys.has("KeyS") ? 1 : 0);
+      const kRight = (this.keys.has("KeyD") ? 1 : 0) - (this.keys.has("KeyA") ? 1 : 0);
       const inp: Input = {
-        fwd: (this.keys.has("KeyW") ? 1 : 0) - (this.keys.has("KeyS") ? 1 : 0),
-        right: (this.keys.has("KeyD") ? 1 : 0) - (this.keys.has("KeyA") ? 1 : 0),
+        fwd: clamp(kFwd + this.touch.moveY, -1, 1),
+        right: clamp(kRight + this.touch.moveX, -1, 1),
         jump: this.keys.has("Space"),
         crouch: this.keys.has("ControlLeft") || this.keys.has("KeyC"),
-        sprint: this.keys.has("ShiftLeft") || this.keys.has("ShiftRight"),
+        sprint: this.keys.has("ShiftLeft") || this.keys.has("ShiftRight") || this.touch.sprint,
       };
       const canPlay = this.alive && this.phase === "play";
       const speedBuff = this.buff?.kind === "speed" ? SPEED_MULT : 1;
@@ -1426,12 +1489,13 @@ class Game {
     this.hud.hp(this.myHp);
     this.refreshAmmoHud();
     this.hud.crosshair(true);
-    this.hud.clickToPlay(true);
+    this.hud.clickToPlay(!this.touchMode);
   }
 
   refreshAmmoHud(): void {
     const a = this.ws.ammo[this.ws.current];
     this.hud.ammo(this.ws.current, a.mag, a.reserve, this.ws.reloading > 0);
+    this.touch.setWeapon(this.ws.current);
   }
 }
 
