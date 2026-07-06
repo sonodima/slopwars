@@ -47,2539 +47,2933 @@
     "stone": "office_tile",
     "dark": "office_ceil"
   },
-  "brushes": [
+  "objects": [
     {
-      "k": "box",
+      "type": "box",
       "at": [
         0,
         -0.5,
         0
       ],
-      "size": [
+      "scale": [
         56,
         1,
         42
       ],
-      "mat": "floor",
-      "tile": [
-        16,
-        12
-      ]
+      "params": {
+        "mat": "floor",
+        "tile": [
+          16,
+          12
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -24.15,
         2.5,
         -20.6
       ],
-      "size": [
+      "scale": [
         5.699999999999999,
         5,
         1.2
       ],
-      "mat": "wall",
-      "tile": [
-        1.4249999999999998,
-        1.4
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          1.4249999999999998,
+          1.4
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -15.5,
         2.5,
         -20.6
       ],
-      "size": [
+      "scale": [
         6.399999999999999,
         5,
         1.2
       ],
-      "mat": "wall",
-      "tile": [
-        1.5999999999999996,
-        1.4
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          1.5999999999999996,
+          1.4
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         0,
         2.5,
         -20.6
       ],
-      "size": [
+      "scale": [
         19.4,
         5,
         1.2
       ],
-      "mat": "wall",
-      "tile": [
-        4.85,
-        1.4
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          4.85,
+          1.4
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         15.5,
         2.5,
         -20.6
       ],
-      "size": [
+      "scale": [
         6.399999999999999,
         5,
         1.2
       ],
-      "mat": "wall",
-      "tile": [
-        1.5999999999999996,
-        1.4
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          1.5999999999999996,
+          1.4
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         24.15,
         2.5,
         -20.6
       ],
-      "size": [
+      "scale": [
         5.699999999999999,
         5,
         1.2
       ],
-      "mat": "wall",
-      "tile": [
-        1.4249999999999998,
-        1.4
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          1.4249999999999998,
+          1.4
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -20,
         0.5,
         -20.6
       ],
-      "size": [
+      "scale": [
         2.6,
         1,
         1.2
       ],
-      "mat": "wall",
-      "tile": [
-        0.7,
-        0.3
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          0.7,
+          0.3
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -20,
         3.85,
         -20.6
       ],
-      "size": [
+      "scale": [
         2.6,
         2.3,
         1.2
       ],
-      "mat": "wall",
-      "tile": [
-        0.7,
-        0.6
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          0.7,
+          0.6
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -20,
         1.07,
         -20.6
       ],
-      "size": [
+      "scale": [
         2.9,
         0.14,
         1.5
       ],
-      "mat": "stone",
-      "tile": [
-        0.8,
-        0.1
-      ]
+      "params": {
+        "mat": "stone",
+        "tile": [
+          0.8,
+          0.1
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -20,
         1.85,
         -20.6
       ],
-      "size": [
+      "scale": [
         0.12,
         1.7000000000000002,
         0.6
       ],
-      "mat": "dark",
-      "tile": [
-        0.1,
-        0.6
-      ],
-      "solid": false
+      "params": {
+        "mat": "dark",
+        "tile": [
+          0.1,
+          0.6
+        ],
+        "solid": false
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -11,
         0.5,
         -20.6
       ],
-      "size": [
+      "scale": [
         2.6,
         1,
         1.2
       ],
-      "mat": "wall",
-      "tile": [
-        0.7,
-        0.3
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          0.7,
+          0.3
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -11,
         3.85,
         -20.6
       ],
-      "size": [
+      "scale": [
         2.6,
         2.3,
         1.2
       ],
-      "mat": "wall",
-      "tile": [
-        0.7,
-        0.6
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          0.7,
+          0.6
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -11,
         1.07,
         -20.6
       ],
-      "size": [
+      "scale": [
         2.9,
         0.14,
         1.5
       ],
-      "mat": "stone",
-      "tile": [
-        0.8,
-        0.1
-      ]
+      "params": {
+        "mat": "stone",
+        "tile": [
+          0.8,
+          0.1
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -11,
         1.85,
         -20.6
       ],
-      "size": [
+      "scale": [
         0.12,
         1.7000000000000002,
         0.6
       ],
-      "mat": "dark",
-      "tile": [
-        0.1,
-        0.6
-      ],
-      "solid": false
+      "params": {
+        "mat": "dark",
+        "tile": [
+          0.1,
+          0.6
+        ],
+        "solid": false
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         11,
         0.5,
         -20.6
       ],
-      "size": [
+      "scale": [
         2.6,
         1,
         1.2
       ],
-      "mat": "wall",
-      "tile": [
-        0.7,
-        0.3
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          0.7,
+          0.3
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         11,
         3.85,
         -20.6
       ],
-      "size": [
+      "scale": [
         2.6,
         2.3,
         1.2
       ],
-      "mat": "wall",
-      "tile": [
-        0.7,
-        0.6
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          0.7,
+          0.6
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         11,
         1.07,
         -20.6
       ],
-      "size": [
+      "scale": [
         2.9,
         0.14,
         1.5
       ],
-      "mat": "stone",
-      "tile": [
-        0.8,
-        0.1
-      ]
+      "params": {
+        "mat": "stone",
+        "tile": [
+          0.8,
+          0.1
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         11,
         1.85,
         -20.6
       ],
-      "size": [
+      "scale": [
         0.12,
         1.7000000000000002,
         0.6
       ],
-      "mat": "dark",
-      "tile": [
-        0.1,
-        0.6
-      ],
-      "solid": false
+      "params": {
+        "mat": "dark",
+        "tile": [
+          0.1,
+          0.6
+        ],
+        "solid": false
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         20,
         0.5,
         -20.6
       ],
-      "size": [
+      "scale": [
         2.6,
         1,
         1.2
       ],
-      "mat": "wall",
-      "tile": [
-        0.7,
-        0.3
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          0.7,
+          0.3
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         20,
         3.85,
         -20.6
       ],
-      "size": [
+      "scale": [
         2.6,
         2.3,
         1.2
       ],
-      "mat": "wall",
-      "tile": [
-        0.7,
-        0.6
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          0.7,
+          0.6
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         20,
         1.07,
         -20.6
       ],
-      "size": [
+      "scale": [
         2.9,
         0.14,
         1.5
       ],
-      "mat": "stone",
-      "tile": [
-        0.8,
-        0.1
-      ]
+      "params": {
+        "mat": "stone",
+        "tile": [
+          0.8,
+          0.1
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         20,
         1.85,
         -20.6
       ],
-      "size": [
+      "scale": [
         0.12,
         1.7000000000000002,
         0.6
       ],
-      "mat": "dark",
-      "tile": [
-        0.1,
-        0.6
-      ],
-      "solid": false
+      "params": {
+        "mat": "dark",
+        "tile": [
+          0.1,
+          0.6
+        ],
+        "solid": false
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -24.15,
         2.5,
         20.6
       ],
-      "size": [
+      "scale": [
         5.699999999999999,
         5,
         1.2
       ],
-      "mat": "wall",
-      "tile": [
-        1.4249999999999998,
-        1.4
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          1.4249999999999998,
+          1.4
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -15.5,
         2.5,
         20.6
       ],
-      "size": [
+      "scale": [
         6.399999999999999,
         5,
         1.2
       ],
-      "mat": "wall",
-      "tile": [
-        1.5999999999999996,
-        1.4
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          1.5999999999999996,
+          1.4
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         0,
         2.5,
         20.6
       ],
-      "size": [
+      "scale": [
         19.4,
         5,
         1.2
       ],
-      "mat": "wall",
-      "tile": [
-        4.85,
-        1.4
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          4.85,
+          1.4
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         15.5,
         2.5,
         20.6
       ],
-      "size": [
+      "scale": [
         6.399999999999999,
         5,
         1.2
       ],
-      "mat": "wall",
-      "tile": [
-        1.5999999999999996,
-        1.4
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          1.5999999999999996,
+          1.4
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         24.15,
         2.5,
         20.6
       ],
-      "size": [
+      "scale": [
         5.699999999999999,
         5,
         1.2
       ],
-      "mat": "wall",
-      "tile": [
-        1.4249999999999998,
-        1.4
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          1.4249999999999998,
+          1.4
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -20,
         0.5,
         20.6
       ],
-      "size": [
+      "scale": [
         2.6,
         1,
         1.2
       ],
-      "mat": "wall",
-      "tile": [
-        0.7,
-        0.3
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          0.7,
+          0.3
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -20,
         3.85,
         20.6
       ],
-      "size": [
+      "scale": [
         2.6,
         2.3,
         1.2
       ],
-      "mat": "wall",
-      "tile": [
-        0.7,
-        0.6
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          0.7,
+          0.6
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -20,
         1.07,
         20.6
       ],
-      "size": [
+      "scale": [
         2.9,
         0.14,
         1.5
       ],
-      "mat": "stone",
-      "tile": [
-        0.8,
-        0.1
-      ]
+      "params": {
+        "mat": "stone",
+        "tile": [
+          0.8,
+          0.1
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -20,
         1.85,
         20.6
       ],
-      "size": [
+      "scale": [
         0.12,
         1.7000000000000002,
         0.6
       ],
-      "mat": "dark",
-      "tile": [
-        0.1,
-        0.6
-      ],
-      "solid": false
+      "params": {
+        "mat": "dark",
+        "tile": [
+          0.1,
+          0.6
+        ],
+        "solid": false
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -11,
         0.5,
         20.6
       ],
-      "size": [
+      "scale": [
         2.6,
         1,
         1.2
       ],
-      "mat": "wall",
-      "tile": [
-        0.7,
-        0.3
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          0.7,
+          0.3
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -11,
         3.85,
         20.6
       ],
-      "size": [
+      "scale": [
         2.6,
         2.3,
         1.2
       ],
-      "mat": "wall",
-      "tile": [
-        0.7,
-        0.6
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          0.7,
+          0.6
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -11,
         1.07,
         20.6
       ],
-      "size": [
+      "scale": [
         2.9,
         0.14,
         1.5
       ],
-      "mat": "stone",
-      "tile": [
-        0.8,
-        0.1
-      ]
+      "params": {
+        "mat": "stone",
+        "tile": [
+          0.8,
+          0.1
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -11,
         1.85,
         20.6
       ],
-      "size": [
+      "scale": [
         0.12,
         1.7000000000000002,
         0.6
       ],
-      "mat": "dark",
-      "tile": [
-        0.1,
-        0.6
-      ],
-      "solid": false
+      "params": {
+        "mat": "dark",
+        "tile": [
+          0.1,
+          0.6
+        ],
+        "solid": false
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         11,
         0.5,
         20.6
       ],
-      "size": [
+      "scale": [
         2.6,
         1,
         1.2
       ],
-      "mat": "wall",
-      "tile": [
-        0.7,
-        0.3
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          0.7,
+          0.3
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         11,
         3.85,
         20.6
       ],
-      "size": [
+      "scale": [
         2.6,
         2.3,
         1.2
       ],
-      "mat": "wall",
-      "tile": [
-        0.7,
-        0.6
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          0.7,
+          0.6
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         11,
         1.07,
         20.6
       ],
-      "size": [
+      "scale": [
         2.9,
         0.14,
         1.5
       ],
-      "mat": "stone",
-      "tile": [
-        0.8,
-        0.1
-      ]
+      "params": {
+        "mat": "stone",
+        "tile": [
+          0.8,
+          0.1
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         11,
         1.85,
         20.6
       ],
-      "size": [
+      "scale": [
         0.12,
         1.7000000000000002,
         0.6
       ],
-      "mat": "dark",
-      "tile": [
-        0.1,
-        0.6
-      ],
-      "solid": false
+      "params": {
+        "mat": "dark",
+        "tile": [
+          0.1,
+          0.6
+        ],
+        "solid": false
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         20,
         0.5,
         20.6
       ],
-      "size": [
+      "scale": [
         2.6,
         1,
         1.2
       ],
-      "mat": "wall",
-      "tile": [
-        0.7,
-        0.3
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          0.7,
+          0.3
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         20,
         3.85,
         20.6
       ],
-      "size": [
+      "scale": [
         2.6,
         2.3,
         1.2
       ],
-      "mat": "wall",
-      "tile": [
-        0.7,
-        0.6
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          0.7,
+          0.6
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         20,
         1.07,
         20.6
       ],
-      "size": [
+      "scale": [
         2.9,
         0.14,
         1.5
       ],
-      "mat": "stone",
-      "tile": [
-        0.8,
-        0.1
-      ]
+      "params": {
+        "mat": "stone",
+        "tile": [
+          0.8,
+          0.1
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         20,
         1.85,
         20.6
       ],
-      "size": [
+      "scale": [
         0.12,
         1.7000000000000002,
         0.6
       ],
-      "mat": "dark",
-      "tile": [
-        0.1,
-        0.6
-      ],
-      "solid": false
+      "params": {
+        "mat": "dark",
+        "tile": [
+          0.1,
+          0.6
+        ],
+        "solid": false
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -27.6,
         2.5,
         -17.65
       ],
-      "size": [
+      "scale": [
         1.2,
         5,
         4.699999999999999
       ],
-      "mat": "wall",
-      "tile": [
-        1.1749999999999998,
-        1.4
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          1.1749999999999998,
+          1.4
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -27.6,
         2.5,
         -10.5
       ],
-      "size": [
+      "scale": [
         1.2,
         5,
         4.399999999999999
       ],
-      "mat": "wall",
-      "tile": [
-        1.0999999999999996,
-        1.4
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          1.0999999999999996,
+          1.4
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -27.6,
         2.5,
         0
       ],
-      "size": [
+      "scale": [
         1.2,
         5,
         11.4
       ],
-      "mat": "wall",
-      "tile": [
-        2.85,
-        1.4
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          2.85,
+          1.4
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -27.6,
         2.5,
         10.5
       ],
-      "size": [
+      "scale": [
         1.2,
         5,
         4.399999999999999
       ],
-      "mat": "wall",
-      "tile": [
-        1.0999999999999996,
-        1.4
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          1.0999999999999996,
+          1.4
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -27.6,
         2.5,
         17.65
       ],
-      "size": [
+      "scale": [
         1.2,
         5,
         4.699999999999999
       ],
-      "mat": "wall",
-      "tile": [
-        1.1749999999999998,
-        1.4
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          1.1749999999999998,
+          1.4
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -27.6,
         0.5,
         -14
       ],
-      "size": [
+      "scale": [
         1.2,
         1,
         2.6
       ],
-      "mat": "wall",
-      "tile": [
-        0.7,
-        0.3
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          0.7,
+          0.3
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -27.6,
         3.85,
         -14
       ],
-      "size": [
+      "scale": [
         1.2,
         2.3,
         2.6
       ],
-      "mat": "wall",
-      "tile": [
-        0.7,
-        0.6
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          0.7,
+          0.6
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -27.6,
         1.07,
         -14
       ],
-      "size": [
+      "scale": [
         1.5,
         0.14,
         2.9
       ],
-      "mat": "stone",
-      "tile": [
-        0.8,
-        0.1
-      ]
+      "params": {
+        "mat": "stone",
+        "tile": [
+          0.8,
+          0.1
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -27.6,
         1.85,
         -14
       ],
-      "size": [
+      "scale": [
         0.6,
         1.7000000000000002,
         0.12
       ],
-      "mat": "dark",
-      "tile": [
-        0.1,
-        0.6
-      ],
-      "solid": false
+      "params": {
+        "mat": "dark",
+        "tile": [
+          0.1,
+          0.6
+        ],
+        "solid": false
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -27.6,
         0.5,
         -7
       ],
-      "size": [
+      "scale": [
         1.2,
         1,
         2.6
       ],
-      "mat": "wall",
-      "tile": [
-        0.7,
-        0.3
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          0.7,
+          0.3
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -27.6,
         3.85,
         -7
       ],
-      "size": [
+      "scale": [
         1.2,
         2.3,
         2.6
       ],
-      "mat": "wall",
-      "tile": [
-        0.7,
-        0.6
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          0.7,
+          0.6
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -27.6,
         1.07,
         -7
       ],
-      "size": [
+      "scale": [
         1.5,
         0.14,
         2.9
       ],
-      "mat": "stone",
-      "tile": [
-        0.8,
-        0.1
-      ]
+      "params": {
+        "mat": "stone",
+        "tile": [
+          0.8,
+          0.1
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -27.6,
         1.85,
         -7
       ],
-      "size": [
+      "scale": [
         0.6,
         1.7000000000000002,
         0.12
       ],
-      "mat": "dark",
-      "tile": [
-        0.1,
-        0.6
-      ],
-      "solid": false
+      "params": {
+        "mat": "dark",
+        "tile": [
+          0.1,
+          0.6
+        ],
+        "solid": false
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -27.6,
         0.5,
         7
       ],
-      "size": [
+      "scale": [
         1.2,
         1,
         2.6
       ],
-      "mat": "wall",
-      "tile": [
-        0.7,
-        0.3
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          0.7,
+          0.3
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -27.6,
         3.85,
         7
       ],
-      "size": [
+      "scale": [
         1.2,
         2.3,
         2.6
       ],
-      "mat": "wall",
-      "tile": [
-        0.7,
-        0.6
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          0.7,
+          0.6
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -27.6,
         1.07,
         7
       ],
-      "size": [
+      "scale": [
         1.5,
         0.14,
         2.9
       ],
-      "mat": "stone",
-      "tile": [
-        0.8,
-        0.1
-      ]
+      "params": {
+        "mat": "stone",
+        "tile": [
+          0.8,
+          0.1
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -27.6,
         1.85,
         7
       ],
-      "size": [
+      "scale": [
         0.6,
         1.7000000000000002,
         0.12
       ],
-      "mat": "dark",
-      "tile": [
-        0.1,
-        0.6
-      ],
-      "solid": false
+      "params": {
+        "mat": "dark",
+        "tile": [
+          0.1,
+          0.6
+        ],
+        "solid": false
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -27.6,
         0.5,
         14
       ],
-      "size": [
+      "scale": [
         1.2,
         1,
         2.6
       ],
-      "mat": "wall",
-      "tile": [
-        0.7,
-        0.3
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          0.7,
+          0.3
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -27.6,
         3.85,
         14
       ],
-      "size": [
+      "scale": [
         1.2,
         2.3,
         2.6
       ],
-      "mat": "wall",
-      "tile": [
-        0.7,
-        0.6
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          0.7,
+          0.6
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -27.6,
         1.07,
         14
       ],
-      "size": [
+      "scale": [
         1.5,
         0.14,
         2.9
       ],
-      "mat": "stone",
-      "tile": [
-        0.8,
-        0.1
-      ]
+      "params": {
+        "mat": "stone",
+        "tile": [
+          0.8,
+          0.1
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -27.6,
         1.85,
         14
       ],
-      "size": [
+      "scale": [
         0.6,
         1.7000000000000002,
         0.12
       ],
-      "mat": "dark",
-      "tile": [
-        0.1,
-        0.6
-      ],
-      "solid": false
+      "params": {
+        "mat": "dark",
+        "tile": [
+          0.1,
+          0.6
+        ],
+        "solid": false
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         27.6,
         2.5,
         -17.65
       ],
-      "size": [
+      "scale": [
         1.2,
         5,
         4.699999999999999
       ],
-      "mat": "wall",
-      "tile": [
-        1.1749999999999998,
-        1.4
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          1.1749999999999998,
+          1.4
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         27.6,
         2.5,
         -10.5
       ],
-      "size": [
+      "scale": [
         1.2,
         5,
         4.399999999999999
       ],
-      "mat": "wall",
-      "tile": [
-        1.0999999999999996,
-        1.4
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          1.0999999999999996,
+          1.4
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         27.6,
         2.5,
         0
       ],
-      "size": [
+      "scale": [
         1.2,
         5,
         11.4
       ],
-      "mat": "wall",
-      "tile": [
-        2.85,
-        1.4
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          2.85,
+          1.4
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         27.6,
         2.5,
         10.5
       ],
-      "size": [
+      "scale": [
         1.2,
         5,
         4.399999999999999
       ],
-      "mat": "wall",
-      "tile": [
-        1.0999999999999996,
-        1.4
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          1.0999999999999996,
+          1.4
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         27.6,
         2.5,
         17.65
       ],
-      "size": [
+      "scale": [
         1.2,
         5,
         4.699999999999999
       ],
-      "mat": "wall",
-      "tile": [
-        1.1749999999999998,
-        1.4
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          1.1749999999999998,
+          1.4
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         27.6,
         0.5,
         -14
       ],
-      "size": [
+      "scale": [
         1.2,
         1,
         2.6
       ],
-      "mat": "wall",
-      "tile": [
-        0.7,
-        0.3
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          0.7,
+          0.3
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         27.6,
         3.85,
         -14
       ],
-      "size": [
+      "scale": [
         1.2,
         2.3,
         2.6
       ],
-      "mat": "wall",
-      "tile": [
-        0.7,
-        0.6
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          0.7,
+          0.6
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         27.6,
         1.07,
         -14
       ],
-      "size": [
+      "scale": [
         1.5,
         0.14,
         2.9
       ],
-      "mat": "stone",
-      "tile": [
-        0.8,
-        0.1
-      ]
+      "params": {
+        "mat": "stone",
+        "tile": [
+          0.8,
+          0.1
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         27.6,
         1.85,
         -14
       ],
-      "size": [
+      "scale": [
         0.6,
         1.7000000000000002,
         0.12
       ],
-      "mat": "dark",
-      "tile": [
-        0.1,
-        0.6
-      ],
-      "solid": false
+      "params": {
+        "mat": "dark",
+        "tile": [
+          0.1,
+          0.6
+        ],
+        "solid": false
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         27.6,
         0.5,
         -7
       ],
-      "size": [
+      "scale": [
         1.2,
         1,
         2.6
       ],
-      "mat": "wall",
-      "tile": [
-        0.7,
-        0.3
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          0.7,
+          0.3
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         27.6,
         3.85,
         -7
       ],
-      "size": [
+      "scale": [
         1.2,
         2.3,
         2.6
       ],
-      "mat": "wall",
-      "tile": [
-        0.7,
-        0.6
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          0.7,
+          0.6
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         27.6,
         1.07,
         -7
       ],
-      "size": [
+      "scale": [
         1.5,
         0.14,
         2.9
       ],
-      "mat": "stone",
-      "tile": [
-        0.8,
-        0.1
-      ]
+      "params": {
+        "mat": "stone",
+        "tile": [
+          0.8,
+          0.1
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         27.6,
         1.85,
         -7
       ],
-      "size": [
+      "scale": [
         0.6,
         1.7000000000000002,
         0.12
       ],
-      "mat": "dark",
-      "tile": [
-        0.1,
-        0.6
-      ],
-      "solid": false
+      "params": {
+        "mat": "dark",
+        "tile": [
+          0.1,
+          0.6
+        ],
+        "solid": false
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         27.6,
         0.5,
         7
       ],
-      "size": [
+      "scale": [
         1.2,
         1,
         2.6
       ],
-      "mat": "wall",
-      "tile": [
-        0.7,
-        0.3
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          0.7,
+          0.3
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         27.6,
         3.85,
         7
       ],
-      "size": [
+      "scale": [
         1.2,
         2.3,
         2.6
       ],
-      "mat": "wall",
-      "tile": [
-        0.7,
-        0.6
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          0.7,
+          0.6
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         27.6,
         1.07,
         7
       ],
-      "size": [
+      "scale": [
         1.5,
         0.14,
         2.9
       ],
-      "mat": "stone",
-      "tile": [
-        0.8,
-        0.1
-      ]
+      "params": {
+        "mat": "stone",
+        "tile": [
+          0.8,
+          0.1
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         27.6,
         1.85,
         7
       ],
-      "size": [
+      "scale": [
         0.6,
         1.7000000000000002,
         0.12
       ],
-      "mat": "dark",
-      "tile": [
-        0.1,
-        0.6
-      ],
-      "solid": false
+      "params": {
+        "mat": "dark",
+        "tile": [
+          0.1,
+          0.6
+        ],
+        "solid": false
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         27.6,
         0.5,
         14
       ],
-      "size": [
+      "scale": [
         1.2,
         1,
         2.6
       ],
-      "mat": "wall",
-      "tile": [
-        0.7,
-        0.3
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          0.7,
+          0.3
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         27.6,
         3.85,
         14
       ],
-      "size": [
+      "scale": [
         1.2,
         2.3,
         2.6
       ],
-      "mat": "wall",
-      "tile": [
-        0.7,
-        0.6
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          0.7,
+          0.6
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         27.6,
         1.07,
         14
       ],
-      "size": [
+      "scale": [
         1.5,
         0.14,
         2.9
       ],
-      "mat": "stone",
-      "tile": [
-        0.8,
-        0.1
-      ]
+      "params": {
+        "mat": "stone",
+        "tile": [
+          0.8,
+          0.1
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         27.6,
         1.85,
         14
       ],
-      "size": [
+      "scale": [
         0.6,
         1.7000000000000002,
         0.12
       ],
-      "mat": "dark",
-      "tile": [
-        0.1,
-        0.6
-      ],
-      "solid": false
+      "params": {
+        "mat": "dark",
+        "tile": [
+          0.1,
+          0.6
+        ],
+        "solid": false
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -27.6,
         2.5,
         -20.6
       ],
-      "size": [
+      "scale": [
         1.2,
         5,
         1.2
       ],
-      "mat": "wall",
-      "tile": [
-        0.3,
-        1.4
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          0.3,
+          1.4
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         27.6,
         2.5,
         -20.6
       ],
-      "size": [
+      "scale": [
         1.2,
         5,
         1.2
       ],
-      "mat": "wall",
-      "tile": [
-        0.3,
-        1.4
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          0.3,
+          1.4
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -27.6,
         2.5,
         20.6
       ],
-      "size": [
+      "scale": [
         1.2,
         5,
         1.2
       ],
-      "mat": "wall",
-      "tile": [
-        0.3,
-        1.4
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          0.3,
+          1.4
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         27.6,
         2.5,
         20.6
       ],
-      "size": [
+      "scale": [
         1.2,
         5,
         1.2
       ],
-      "mat": "wall",
-      "tile": [
-        0.3,
-        1.4
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          0.3,
+          1.4
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         0,
         4.85,
         -11.5
       ],
-      "size": [
+      "scale": [
         56,
         0.3,
         17
       ],
-      "mat": "dark",
-      "tile": [
-        14,
-        5
-      ],
-      "solid": false
+      "params": {
+        "mat": "dark",
+        "tile": [
+          14,
+          5
+        ],
+        "solid": false
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         0,
         4.85,
         11.5
       ],
-      "size": [
+      "scale": [
         56,
         0.3,
         17
       ],
-      "mat": "dark",
-      "tile": [
-        14,
-        5
-      ],
-      "solid": false
+      "params": {
+        "mat": "dark",
+        "tile": [
+          14,
+          5
+        ],
+        "solid": false
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -15.5,
         4.85,
         0
       ],
-      "size": [
+      "scale": [
         25,
         0.3,
         6
       ],
-      "mat": "dark",
-      "tile": [
-        7,
-        2
-      ],
-      "solid": false
+      "params": {
+        "mat": "dark",
+        "tile": [
+          7,
+          2
+        ],
+        "solid": false
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         15.5,
         4.85,
         0
       ],
-      "size": [
+      "scale": [
         25,
         0.3,
         6
       ],
-      "mat": "dark",
-      "tile": [
-        7,
-        2
-      ],
-      "solid": false
+      "params": {
+        "mat": "dark",
+        "tile": [
+          7,
+          2
+        ],
+        "solid": false
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         0,
         4.7,
         0
       ],
-      "size": [
+      "scale": [
         6.6,
         0.3,
         0.4
       ],
-      "mat": "stone",
-      "tile": [
-        2,
-        0.1
-      ],
-      "solid": false
+      "params": {
+        "mat": "stone",
+        "tile": [
+          2,
+          0.1
+        ],
+        "solid": false
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         0,
         4.7,
         0
       ],
-      "size": [
+      "scale": [
         0.4,
         0.3,
         6.6
       ],
-      "mat": "stone",
-      "tile": [
-        0.1,
-        2
-      ],
-      "solid": false
+      "params": {
+        "mat": "stone",
+        "tile": [
+          0.1,
+          2
+        ],
+        "solid": false
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -3,
         2.35,
         -15
       ],
-      "size": [
+      "scale": [
         0.35,
         4.7,
         10
       ],
-      "mat": "wall",
-      "tile": [
-        3,
-        1.6
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          3,
+          1.6
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -3,
         2.35,
         -5.5
       ],
-      "size": [
+      "scale": [
         0.35,
         4.7,
         5
       ],
-      "mat": "wall",
-      "tile": [
-        1.5,
-        1.6
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          1.5,
+          1.6
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -3,
         2.35,
         5.5
       ],
-      "size": [
+      "scale": [
         0.35,
         4.7,
         5
       ],
-      "mat": "wall",
-      "tile": [
-        1.5,
-        1.6
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          1.5,
+          1.6
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -3,
         2.35,
         15
       ],
-      "size": [
+      "scale": [
         0.35,
         4.7,
         10
       ],
-      "mat": "wall",
-      "tile": [
-        3,
-        1.6
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          3,
+          1.6
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -3,
         3.45,
         -9
       ],
-      "size": [
+      "scale": [
         0.35,
         2.5,
         2
       ],
-      "mat": "wall",
-      "tile": [
-        0.6,
-        0.8
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          0.6,
+          0.8
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -3,
         3.45,
         9
       ],
-      "size": [
+      "scale": [
         0.35,
         2.5,
         2
       ],
-      "mat": "wall",
-      "tile": [
-        0.6,
-        0.8
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          0.6,
+          0.8
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         3,
         2.35,
         -15
       ],
-      "size": [
+      "scale": [
         0.35,
         4.7,
         10
       ],
-      "mat": "wall",
-      "tile": [
-        3,
-        1.6
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          3,
+          1.6
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         3,
         2.35,
         -5.5
       ],
-      "size": [
+      "scale": [
         0.35,
         4.7,
         5
       ],
-      "mat": "wall",
-      "tile": [
-        1.5,
-        1.6
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          1.5,
+          1.6
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         3,
         2.35,
         5.5
       ],
-      "size": [
+      "scale": [
         0.35,
         4.7,
         5
       ],
-      "mat": "wall",
-      "tile": [
-        1.5,
-        1.6
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          1.5,
+          1.6
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         3,
         2.35,
         15
       ],
-      "size": [
+      "scale": [
         0.35,
         4.7,
         10
       ],
-      "mat": "wall",
-      "tile": [
-        3,
-        1.6
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          3,
+          1.6
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         3,
         3.45,
         -9
       ],
-      "size": [
+      "scale": [
         0.35,
         2.5,
         2
       ],
-      "mat": "wall",
-      "tile": [
-        0.6,
-        0.8
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          0.6,
+          0.8
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         3,
         3.45,
         9
       ],
-      "size": [
+      "scale": [
         0.35,
         2.5,
         2
       ],
-      "mat": "wall",
-      "tile": [
-        0.6,
-        0.8
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          0.6,
+          0.8
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -21.5,
         2.35,
         -3
       ],
-      "size": [
+      "scale": [
         11,
         4.7,
         0.35
       ],
-      "mat": "wall",
-      "tile": [
-        3.3,
-        1.6
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          3.3,
+          1.6
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -8.5,
         2.35,
         -3
       ],
-      "size": [
+      "scale": [
         11,
         4.7,
         0.35
       ],
-      "mat": "wall",
-      "tile": [
-        3.3,
-        1.6
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          3.3,
+          1.6
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         8.5,
         2.35,
         -3
       ],
-      "size": [
+      "scale": [
         11,
         4.7,
         0.35
       ],
-      "mat": "wall",
-      "tile": [
-        3.3,
-        1.6
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          3.3,
+          1.6
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         21.5,
         2.35,
         -3
       ],
-      "size": [
+      "scale": [
         11,
         4.7,
         0.35
       ],
-      "mat": "wall",
-      "tile": [
-        3.3,
-        1.6
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          3.3,
+          1.6
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -15,
         3.45,
         -3
       ],
-      "size": [
+      "scale": [
         2,
         2.5,
         0.35
       ],
-      "mat": "wall",
-      "tile": [
-        0.6,
-        0.8
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          0.6,
+          0.8
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         15,
         3.45,
         -3
       ],
-      "size": [
+      "scale": [
         2,
         2.5,
         0.35
       ],
-      "mat": "wall",
-      "tile": [
-        0.6,
-        0.8
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          0.6,
+          0.8
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -21.5,
         2.35,
         3
       ],
-      "size": [
+      "scale": [
         11,
         4.7,
         0.35
       ],
-      "mat": "wall",
-      "tile": [
-        3.3,
-        1.6
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          3.3,
+          1.6
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -8.5,
         2.35,
         3
       ],
-      "size": [
+      "scale": [
         11,
         4.7,
         0.35
       ],
-      "mat": "wall",
-      "tile": [
-        3.3,
-        1.6
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          3.3,
+          1.6
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         8.5,
         2.35,
         3
       ],
-      "size": [
+      "scale": [
         11,
         4.7,
         0.35
       ],
-      "mat": "wall",
-      "tile": [
-        3.3,
-        1.6
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          3.3,
+          1.6
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         21.5,
         2.35,
         3
       ],
-      "size": [
+      "scale": [
         11,
         4.7,
         0.35
       ],
-      "mat": "wall",
-      "tile": [
-        3.3,
-        1.6
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          3.3,
+          1.6
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -15,
         3.45,
         3
       ],
-      "size": [
+      "scale": [
         2,
         2.5,
         0.35
       ],
-      "mat": "wall",
-      "tile": [
-        0.6,
-        0.8
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          0.6,
+          0.8
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         15,
         3.45,
         3
       ],
-      "size": [
+      "scale": [
         2,
         2.5,
         0.35
       ],
-      "mat": "wall",
-      "tile": [
-        0.6,
-        0.8
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          0.6,
+          0.8
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -15,
         0.75,
         -11
       ],
-      "size": [
+      "scale": [
         22,
         1.5,
         0.16
       ],
-      "mat": "wall",
-      "tile": [
-        7,
-        0.5
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          7,
+          0.5
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -15,
         0.75,
         -15.5
       ],
-      "size": [
+      "scale": [
         0.16,
         1.5,
         7
       ],
-      "mat": "wall",
-      "tile": [
-        2.3,
-        0.5
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          2.3,
+          0.5
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -15,
         0.75,
         -7
       ],
-      "size": [
+      "scale": [
         0.16,
         1.5,
         6.5
       ],
-      "mat": "wall",
-      "tile": [
-        2.2,
-        0.5
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          2.2,
+          0.5
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -9,
         0.75,
         -18
       ],
-      "size": [
+      "scale": [
         0.16,
         1.5,
         4
       ],
-      "mat": "wall",
-      "tile": [
-        1.4,
-        0.5
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          1.4,
+          0.5
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         -19,
         0.9,
         12
       ],
-      "size": [
+      "scale": [
         0.3,
         1.8,
         8
       ],
-      "mat": "wall",
-      "tile": [
-        3,
-        0.7
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          3,
+          0.7
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         15,
         2.35,
         -14.5
       ],
-      "size": [
+      "scale": [
         0.35,
         4.7,
         9
       ],
-      "mat": "wall",
-      "tile": [
-        2.7,
-        1.6
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          2.7,
+          1.6
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         15,
         2.35,
         -6.5
       ],
-      "size": [
+      "scale": [
         0.35,
         4.7,
         3
       ],
-      "mat": "wall",
-      "tile": [
-        0.9,
-        1.6
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          0.9,
+          1.6
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         15,
         3.45,
         -9
       ],
-      "size": [
+      "scale": [
         0.35,
         2.5,
         2
       ],
-      "mat": "wall",
-      "tile": [
-        0.6,
-        0.8
-      ]
+      "params": {
+        "mat": "wall",
+        "tile": [
+          0.6,
+          0.8
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         9,
         0.5,
         -12
       ],
-      "size": [
+      "scale": [
         5.2,
         1,
         2.4
       ],
-      "mat": "crate",
-      "tile": [
-        2,
-        0.6
-      ]
+      "params": {
+        "mat": "crate",
+        "tile": [
+          2,
+          0.6
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         9,
         1.05,
         -12
       ],
-      "size": [
+      "scale": [
         5.4,
         0.1,
         2.6
       ],
-      "mat": "stone",
-      "tile": [
-        2,
-        1
-      ],
-      "solid": false
+      "params": {
+        "mat": "stone",
+        "tile": [
+          2,
+          1
+        ],
+        "solid": false
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         21,
         0.55,
         -18.5
       ],
-      "size": [
+      "scale": [
         10,
         1.1,
         1.2
       ],
-      "mat": "stone",
-      "tile": [
-        3,
-        0.4
-      ]
+      "params": {
+        "mat": "stone",
+        "tile": [
+          3,
+          0.4
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         21,
         1.15,
         -18.5
       ],
-      "size": [
+      "scale": [
         10.2,
         0.1,
         1.4
       ],
-      "mat": "dark",
-      "tile": [
-        3,
-        0.4
-      ],
-      "solid": false
+      "params": {
+        "mat": "dark",
+        "tile": [
+          3,
+          0.4
+        ],
+        "solid": false
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         9,
         0.55,
         17
       ],
-      "size": [
+      "scale": [
         5,
         1.1,
         1
       ],
-      "mat": "crate",
-      "tile": [
-        1.8,
-        0.4
-      ]
+      "params": {
+        "mat": "crate",
+        "tile": [
+          1.8,
+          0.4
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         9,
         1.15,
         17
       ],
-      "size": [
+      "scale": [
         5.2,
         0.1,
         1.2
       ],
-      "mat": "stone",
-      "tile": [
-        1.8,
-        0.4
-      ],
-      "solid": false
+      "params": {
+        "mat": "stone",
+        "tile": [
+          1.8,
+          0.4
+        ],
+        "solid": false
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         21.5,
         3,
         14.5
       ],
-      "size": [
+      "scale": [
         11,
         0.4,
         9
       ],
-      "mat": "stone",
-      "tile": [
-        3.5,
-        3
-      ]
+      "params": {
+        "mat": "stone",
+        "tile": [
+          3.5,
+          3
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         16,
         3.65,
         11.5
       ],
-      "size": [
+      "scale": [
         0.25,
         0.9,
         3
       ],
-      "mat": "dark",
-      "tile": [
-        1,
-        0.3
-      ]
+      "params": {
+        "mat": "dark",
+        "tile": [
+          1,
+          0.3
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         16,
         3.65,
         17.5
       ],
-      "size": [
+      "scale": [
         0.25,
         0.9,
         3
       ],
-      "mat": "dark",
-      "tile": [
-        1,
-        0.3
-      ]
+      "params": {
+        "mat": "dark",
+        "tile": [
+          1,
+          0.3
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         21.5,
         3.65,
         10
       ],
-      "size": [
+      "scale": [
         11,
         0.9,
         0.25
       ],
-      "mat": "dark",
-      "tile": [
-        3.5,
-        0.3
-      ]
+      "params": {
+        "mat": "dark",
+        "tile": [
+          3.5,
+          0.3
+        ],
+        "solid": true
+      }
     },
     {
-      "k": "stairs",
+      "type": "stairs",
       "at": [
         11,
         0,
         14.5
       ],
-      "axis": "x+",
-      "rise": 3.2,
-      "run": 5,
-      "width": 3,
-      "mat": "dark"
+      "params": {
+        "axis": "x+",
+        "rise": 3.2,
+        "run": 5,
+        "width": 3,
+        "steps": 8,
+        "mat": "dark"
+      }
     },
     {
-      "k": "box",
+      "type": "box",
       "at": [
         0,
         0.4,
         0
       ],
-      "size": [
+      "scale": [
         3,
         0.8,
         3
       ],
-      "mat": "stone",
-      "tile": [
-        1.2,
-        0.4
+      "params": {
+        "mat": "stone",
+        "tile": [
+          1.2,
+          0.4
+        ],
+        "solid": true
+      }
+    },
+    {
+      "type": "desk",
+      "at": [
+        -21,
+        0,
+        -16.5
+      ],
+      "rot": [
+        0,
+        0,
+        0
       ]
-    }
-  ],
-  "objects": [
-    {
-      "type": "desk",
-      "at": [
-        -21,
-        0,
-        -16.5
-      ],
-      "rot": 0
     },
     {
       "type": "chair",
@@ -2588,7 +2982,11 @@
         0,
         -15.3
       ],
-      "rot": 180
+      "rot": [
+        0,
+        180,
+        0
+      ]
     },
     {
       "type": "desk",
@@ -2597,7 +2995,11 @@
         0,
         -16.5
       ],
-      "rot": 0
+      "rot": [
+        0,
+        0,
+        0
+      ]
     },
     {
       "type": "chair",
@@ -2606,7 +3008,11 @@
         0,
         -15.3
       ],
-      "rot": 180
+      "rot": [
+        0,
+        180,
+        0
+      ]
     },
     {
       "type": "desk",
@@ -2615,7 +3021,11 @@
         0,
         -7.5
       ],
-      "rot": 0
+      "rot": [
+        0,
+        0,
+        0
+      ]
     },
     {
       "type": "chair",
@@ -2624,7 +3034,11 @@
         0,
         -6.3
       ],
-      "rot": 180
+      "rot": [
+        0,
+        180,
+        0
+      ]
     },
     {
       "type": "desk",
@@ -2633,7 +3047,11 @@
         0,
         -7.5
       ],
-      "rot": 0
+      "rot": [
+        0,
+        0,
+        0
+      ]
     },
     {
       "type": "chair",
@@ -2642,7 +3060,11 @@
         0,
         -6.3
       ],
-      "rot": 180
+      "rot": [
+        0,
+        180,
+        0
+      ]
     },
     {
       "type": "cabinet",
@@ -2651,7 +3073,11 @@
         0,
         -12
       ],
-      "rot": 90
+      "rot": [
+        0,
+        90,
+        0
+      ]
     },
     {
       "type": "trashcan",
@@ -2660,7 +3086,11 @@
         0,
         -5
       ],
-      "rot": 0
+      "rot": [
+        0,
+        0,
+        0
+      ]
     },
     {
       "type": "pplant2",
@@ -2669,7 +3099,11 @@
         0,
         -18
       ],
-      "rot": 0
+      "rot": [
+        0,
+        0,
+        0
+      ]
     },
     {
       "type": "clock",
@@ -2678,7 +3112,11 @@
         3.2,
         -6
       ],
-      "rot": 90
+      "rot": [
+        0,
+        90,
+        0
+      ]
     },
     {
       "type": "bookshelf",
@@ -2687,7 +3125,11 @@
         0,
         8
       ],
-      "rot": 90
+      "rot": [
+        0,
+        90,
+        0
+      ]
     },
     {
       "type": "bookshelf",
@@ -2696,7 +3138,11 @@
         0,
         14
       ],
-      "rot": 90
+      "rot": [
+        0,
+        90,
+        0
+      ]
     },
     {
       "type": "cabinet",
@@ -2705,7 +3151,11 @@
         0,
         5.5
       ],
-      "rot": -90
+      "rot": [
+        0,
+        -90,
+        0
+      ]
     },
     {
       "type": "cabinet",
@@ -2714,7 +3164,11 @@
         0,
         8
       ],
-      "rot": -90
+      "rot": [
+        0,
+        -90,
+        0
+      ]
     },
     {
       "type": "cardbox",
@@ -2723,7 +3177,11 @@
         0,
         6
       ],
-      "rot": 20
+      "rot": [
+        0,
+        20,
+        0
+      ]
     },
     {
       "type": "cardbox",
@@ -2732,7 +3190,11 @@
         0,
         6.9
       ],
-      "rot": -30
+      "rot": [
+        0,
+        -30,
+        0
+      ]
     },
     {
       "type": "cardbox",
@@ -2741,7 +3203,11 @@
         0,
         7.4
       ],
-      "rot": 60
+      "rot": [
+        0,
+        60,
+        0
+      ]
     },
     {
       "type": "cardbox",
@@ -2750,7 +3216,11 @@
         0,
         16
       ],
-      "rot": 10
+      "rot": [
+        0,
+        10,
+        0
+      ]
     },
     {
       "type": "cardbox",
@@ -2759,7 +3229,11 @@
         0,
         16.7
       ],
-      "rot": -45
+      "rot": [
+        0,
+        -45,
+        0
+      ]
     },
     {
       "type": "cardbox",
@@ -2768,7 +3242,11 @@
         0,
         17.2
       ],
-      "rot": 30
+      "rot": [
+        0,
+        30,
+        0
+      ]
     },
     {
       "type": "crate",
@@ -2777,7 +3255,11 @@
         0,
         17.5
       ],
-      "rot": 15
+      "rot": [
+        0,
+        15,
+        0
+      ]
     },
     {
       "type": "crate",
@@ -2786,7 +3268,11 @@
         0,
         17
       ],
-      "rot": -20
+      "rot": [
+        0,
+        -20,
+        0
+      ]
     },
     {
       "type": "trashcan",
@@ -2795,7 +3281,11 @@
         0,
         6
       ],
-      "rot": 0
+      "rot": [
+        0,
+        0,
+        0
+      ]
     },
     {
       "type": "toolbox",
@@ -2804,7 +3294,11 @@
         0,
         11
       ],
-      "rot": 40
+      "rot": [
+        0,
+        40,
+        0
+      ]
     },
     {
       "type": "chair",
@@ -2813,7 +3307,11 @@
         0,
         -11
       ],
-      "rot": -90
+      "rot": [
+        0,
+        -90,
+        0
+      ]
     },
     {
       "type": "chair",
@@ -2822,7 +3320,11 @@
         0,
         -13
       ],
-      "rot": -90
+      "rot": [
+        0,
+        -90,
+        0
+      ]
     },
     {
       "type": "chair",
@@ -2831,7 +3333,11 @@
         0,
         -11
       ],
-      "rot": 90
+      "rot": [
+        0,
+        90,
+        0
+      ]
     },
     {
       "type": "chair",
@@ -2840,7 +3346,11 @@
         0,
         -13
       ],
-      "rot": 90
+      "rot": [
+        0,
+        90,
+        0
+      ]
     },
     {
       "type": "pplant",
@@ -2849,7 +3359,11 @@
         0,
         -18
       ],
-      "rot": 0
+      "rot": [
+        0,
+        0,
+        0
+      ]
     },
     {
       "type": "clock",
@@ -2858,7 +3372,11 @@
         3.2,
         -20
       ],
-      "rot": 0
+      "rot": [
+        0,
+        0,
+        0
+      ]
     },
     {
       "type": "extinguisher",
@@ -2867,7 +3385,11 @@
         1.1,
         -5
       ],
-      "rot": -90
+      "rot": [
+        0,
+        -90,
+        0
+      ]
     },
     {
       "type": "cofftable",
@@ -2876,7 +3398,11 @@
         0,
         -12
       ],
-      "rot": 0
+      "rot": [
+        0,
+        0,
+        0
+      ]
     },
     {
       "type": "chair",
@@ -2885,7 +3411,11 @@
         0,
         -10.5
       ],
-      "rot": 180
+      "rot": [
+        0,
+        180,
+        0
+      ]
     },
     {
       "type": "chair",
@@ -2894,7 +3424,11 @@
         0,
         -13.5
       ],
-      "rot": 0
+      "rot": [
+        0,
+        0,
+        0
+      ]
     },
     {
       "type": "cofftable",
@@ -2903,7 +3437,11 @@
         0,
         -8
       ],
-      "rot": 0
+      "rot": [
+        0,
+        0,
+        0
+      ]
     },
     {
       "type": "chair",
@@ -2912,7 +3450,11 @@
         0,
         -6.6
       ],
-      "rot": 180
+      "rot": [
+        0,
+        180,
+        0
+      ]
     },
     {
       "type": "trashcan",
@@ -2921,7 +3463,11 @@
         0,
         -13
       ],
-      "rot": 0
+      "rot": [
+        0,
+        0,
+        0
+      ]
     },
     {
       "type": "pplant2",
@@ -2930,7 +3476,11 @@
         0,
         -6
       ],
-      "rot": 0
+      "rot": [
+        0,
+        0,
+        0
+      ]
     },
     {
       "type": "sofa",
@@ -2939,7 +3489,11 @@
         0,
         12
       ],
-      "rot": -90
+      "rot": [
+        0,
+        -90,
+        0
+      ]
     },
     {
       "type": "cofftable",
@@ -2948,7 +3502,11 @@
         0,
         12
       ],
-      "rot": 90
+      "rot": [
+        0,
+        90,
+        0
+      ]
     },
     {
       "type": "sofa",
@@ -2957,7 +3515,11 @@
         0,
         12
       ],
-      "rot": 90
+      "rot": [
+        0,
+        90,
+        0
+      ]
     },
     {
       "type": "pplant",
@@ -2966,7 +3528,11 @@
         0,
         18
       ],
-      "rot": 0
+      "rot": [
+        0,
+        0,
+        0
+      ]
     },
     {
       "type": "pplant2",
@@ -2975,7 +3541,11 @@
         0,
         18.5
       ],
-      "rot": 0
+      "rot": [
+        0,
+        0,
+        0
+      ]
     },
     {
       "type": "trashcan",
@@ -2984,7 +3554,11 @@
         0,
         16
       ],
-      "rot": 0
+      "rot": [
+        0,
+        0,
+        0
+      ]
     },
     {
       "type": "extinguisher",
@@ -2993,7 +3567,11 @@
         1.1,
         6
       ],
-      "rot": 90
+      "rot": [
+        0,
+        90,
+        0
+      ]
     },
     {
       "type": "desk",
@@ -3002,7 +3580,11 @@
         3.2,
         13
       ],
-      "rot": -90
+      "rot": [
+        0,
+        -90,
+        0
+      ]
     },
     {
       "type": "chair",
@@ -3011,7 +3593,11 @@
         3.2,
         13
       ],
-      "rot": 90
+      "rot": [
+        0,
+        90,
+        0
+      ]
     },
     {
       "type": "cabinet",
@@ -3020,7 +3606,11 @@
         3.2,
         17.5
       ],
-      "rot": 180
+      "rot": [
+        0,
+        180,
+        0
+      ]
     },
     {
       "type": "pplant2",
@@ -3029,123 +3619,205 @@
         3.2,
         12
       ],
-      "rot": 0
-    }
-  ],
-  "spawns": [
-    {
-      "at": [
-        -24,
-        -17
-      ],
-      "yaw": 135
+      "rot": [
+        0,
+        0,
+        0
+      ]
     },
     {
+      "type": "spawn",
+      "at": [
+        -24,
+        0,
+        -17
+      ],
+      "rot": [
+        0,
+        135,
+        0
+      ]
+    },
+    {
+      "type": "spawn",
       "at": [
         -20,
+        0,
         -6
       ],
-      "yaw": 90
+      "rot": [
+        0,
+        90,
+        0
+      ]
     },
     {
+      "type": "spawn",
       "at": [
         -24,
+        0,
         17
       ],
-      "yaw": 45
+      "rot": [
+        0,
+        45,
+        0
+      ]
     },
     {
+      "type": "spawn",
       "at": [
         -14,
+        0,
         13
       ],
-      "yaw": 20
-    },
-    {
-      "at": [
-        24,
-        -17
-      ],
-      "yaw": 225
-    },
-    {
-      "at": [
+      "rot": [
+        0,
         20,
-        -6
-      ],
-      "yaw": 270
+        0
+      ]
     },
     {
+      "type": "spawn",
       "at": [
         24,
-        6
-      ],
-      "yaw": 315
-    },
-    {
-      "at": [
-        7,
-        16
-      ],
-      "yaw": 0
-    },
-    {
-      "at": [
         0,
         -17
       ],
-      "yaw": 180
+      "rot": [
+        0,
+        225,
+        0
+      ]
     },
     {
+      "type": "spawn",
       "at": [
+        20,
+        0,
+        -6
+      ],
+      "rot": [
+        0,
+        270,
+        0
+      ]
+    },
+    {
+      "type": "spawn",
+      "at": [
+        24,
+        0,
+        6
+      ],
+      "rot": [
+        0,
+        315,
+        0
+      ]
+    },
+    {
+      "type": "spawn",
+      "at": [
+        7,
+        0,
+        16
+      ],
+      "rot": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "spawn",
+      "at": [
+        0,
+        0,
+        -17
+      ],
+      "rot": [
+        0,
+        180,
+        0
+      ]
+    },
+    {
+      "type": "spawn",
+      "at": [
+        0,
         0,
         17
       ],
-      "yaw": 0
+      "rot": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "type": "pickup",
+      "at": [
+        0,
+        1,
+        0
+      ]
+    },
+    {
+      "type": "pickup",
+      "at": [
+        23.5,
+        3.6,
+        15
+      ]
+    },
+    {
+      "type": "pickup",
+      "at": [
+        9,
+        1.15,
+        -12
+      ]
+    },
+    {
+      "type": "pickup",
+      "at": [
+        -15,
+        0.5,
+        11
+      ]
+    },
+    {
+      "type": "powerup",
+      "at": [
+        -15,
+        0.8,
+        -11
+      ]
+    },
+    {
+      "type": "powerup",
+      "at": [
+        21,
+        0.8,
+        -12
+      ]
+    },
+    {
+      "type": "powerup",
+      "at": [
+        0,
+        0.8,
+        -14
+      ]
+    },
+    {
+      "type": "powerup",
+      "at": [
+        0,
+        0.8,
+        14
+      ]
     }
-  ],
-  "pickups": [
-    [
-      0,
-      1,
-      0
-    ],
-    [
-      23.5,
-      3.6,
-      15
-    ],
-    [
-      9,
-      1.15,
-      -12
-    ],
-    [
-      -15,
-      0.5,
-      11
-    ]
-  ],
-  "powerups": [
-    [
-      -15,
-      0.8,
-      -11
-    ],
-    [
-      21,
-      0.8,
-      -12
-    ],
-    [
-      0,
-      0.8,
-      -14
-    ],
-    [
-      0,
-      0.8,
-      14
-    ]
   ]
 }

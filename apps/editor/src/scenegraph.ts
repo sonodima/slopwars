@@ -1,59 +1,50 @@
-// ─── Scene graph: hierarchical list of everything placed in the current map ──
-import { state, SelKind } from "./state";
+// ─── Scene graph: the flat object list, grouped by category ──────────────────
+import { objectCategory, ObjCategory } from "@game/objects";
+import { state } from "./state";
 import { clear, el } from "./ui";
+
+const ORDER: ObjCategory[] = ["geometry", "structure", "prop", "entity", "light", "marker", "sound"];
 
 export function renderSceneGraph(host: HTMLElement): void {
   clear(host);
   const map = state.map;
   if (!map) { host.append(el("div", "empty", "No map loaded")); return; }
 
-  host.append(row("Environment", "env", 0, () => "Sky / lighting / textures"));
+  // bucket object indices by category
+  const buckets = new Map<string, number[]>();
+  map.objects.forEach((o, i) => {
+    const cat = objectCategory(o.type) ?? "prop";
+    (buckets.get(cat) ?? buckets.set(cat, []).get(cat)!).push(i);
+  });
 
-  section(host, `Brushes (${map.brushes.length})`, () => {
-    map.brushes.forEach((b, i) => host.append(row(brushLabel(b, i), "brush", i, () => b.k)));
-  });
-  section(host, `Objects (${map.objects.length})`, () => {
-    map.objects.forEach((o, i) => host.append(row(`${o.type}`, "object", i, () => `${o.at.map(fmt).join(", ")}`)));
-  });
-  section(host, `Spawns (${map.spawns.length})`, () => {
-    map.spawns.forEach((s, i) => host.append(row(`spawn ${i}`, "spawn", i, () => `${s.at[0]}, ${s.at[1]} · ${s.yaw}°`)));
-  });
-  section(host, `Pickups (${map.pickups.length})`, () => {
-    map.pickups.forEach((_p, i) => host.append(row(`pickup ${i}`, "pickup", i, () => "")));
-  });
-  section(host, `Power-ups (${map.powerups.length})`, () => {
-    map.powerups.forEach((_p, i) => host.append(row(`powerup ${i}`, "powerup", i, () => "")));
-  });
-}
-
-function section(host: HTMLElement, title: string, fill: () => void): void {
-  host.append(el("div", "sg-section", title));
-  fill();
-}
-
-function row(label: string, kind: SelKind, index: number, sub: () => string): HTMLElement {
-  const r = el("div", "sg-row");
-  if (state.sel.kind === kind && state.sel.index === index) r.classList.add("sel");
-  r.append(el("span", "sg-label", label));
-  const s = sub(); if (s) r.append(el("span", "sg-sub", s));
-  r.addEventListener("click", () => state.select(kind, index));
-  // delete button for removable items
-  if (kind !== "env" && kind !== "none") {
-    const del = el("button", "btn mini", "✕");
-    del.addEventListener("click", (ev) => { ev.stopPropagation(); removeItem(kind, index); });
-    r.append(del);
+  const cats = [...new Set([...ORDER, ...buckets.keys()])].filter((c) => buckets.has(c));
+  for (const cat of cats) {
+    const idxs = buckets.get(cat)!;
+    host.append(el("div", "sg-section", `${cat} (${idxs.length})`));
+    for (const i of idxs) host.append(row(i));
   }
+}
+
+function row(i: number): HTMLElement {
+  const o = state.map!.objects[i];
+  const r = el("div", "sg-row");
+  if (state.sel.index === i) r.classList.add("sel");
+  r.append(el("span", "sg-label", label(o.type, o.params)));
+  r.append(el("span", "sg-sub", o.at.map((n) => Math.round(n * 10) / 10).join(", ")));
+  r.addEventListener("click", () => state.select(i));
+
+  const dup = el("button", "btn mini", "⧉");
+  dup.title = "duplicate";
+  dup.addEventListener("click", (ev) => { ev.stopPropagation(); state.duplicate(i); });
+  const del = el("button", "btn mini", "✕");
+  del.title = "delete";
+  del.addEventListener("click", (ev) => { ev.stopPropagation(); state.remove(i); });
+  r.append(dup, del);
   return r;
 }
 
-function removeItem(kind: SelKind, index: number): void {
-  const map = state.map; if (!map) return;
-  const arr = ({ brush: map.brushes, object: map.objects, spawn: map.spawns, pickup: map.pickups, powerup: map.powerups } as Record<string, unknown[]>)[kind];
-  if (!arr) return;
-  arr.splice(index, 1);
-  if (state.sel.kind === kind && state.sel.index === index) state.select("none", -1);
-  state.touch();
+function label(type: string, params?: Record<string, unknown>): string {
+  if (type === "prop" && params?.model) return `prop · ${params.model}`;
+  if (type === "sound" && params?.clip) return `sound · ${params.clip}`;
+  return type;
 }
-
-function brushLabel(b: { k: string }, i: number): string { return `${b.k} ${i}`; }
-function fmt(n: number): string { return String(Math.round(n * 10) / 10); }

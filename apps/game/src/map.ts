@@ -13,6 +13,8 @@ import { Vec3 } from "./types";
 export interface AABB { min: Vec3; max: Vec3 }
 /** damageable explosive barrel (host tracks hp; explodes at 0) */
 export interface Barrel { pos: Vec3; entity: Entity | null; solid: AABB; hp: number; dead: boolean }
+/** a positional looping sound placed in the map (volume falls off with distance) */
+export interface MapSound { pos: Vec3; el: HTMLAudioElement; radius: number; volume: number }
 
 export class GameMap {
   solids: AABB[] = [];
@@ -20,6 +22,7 @@ export class GameMap {
   pickupSpots: Vec3[] = [];
   powerupSpots: Vec3[] = [];
   barrels: Barrel[] = [];
+  sounds: MapSound[] = [];
   tris = 0;
   root!: Entity;
   meta!: MapMeta;
@@ -29,16 +32,28 @@ export class GameMap {
    *  repeatedly — the previous map's entities are torn down first. */
   load(engine: Engine, parent: Entity, tex: MapTextures, models: GameModels, def: MapDef): void {
     if (this.root) this.root.destroy();
+    for (const s of this.sounds) { try { s.el.pause(); } catch { /* ignore */ } }
     this.solids = [];
     this.spawns = [];
     this.pickupSpots = [];
     this.powerupSpots = [];
     this.barrels = [];
+    this.sounds = [];
     this.tris = 0;
     this.root = parent.createChild("map");
     this.meta = def.meta;
     this.env = def.env;
     loadMapDef(new MapBuilder(engine, this.root, tex, models, this), def);
+  }
+
+  /** per-frame: fade each positional sound by the listener's distance to it */
+  tickSounds(listener: Vec3): void {
+    for (const s of this.sounds) {
+      const dx = s.pos.x - listener.x, dy = s.pos.y - listener.y, dz = s.pos.z - listener.z;
+      const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      const v = Math.min(1, Math.max(0, 1 - d / s.radius) * s.volume);
+      if (Math.abs(s.el.volume - v) > 0.01) s.el.volume = v;
+    }
   }
 
   // ── queries ──────────────────────────────────────────────────────────────

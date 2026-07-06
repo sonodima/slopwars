@@ -1,12 +1,17 @@
 ## 1. Map Editor & Asset Pipeline
 
-> **Status:** Foundation shipped. pnpm workspaces (`apps/game`, `apps/editor`,
+> **Status:** Shipped. pnpm workspaces (`apps/game`, `apps/editor`,
 > `packages/shared`), the file-driven asset scanner, JSON map format + runtime
-> loader, catalog-driven model/texture registration, and a functional browser
-> editor (viewport, scene graph, inspector, asset panels, load/save) are in
-> place. Still to come: in-viewport transform gizmos, drag-to-rotate model
-> previews, and in-editor binary asset import (models/textures/audio are added
-> by committing files today).
+> loader, and catalog-driven model/texture registration are in place. The map
+> format is fully **object-based** — geometry (box/water/stairs), spawns,
+> pickups, power-ups, props, lights and sounds are all object types with a
+> transform (position/rotation/scale). The editor has a fly camera (RMB+WASD/QE),
+> transform gizmos with Q/W/E/R tool shortcuts, click-select + drag-to-move, a
+> unified asset browser (objects/models/audio/textures/materials) with a model
+> turntable preview, and drag-drop placement (drag a model → a "prop", drag audio
+> → a positional "sound"). Still to come: in-editor binary asset import
+> (models/textures/audio are added by committing files today) and per-axis gizmo
+> handle picking (current gizmos drag on the ground plane / single axis).
 
 ### 1.1 Overview
 | Goal | Description |

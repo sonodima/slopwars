@@ -1,123 +1,104 @@
-// ─── Inspector: edit the selected item's properties ──────────────────────────
-// Env, brushes, spawns/pickups/powerups have fixed schemas; object placements
-// get a *generic* property UI derived from the registry's declared defaults —
-// so a new object type's params become editable with zero editor changes.
-import type { BoxBrush, MapDef, StairBrush, WaterBrush } from "@slopwars/shared";
+// ─── Inspector: edit the selected object's transform + params, or the world ──
+// Object params get a generic UI derived from the type's declared defaults, with
+// smart widgets for well-known keys (mat/model/clip/axis). With nothing selected
+// it edits the map's world settings (sky / lighting / texture palette).
+import type { AssetCatalog, MapDef, Placement, Tuple3 } from "@slopwars/shared";
+import { placeRot, placeScale } from "@slopwars/shared";
 import { objectDefaults } from "@game/objects";
 import { state } from "./state";
-import { clear, el, numField, vec3Field, selectField, checkField, textField } from "./ui";
+import { clear, el, numField, vecField, selectField, checkField, textField } from "./ui";
 
 const MATS = ["wall", "floor", "crate", "metal", "stone", "dark"];
 const AXES = ["x+", "x-", "z+", "z-"];
 
-export function renderInspector(host: HTMLElement, onEdit: () => void): void {
+let catalog: AssetCatalog = { models: [], textures: [], materials: [], audio: [], hdri: [] };
+export function setInspectorCatalog(c: AssetCatalog): void { catalog = c; }
+
+export function renderInspector(host: HTMLElement): void {
   clear(host);
   const map = state.map;
   if (!map) { host.append(el("div", "empty", "No map loaded")); return; }
-  const touch = (): void => { state.touch(); onEdit(); };
+  const touch = (): void => state.touch();
+  const o = state.selected();
+  if (!o) return worldInspector(host, map, touch);
+  objectInspector(host, o, touch);
+}
 
-  switch (state.sel.kind) {
-    case "env": return envInspector(host, map, touch);
-    case "brush": return brushInspector(host, map, state.sel.index, touch);
-    case "object": return objectInspector(host, map, state.sel.index, touch);
-    case "spawn": return spawnInspector(host, map, state.sel.index, touch);
-    case "pickup": return pointInspector(host, map.pickups[state.sel.index], "Pickup", touch);
-    case "powerup": return pointInspector(host, map.powerups[state.sel.index], "Power-up", touch);
-    default: host.append(el("div", "empty", "Select something in the scene graph"));
+function head(host: HTMLElement, title: string, sub?: string): void {
+  host.append(el("h3", "insp-title", title));
+  if (sub) host.append(el("div", "insp-sub", sub));
+}
+function group(host: HTMLElement, name: string): void { host.append(el("div", "insp-group", name)); }
+
+// ── object ────────────────────────────────────────────────────────────────────
+function objectInspector(host: HTMLElement, o: Placement, touch: () => void): void {
+  head(host, o.type, subLabel(o));
+
+  group(host, "Transform");
+  host.append(vecField("Location", o.at, touch, 0.1));
+  if (!o.rot) o.rot = placeRot(o).slice() as Tuple3;
+  host.append(vecField("Rotation", o.rot, touch, 1));
+  if (!o.scale) o.scale = placeScale(o).slice() as Tuple3;
+  host.append(vecField("Scale", o.scale, touch, 0.05));
+
+  const schema = objectDefaults(o.type);
+  const keys = Object.keys(schema);
+  if (keys.length) {
+    group(host, "Details");
+    const params = (o.params ??= {});
+    for (const key of keys) host.append(paramField(key, schema[key], params, touch));
   }
 }
 
-function head(host: HTMLElement, title: string): void { host.append(el("h3", "insp-title", title)); }
+function paramField(key: string, dflt: unknown, params: Record<string, unknown>, touch: () => void): HTMLElement {
+  const get = (): unknown => (key in params ? params[key] : dflt);
+  const set = (v: unknown): void => { params[key] = v; };
+  // smart widgets for well-known keys
+  if (key === "mat") return selectField(key, MATS, () => String(get()), (v) => set(v), touch);
+  if (key === "axis") return selectField(key, AXES, () => String(get()), (v) => set(v), touch);
+  if (key === "model") return selectField(key, ["", ...catalog.models.map((m) => m.name)], () => String(get() ?? ""), (v) => set(v), touch);
+  if (key === "clip") return selectField(key, ["", ...catalog.audio.map((a) => a.name)], () => String(get() ?? ""), (v) => set(v), touch);
+  if (Array.isArray(dflt)) { const arr = (get() as number[]).slice(); params[key] = arr; return vecField(key, arr, touch, 0.1); }
+  if (typeof dflt === "number") return numField(key, () => get() as number, (v) => set(v), touch, 0.05);
+  if (typeof dflt === "boolean") return checkField(key, () => get() as boolean, (v) => set(v), touch);
+  return textField(key, () => String(get() ?? ""), (v) => set(v), touch);
+}
 
-function envInspector(host: HTMLElement, map: MapDef, touch: () => void): void {
-  head(host, "Environment");
+function subLabel(o: Placement): string {
+  if (o.type === "prop" && o.params?.model) return String(o.params.model);
+  if (o.type === "sound" && o.params?.clip) return String(o.params.clip);
+  return "";
+}
+
+// ── world / environment ─────────────────────────────────────────────────────
+function worldInspector(host: HTMLElement, map: MapDef, touch: () => void): void {
+  head(host, "World", "Select an object to edit it");
   const e = map.env;
-  host.append(el("div", "insp-group", "Meta"));
+
+  group(host, "Map");
   host.append(textField("name", () => map.meta.name, (v) => (map.meta.name = v), touch));
   host.append(textField("theme", () => map.meta.theme, (v) => (map.meta.theme = v), touch));
 
-  host.append(el("div", "insp-group", "Sky"));
-  host.append(textField("hdri", () => e.sky.hdri ?? "", (v) => (e.sky.hdri = v || undefined), touch));
-  if (!e.sky.solid) e.sky.solid = [0.06, 0.07, 0.09];
-  host.append(vec3Field("solid rgb", e.sky.solid, touch, 0.02));
+  group(host, "Sky");
+  host.append(selectField("hdri", ["", ...catalog.hdri.map((h) => `hdri/${h.name}.hdr`)], () => e.sky.hdri ?? "", (v) => (e.sky.hdri = v || undefined), touch));
+  if (!e.sky.solid) e.sky.solid = [0.05, 0.06, 0.08];
+  host.append(vecField("solid rgb", e.sky.solid, touch, 0.02));
 
-  host.append(el("div", "insp-group", "Ambient"));
-  host.append(vec3Field("color", e.ambient.color, touch, 0.02));
+  group(host, "Ambient");
+  host.append(vecField("color", e.ambient.color, touch, 0.02));
   host.append(numField("intensity", () => e.ambient.intensity, (v) => (e.ambient.intensity = v), touch, 0.05));
 
-  host.append(el("div", "insp-group", "Sun"));
-  host.append(vec3Field("rotation", e.sun.rot, touch, 1));
-  host.append(vec3Field("color", e.sun.color, touch, 0.02));
+  group(host, "Sun");
+  host.append(vecField("rotation", e.sun.rot, touch, 1));
+  host.append(vecField("color", e.sun.color, touch, 0.02));
   host.append(numField("strength", () => e.sun.strength, (v) => (e.sun.strength = v), touch, 0.05));
 
-  host.append(el("div", "insp-group", "Texture palette (slot → folder)"));
+  group(host, "Texture palette");
   const tex = (map.textures ??= {});
+  const names = ["", ...catalog.textures.map((t) => t.name)];
   for (const slot of MATS) {
-    host.append(textField(slot, () => (tex as Record<string, string>)[slot] ?? "", (v) => {
+    host.append(selectField(slot, names, () => (tex as Record<string, string>)[slot] ?? "", (v) => {
       if (v) (tex as Record<string, string>)[slot] = v; else delete (tex as Record<string, string>)[slot];
     }, touch));
   }
-}
-
-function brushInspector(host: HTMLElement, map: MapDef, i: number, touch: () => void): void {
-  const b = map.brushes[i]; if (!b) return;
-  head(host, `Brush · ${b.k}`);
-  host.append(vec3Field("at", b.at, touch));
-  if (b.k === "box") {
-    const box = b as BoxBrush;
-    host.append(vec3Field("size", box.size, touch));
-    host.append(selectField("material", MATS, () => box.mat, (v) => (box.mat = v as BoxBrush["mat"]), touch));
-    if (!box.tile) box.tile = [1, 1];
-    host.append(vec3Field("tile (u,v)", box.tile as unknown as number[], touch, 0.1));
-    host.append(checkField("solid", () => box.solid !== false, (v) => (box.solid = v), touch));
-  } else if (b.k === "water") {
-    const w = b as WaterBrush;
-    host.append(numField("size", () => w.s, (v) => (w.s = v), touch));
-  } else if (b.k === "stairs") {
-    const s = b as StairBrush;
-    host.append(selectField("axis", AXES, () => s.axis, (v) => (s.axis = v as StairBrush["axis"]), touch));
-    host.append(numField("rise", () => s.rise, (v) => (s.rise = v), touch));
-    host.append(numField("run", () => s.run, (v) => (s.run = v), touch));
-    host.append(numField("width", () => s.width, (v) => (s.width = v), touch));
-    host.append(numField("steps", () => s.steps ?? 8, (v) => (s.steps = Math.max(1, Math.round(v))), touch, 1));
-    host.append(selectField("material", MATS, () => s.mat ?? "dark", (v) => (s.mat = v as StairBrush["mat"]), touch));
-  }
-}
-
-function objectInspector(host: HTMLElement, map: MapDef, i: number, touch: () => void): void {
-  const o = map.objects[i]; if (!o) return;
-  head(host, `Object · ${o.type}`);
-  host.append(vec3Field("at", o.at, touch));
-  host.append(numField("yaw°", () => o.rot ?? 0, (v) => (o.rot = v), touch, 1));
-
-  // generic params from the type's declared defaults (the property schema)
-  const schema = objectDefaults(o.type);
-  const params = (o.params ??= {});
-  host.append(el("div", "insp-group", "Params"));
-  const keys = Object.keys(schema);
-  if (keys.length === 0) { host.append(el("div", "empty", "no params")); return; }
-  for (const key of keys) {
-    const dflt = schema[key];
-    const cur = (): unknown => (key in params ? (params as Record<string, unknown>)[key] : dflt);
-    if (typeof dflt === "number") {
-      host.append(numField(key, () => cur() as number, (v) => ((params as Record<string, unknown>)[key] = v), touch, 0.05));
-    } else if (typeof dflt === "boolean") {
-      host.append(checkField(key, () => cur() as boolean, (v) => ((params as Record<string, unknown>)[key] = v), touch));
-    } else {
-      host.append(textField(key, () => String(cur() ?? ""), (v) => ((params as Record<string, unknown>)[key] = v), touch));
-    }
-  }
-}
-
-function spawnInspector(host: HTMLElement, map: MapDef, i: number, touch: () => void): void {
-  const s = map.spawns[i]; if (!s) return;
-  head(host, `Spawn ${i}`);
-  host.append(vec3Field("at (x,z)", s.at as unknown as number[], touch));
-  host.append(numField("yaw°", () => s.yaw, (v) => (s.yaw = v), touch, 5));
-}
-
-function pointInspector(host: HTMLElement, p: number[] | undefined, title: string, touch: () => void): void {
-  if (!p) return;
-  head(host, title);
-  host.append(vec3Field("at", p, touch));
 }

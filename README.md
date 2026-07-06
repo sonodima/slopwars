@@ -53,3 +53,21 @@ pnpm dev:editor       # run the map editor (apps/editor)
 pnpm build            # build the deployable game client
 pnpm typecheck        # typecheck every workspace
 ```
+
+### Map format & editor
+
+A map is just a list of **objects** — geometry (`box`/`water`/`stairs`), props,
+spawns, pickups, power-ups, lights and sounds are all object types with a
+transform (position / rotation / scale) and params. New object types are one
+`defineObject()` call in `apps/game/src/objects.ts`; the loader and the editor
+pick them up automatically.
+
+Editor controls (Unreal-style):
+
+| Input | Action |
+|---|---|
+| **Hold RMB + WASD / Q E** | Fly the camera (mouse to look) |
+| **Q / W / E / R** | Select / Move / Rotate / Scale tool |
+| **Left-click** | Select an object; drag with a tool to transform it |
+| **F** | Frame the selected object |
+| **Drag from browser** | Model → a `prop`; audio → a positional `sound`; object → that type |

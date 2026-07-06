@@ -1,54 +1,28 @@
 // ─── `.map` format schema (shared by game + editor) ──────────────────────────
-// A map is a self-contained, declarative data object (a "MapDef"). It describes
-// geometry, materials, skybox/lighting, spawns, pickups and placed objects — no
-// build code. The game's loader interprets it; object types (game/objects.ts)
-// turn named placements into entities/collision/behaviour. Because a MapDef is
-// pure data it lives as a JSON file under `maps/` and is fetched at runtime —
-// the same interpreter loads it in the game and in the editor.
+// A map is a self-contained, declarative data object (a "MapDef"). Following the
+// convention of modern game-engine editors, *everything placed in a map is an
+// object* — geometry (box/water/stairs), props, spawns, pickups, power-ups,
+// sounds and lights are all `Placement`s of a registered object `type` with a
+// full transform (position / rotation / scale) and per-type params. The game's
+// loader interprets it; object types (game/objects.ts) turn placements into
+// entities/collision/behaviour. Maps live as JSON under `maps/` and are fetched
+// at runtime — the same interpreter loads them in the game and in the editor.
 
 export type Tuple3 = [number, number, number];
 
 /** shared PBR material slots every map draws from (loaded once, reused) */
 export type MatId = "wall" | "floor" | "crate" | "metal" | "stone" | "dark";
 
-/** solid/visual cuboid — the structural workhorse (walls, floors, ledges) */
-export interface BoxBrush {
-  k: "box";
-  at: Tuple3;               // center
-  size: Tuple3;             // w, h, d
-  mat: MatId;
-  tile?: [number, number];  // texture repeats u,v (default [1,1])
-  solid?: boolean;          // default true (false = decoration, no collision)
-}
-
-/** flat translucent water plane (visual only) */
-export interface WaterBrush { k: "water"; at: Tuple3; s: number }
-
-/** rising staircase; `at` is the low-step start, axis is climb direction */
-export interface StairBrush {
-  k: "stairs";
-  at: Tuple3;
-  axis: "x+" | "x-" | "z+" | "z-";
-  rise: number;   // total height
-  run: number;    // total length along axis
-  width: number;  // depth across the steps
-  steps?: number; // default 8
-  mat?: MatId;    // default "dark"
-}
-
-export type Brush = BoxBrush | WaterBrush | StairBrush;
-
-/** a named object from the registry, positioned in the map, with param overrides.
- *  e.g. { type: "barrel", at: [-27,0,-15], params: { hp: 50 } } */
+/** a placed object: a registry `type` with a transform + param overrides.
+ *  rot is euler degrees; scale defaults to [1,1,1]. For a "box" object the scale
+ *  IS its width/height/depth, so the scale gizmo resizes it. */
 export interface Placement {
   type: string;
-  at: Tuple3;
-  rot?: number;                       // yaw degrees
-  params?: Record<string, unknown>;   // shallow-merged over the type's defaults
+  at: Tuple3;                          // position (world)
+  rot?: Tuple3;                        // euler degrees (default [0,0,0])
+  scale?: Tuple3;                      // (default [1,1,1])
+  params?: Record<string, unknown>;    // shallow-merged over the type's defaults
 }
-
-/** player/pickup spawn (y is resolved to floor height at load) */
-export interface SpawnDef { at: [number, number]; yaw: number }
 
 /** skybox + lighting + fog identity for the map */
 export interface MapEnv {
@@ -74,12 +48,15 @@ export interface MapDef {
   /** per-map texture palette: slot → folder under public/assets/textures/.
    *  unbound slots fall back to DEFAULT_TEX. this is what makes maps look distinct. */
   textures?: Partial<Record<MatId, string>>;
-  brushes: Brush[];
+  /** every placed object, in order (geometry, props, markers, sounds, …) */
   objects: Placement[];
-  spawns: SpawnDef[];
-  pickups: Tuple3[];
-  powerups: Tuple3[];
 }
+
+// ── transform helpers ────────────────────────────────────────────────────────
+
+export function placeAt(o: Placement): Tuple3 { return o.at; }
+export function placeRot(o: Placement): Tuple3 { return o.rot ?? [0, 0, 0]; }
+export function placeScale(o: Placement): Tuple3 { return o.scale ?? [1, 1, 1]; }
 
 /** an empty, valid map — the starting point for "New Map" in the editor */
 export function emptyMap(id: string, name: string): MapDef {
@@ -92,10 +69,50 @@ export function emptyMap(id: string, name: string): MapDef {
       sun: { rot: [-50, -35, 0], color: [1.2, 1.15, 1.0], strength: 0.8 },
     },
     textures: {},
-    brushes: [{ k: "box", at: [0, -0.5, 0], size: [40, 1, 40], mat: "floor", tile: [10, 10] }],
-    objects: [],
-    spawns: [{ at: [0, 0], yaw: 0 }],
-    pickups: [],
-    powerups: [],
+    objects: [
+      { type: "box", at: [0, -0.5, 0], scale: [40, 1, 40], params: { mat: "floor", tile: [10, 10] } },
+      { type: "spawn", at: [0, 0, 0] },
+    ],
   };
+}
+
+// ── migration: legacy (brushes/spawns/pickups/powerups) → unified objects ─────
+// Kept so old maps and the one-time export can be normalized into the new shape.
+
+interface LegacyMapDef {
+  meta: MapMeta; env: MapEnv; textures?: Partial<Record<MatId, string>>;
+  brushes?: unknown[]; objects?: unknown[]; spawns?: unknown[]; pickups?: unknown[]; powerups?: unknown[];
+}
+
+/** normalize any map (legacy or current) into the unified objects-only format */
+export function migrateMap(raw: LegacyMapDef): MapDef {
+  // already unified: objects present, no legacy arrays
+  if (Array.isArray(raw.objects) && !raw.brushes && !raw.spawns && !raw.pickups && !raw.powerups) {
+    return { meta: raw.meta, env: raw.env, textures: raw.textures, objects: (raw.objects as Placement[]).map(normPlacement) };
+  }
+  const objects: Placement[] = [];
+  for (const b of (raw.brushes ?? []) as Record<string, unknown>[]) {
+    const at = b.at as Tuple3;
+    if (b.k === "box") {
+      objects.push({ type: "box", at, scale: b.size as Tuple3, params: { mat: b.mat, tile: b.tile ?? [1, 1], solid: b.solid !== false } });
+    } else if (b.k === "water") {
+      objects.push({ type: "water", at, scale: [b.s as number, 1, b.s as number] });
+    } else if (b.k === "stairs") {
+      objects.push({ type: "stairs", at, params: { axis: b.axis, rise: b.rise, run: b.run, width: b.width, steps: b.steps ?? 8, mat: b.mat ?? "dark" } });
+    }
+  }
+  for (const o of (raw.objects ?? []) as Record<string, unknown>[]) objects.push(normPlacement(o));
+  for (const s of (raw.spawns ?? []) as { at: [number, number]; yaw: number }[]) {
+    objects.push({ type: "spawn", at: [s.at[0], 0, s.at[1]], rot: [0, s.yaw, 0] });
+  }
+  for (const p of (raw.pickups ?? []) as Tuple3[]) objects.push({ type: "pickup", at: p });
+  for (const p of (raw.powerups ?? []) as Tuple3[]) objects.push({ type: "powerup", at: p });
+  return { meta: raw.meta, env: raw.env, textures: raw.textures, objects };
+}
+
+/** coerce a placement's rotation from the legacy `rot: number` (yaw) to a tuple */
+function normPlacement(o: unknown): Placement {
+  const p = o as Record<string, unknown>;
+  const rot = typeof p.rot === "number" ? [0, p.rot, 0] as Tuple3 : (p.rot as Tuple3 | undefined);
+  return { type: p.type as string, at: p.at as Tuple3, rot, scale: p.scale as Tuple3 | undefined, params: p.params as Record<string, unknown> | undefined };
 }
