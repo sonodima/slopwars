@@ -1,9 +1,17 @@
-// ─── glTF models (Poly Haven CC0): weapon proxies + map props + vegetation ────
+// ─── glTF models: catalog-driven loading + semantic role bindings ─────────────
+// The *set of models that exist* is discovered by the asset pipeline (scanned
+// from public/assets/models/ into `virtual:asset-catalog`) — no asset file list
+// is hardcoded here, so committing a new model folder makes it load with zero
+// code changes. MODEL_ALIAS below is the only game-side knowledge: it binds the
+// short semantic ids the game/objects/weapons reference (a "barrel", the "ak")
+// to a concrete model folder. Those are entity→asset bindings, not an inventory.
 import { Engine, Entity, GLTFResource } from "@galacean/engine";
+import catalog from "virtual:asset-catalog";
 import { loadGLTF } from "./assets";
 
+// semantic id → model folder name (must exist under public/assets/models/).
 // PH id → role. Only 2 real firearms on PH → AWP reuses the bolt-action (a sniper).
-const SOURCES = {
+export const MODEL_ALIAS = {
   ak: "bolt_action_rifle_7_62",
   usp: "service_pistol",
   knife: "machete",
@@ -45,24 +53,34 @@ const SOURCES = {
   leafplant: "calathea_orbifolia_01", // 0.6×0.42×0.56 — broad tropical leaves
 } as const;
 
-export type ModelId = keyof typeof SOURCES;
+export type ModelId = keyof typeof MODEL_ALIAS;
 /** null when a model failed to load — callers must guard (loading stays resilient) */
 export type GameModels = Record<ModelId, GLTFResource | null>;
 
-export const MODEL_LOAD_COUNT = Object.keys(SOURCES).length;
+/** how many models the pipeline will load — drives the loading bar denominator */
+export const MODEL_LOAD_COUNT = catalog.models.length;
 
+const pretty = (name: string): string => name.replace(/[_-]+/g, " ").trim();
+
+/** load every model in the catalog, then resolve the semantic aliases the game
+ *  references. Discovering the set from the catalog means new model folders are
+ *  picked up automatically; the game just won't reference them until an alias or
+ *  object type points at one. */
 export async function loadModels(engine: Engine, onEach?: (name: string) => void): Promise<GameModels> {
-  const ids = Object.keys(SOURCES) as ModelId[];
-  const pretty = (id: ModelId): string => SOURCES[id].replace(/[_-]+/g, " ").trim();
-  const loaded = await Promise.all(
-    ids.map((id) =>
-      loadGLTF(engine, `models/${SOURCES[id]}/${SOURCES[id]}.gltf`)
-        .then((r): GLTFResource | null => { onEach?.(pretty(id)); return r; })
-        .catch((e): GLTFResource | null => { console.warn("[model] failed:", id, e); onEach?.(pretty(id)); return null; }),
+  const byName = new Map<string, GLTFResource | null>();
+  await Promise.all(
+    catalog.models.map((m) =>
+      loadGLTF(engine, m.gltf)
+        .then((r) => { byName.set(m.name, r); onEach?.(pretty(m.name)); })
+        .catch((e) => { console.warn("[model] failed:", m.name, e); byName.set(m.name, null); onEach?.(pretty(m.name)); }),
     ),
   );
   const out = {} as GameModels;
-  ids.forEach((id, i) => { out[id] = loaded[i]; });
+  for (const id of Object.keys(MODEL_ALIAS) as ModelId[]) {
+    const folder = MODEL_ALIAS[id];
+    if (!byName.has(folder)) console.warn("[model] alias target missing from catalog:", id, "->", folder);
+    out[id] = byName.get(folder) ?? null;
+  }
   return out;
 }
 

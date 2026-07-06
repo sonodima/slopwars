@@ -1,10 +1,10 @@
-// ─── `.map` format schema ─────────────────────────────────────────────────────
+// ─── `.map` format schema (shared by game + editor) ──────────────────────────
 // A map is a self-contained, declarative data object (a "MapDef"). It describes
 // geometry, materials, skybox/lighting, spawns, pickups and placed objects — no
-// build code. The loader (loader.ts) interprets it; object types (objects.ts)
+// build code. The game's loader interprets it; object types (game/objects.ts)
 // turn named placements into entities/collision/behaviour. Because a MapDef is
-// pure data it can be authored inline (src/maps/*.ts) or serialized to a `.map`
-// JSON file and loaded at runtime — same interpreter either way.
+// pure data it lives as a JSON file under `maps/` and is fetched at runtime —
+// the same interpreter loads it in the game and in the editor.
 
 export type Tuple3 = [number, number, number];
 
@@ -59,7 +59,14 @@ export interface MapEnv {
   water?: Tuple3;                          // ambient water-loop source (optional)
 }
 
-export interface MapMeta { id: string; name: string; theme: string }
+export interface MapMeta {
+  id: string;
+  name: string;
+  theme: string;
+  /** whether this map is part of the random/vote rotation (default true).
+   *  false = available (lobby/editor) but never auto-selected into a match. */
+  rotate?: boolean;
+}
 
 export interface MapDef {
   meta: MapMeta;
@@ -72,4 +79,23 @@ export interface MapDef {
   spawns: SpawnDef[];
   pickups: Tuple3[];
   powerups: Tuple3[];
+}
+
+/** an empty, valid map — the starting point for "New Map" in the editor */
+export function emptyMap(id: string, name: string): MapDef {
+  return {
+    meta: { id, name, theme: "" },
+    env: {
+      sky: { solid: [0.05, 0.06, 0.08] },
+      fog: null,
+      ambient: { color: [0.6, 0.62, 0.68], intensity: 0.7, specular: 0.85 },
+      sun: { rot: [-50, -35, 0], color: [1.2, 1.15, 1.0], strength: 0.8 },
+    },
+    textures: {},
+    brushes: [{ k: "box", at: [0, -0.5, 0], size: [40, 1, 40], mat: "floor", tile: [10, 10] }],
+    objects: [],
+    spawns: [{ at: [0, 0], yaw: 0 }],
+    pickups: [],
+    powerups: [],
+  };
 }

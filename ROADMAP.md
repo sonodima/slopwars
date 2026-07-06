@@ -1,5 +1,13 @@
 ## 1. Map Editor & Asset Pipeline
 
+> **Status:** Foundation shipped. pnpm workspaces (`apps/game`, `apps/editor`,
+> `packages/shared`), the file-driven asset scanner, JSON map format + runtime
+> loader, catalog-driven model/texture registration, and a functional browser
+> editor (viewport, scene graph, inspector, asset panels, load/save) are in
+> place. Still to come: in-viewport transform gizmos, drag-to-rotate model
+> previews, and in-editor binary asset import (models/textures/audio are added
+> by committing files today).
+
 ### 1.1 Overview
 | Goal | Description |
 |---|---|

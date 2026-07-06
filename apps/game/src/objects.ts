@@ -32,6 +32,17 @@ export function buildObject(b: MapBuilder, name: string, at: readonly [number, n
   t.build(b, at, rot ?? 0, p);
 }
 
+/** every registered object type name (for the editor's Object panel) */
+export function objectTypeNames(): string[] {
+  return [...REGISTRY.keys()].sort();
+}
+
+/** an object type's default params — doubles as its editable property schema
+ *  (field names + value types) for the editor's generic inspector. */
+export function objectDefaults(name: string): Record<string, unknown> {
+  return { ...(REGISTRY.get(name)?.defaults ?? {}) };
+}
+
 // ─── built-in object types ────────────────────────────────────────────────────
 
 /** explosive barrel — the interactive example: host tracks hp, explodes at 0 */

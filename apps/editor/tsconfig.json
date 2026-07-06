@@ -9,7 +9,11 @@
     "noEmit": true,
     "skipLibCheck": true,
     "esModuleInterop": true,
-    "lib": ["ES2020", "DOM"]
+    "lib": ["ES2020", "DOM"],
+    "paths": {
+      "@slopwars/shared": ["../../packages/shared/src/index.ts"],
+      "@game/*": ["../game/src/*"]
+    }
   },
-  "include": ["src"]
+  "include": ["src", "../../packages/shared/src/virtual-modules.d.ts"]
 }
