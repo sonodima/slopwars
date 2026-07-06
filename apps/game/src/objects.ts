@@ -41,12 +41,14 @@ export function defineObject<P extends object>(name: string, type: ObjectType<P>
 
 /** build a placed object, merging overrides over its defaults and resolving the
  *  transform (rot/scale default to identity). */
-export function buildObject(b: MapBuilder, o: Placement): void {
+export function buildObject(b: MapBuilder, o: Placement, index = -1): void {
   const t = REGISTRY.get(o.type);
   if (!t) { console.warn("[map] unknown object type:", o.type); return; }
   const p = { ...t.defaults, ...(o.params ?? {}) };
   const tf: Transform = { at: o.at, rot: o.rot ?? [0, 0, 0], scale: o.scale ?? [1, 1, 1] };
+  b.buildIndex = index;
   t.build(b, tf, p);
+  b.buildIndex = -1;
 }
 
 /** deferred types (spawns/pickups) are built after geometry so floors resolve */

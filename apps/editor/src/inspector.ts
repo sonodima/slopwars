@@ -6,7 +6,7 @@ import type { AssetCatalog, MapDef, Placement, Tuple3 } from "@slopwars/shared";
 import { placeRot, placeScale } from "@slopwars/shared";
 import { objectDefaults } from "@game/objects";
 import { state } from "./state";
-import { clear, el, numField, vecField, selectField, checkField, textField } from "./ui";
+import { clear, el, numField, vecField, selectField, checkField, textField, renamable } from "./ui";
 
 const MATS = ["wall", "floor", "crate", "metal", "stone", "dark"];
 const AXES = ["x+", "x-", "z+", "z-"];
@@ -33,7 +33,11 @@ function group(host: HTMLElement, name: string): void { host.append(el("div", "i
 
 // ── object ────────────────────────────────────────────────────────────────────
 function objectInspector(host: HTMLElement, o: Placement, touch: () => void): void {
-  head(host, o.type, subLabel(o));
+  const title = el("h3", "insp-title", o.name || o.type);
+  renamable(title, () => o.name ?? "", (v) => { o.name = v || undefined; }, () => state.commit(true));
+  host.append(title);
+  const sub = o.name ? o.type + (subLabel(o) ? " · " + subLabel(o) : "") : subLabel(o);
+  if (sub) host.append(el("div", "insp-sub", sub));
 
   group(host, "Transform");
   host.append(vecField("Location", o.at, touch, 0.1));

@@ -8,6 +8,6 @@ import { MapDef } from "./schema";
 
 /** populate a GameMap (via its builder) from a MapDef. */
 export function loadMapDef(b: MapBuilder, def: MapDef): void {
-  for (const o of def.objects) if (!isDeferredType(o.type)) buildObject(b, o);
-  for (const o of def.objects) if (isDeferredType(o.type)) buildObject(b, o);
+  def.objects.forEach((o, i) => { if (!isDeferredType(o.type)) buildObject(b, o, i); });
+  def.objects.forEach((o, i) => { if (isDeferredType(o.type)) buildObject(b, o, i); });
 }

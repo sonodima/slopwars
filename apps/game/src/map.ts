@@ -27,6 +27,10 @@ export class GameMap {
   root!: Entity;
   meta!: MapMeta;
   env!: MapEnv;
+  /** editor-only hook: called for every entity created during a build, tagged
+   *  with the index of the placement (in def.objects) that produced it. Lets the
+   *  editor map rendered geometry back to objects for picking + highlighting. */
+  onBuildEntity: ((index: number, entity: Entity) => void) | null = null;
 
   /** build (or rebuild) the world from a MapDef under `parent`. Safe to call
    *  repeatedly — the previous map's entities are torn down first. */

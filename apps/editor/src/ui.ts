@@ -11,6 +11,20 @@ export function el<K extends keyof HTMLElementTagNameMap>(
 
 export function clear(node: HTMLElement): void { node.replaceChildren(); }
 
+/** hover/scroll a numeric input to nudge its value: wheel = ±step, Shift = ×10,
+ *  Alt = ×0.1. Commits through the same path a typed change would. */
+function bindWheelStep(inp: HTMLInputElement, step: number, commit: (v: number) => void): void {
+  inp.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    const cur = parseFloat(inp.value) || 0;
+    const mult = e.shiftKey ? 10 : e.altKey ? 0.1 : 1;
+    const dir = e.deltaY < 0 ? 1 : -1;
+    const next = round(cur + dir * step * mult);
+    inp.value = String(next);
+    commit(next);
+  }, { passive: false });
+}
+
 /** labelled numeric field that writes `obj[key]` and fires onChange */
 export function numField(label: string, get: () => number, set: (v: number) => void, onChange: () => void, step = 0.1): HTMLElement {
   const row = el("label", "field");
@@ -19,7 +33,9 @@ export function numField(label: string, get: () => number, set: (v: number) => v
   inp.type = "number";
   inp.step = String(step);
   inp.value = String(round(get()));
-  inp.addEventListener("change", () => { const v = parseFloat(inp.value); if (!Number.isNaN(v)) { set(v); onChange(); } });
+  const apply = (v: number): void => { if (!Number.isNaN(v)) { set(v); onChange(); } };
+  inp.addEventListener("change", () => apply(parseFloat(inp.value)));
+  bindWheelStep(inp, step, apply);
   row.append(inp);
   return row;
 }
@@ -33,7 +49,9 @@ export function vecField(label: string, tuple: number[], onChange: () => void, s
   for (let i = 0; i < tuple.length; i++) {
     const inp = el("input", "field-input");
     inp.type = "number"; inp.step = String(step); inp.value = String(round(tuple[i])); inp.title = names[i] ?? String(i);
-    inp.addEventListener("change", () => { const v = parseFloat(inp.value); if (!Number.isNaN(v)) { tuple[i] = v; onChange(); } });
+    const apply = (v: number): void => { if (!Number.isNaN(v)) { tuple[i] = v; onChange(); } };
+    inp.addEventListener("change", () => apply(parseFloat(inp.value)));
+    bindWheelStep(inp, step, apply);
     box.append(inp);
   }
   row.append(box);
@@ -68,6 +86,30 @@ export function textField(label: string, get: () => string, set: (v: string) => 
   inp.addEventListener("change", () => { set(inp.value); onChange(); });
   row.append(inp);
   return row;
+}
+
+/** make a label element rename-on-double-click: swaps in a text input, commits
+ *  on Enter/blur (onChange re-renders and discards it) or restores on Escape. */
+export function renamable(span: HTMLElement, get: () => string, set: (v: string) => void, onChange: () => void): void {
+  span.title = "double-click to rename";
+  span.addEventListener("dblclick", (ev) => {
+    ev.stopPropagation(); ev.preventDefault();
+    const inp = el("input", "rename-input");
+    inp.type = "text"; inp.value = get();
+    span.replaceWith(inp);
+    inp.focus(); inp.select();
+    let done = false;
+    const commit = (save: boolean): void => {
+      if (done) return; done = true;
+      if (save) { set(inp.value.trim()); onChange(); }   // onChange re-renders → discards inp
+      else inp.replaceWith(span);                          // cancel → restore label
+    };
+    inp.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); commit(true); }
+      else if (e.key === "Escape") { e.preventDefault(); commit(false); }
+    });
+    inp.addEventListener("blur", () => commit(true));
+  });
 }
 
 export function button(label: string, onClick: () => void, cls = ""): HTMLButtonElement {

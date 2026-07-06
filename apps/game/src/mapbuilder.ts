@@ -13,6 +13,8 @@ type Vec3T = readonly [number, number, number];
 
 export class MapBuilder {
   private mats = new Map<string, PBRMaterial>();
+  /** index of the placement currently being built (for editor entity tagging) */
+  buildIndex = -1;
 
   constructor(
     public engine: Engine,
@@ -40,6 +42,10 @@ export class MapBuilder {
 
   pushSolid(a: AABB): void { this.map.solids.push(a); }
 
+  /** report a freshly created entity to the (editor-only) build hook so it can be
+   *  associated with the placement it came from — no-op in the game. */
+  private track(e: Entity): Entity { this.map.onBuildEntity?.(this.buildIndex, e); return e; }
+
   /** textured cuboid mesh (visual only) */
   mesh(x: number, y: number, z: number, w: number, h: number, d: number, set: PbrSet, tu: number, tv: number): Entity {
     const e = this.root.createChild("b");
@@ -50,7 +56,7 @@ export class MapBuilder {
     r.castShadows = true;
     r.receiveShadows = true;
     this.map.tris += 12;
-    return e;
+    return this.track(e);
   }
 
   /** cuboid + (optional) AABB collision — the structural workhorse */
@@ -67,7 +73,7 @@ export class MapBuilder {
     r.setMaterial(this.mat(set, tu, tv));
     r.castShadows = true; r.receiveShadows = true;
     this.map.tris += seg * 6;
-    return e;
+    return this.track(e);
   }
 
   /** instantiate a loaded glTF model (null-safe: returns null if it failed to load) */
@@ -79,7 +85,7 @@ export class MapBuilder {
     e.transform.setRotation(0, rotY, 0);
     this.root.addChild(e);
     this.map.tris += 500; // approx, for stats overlay
-    return e;
+    return this.track(e);
   }
 
   /** instantiate a model with a full transform (per-axis scale + euler rotation).
@@ -92,7 +98,7 @@ export class MapBuilder {
     e.transform.setRotation(rot[0], rot[1], rot[2]);
     this.root.addChild(e);
     this.map.tris += 500;
-    return e;
+    return this.track(e);
   }
 
   /** world-space AABB of a placed model, unioned from its mesh renderers' bounds.
@@ -122,6 +128,7 @@ export class MapBuilder {
     r.setMaterial(m);
     r.receiveShadows = true;
     this.map.tris += 12;
+    this.track(e);
   }
 
   /** rising staircase (each step is a solid box); `at` = low-step start corner */

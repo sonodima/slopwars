@@ -18,6 +18,7 @@ export type MatId = "wall" | "floor" | "crate" | "metal" | "stone" | "dark";
  *  IS its width/height/depth, so the scale gizmo resizes it. */
 export interface Placement {
   type: string;
+  name?: string;                       // optional user-given label (editor/outliner)
   at: Tuple3;                          // position (world)
   rot?: Tuple3;                        // euler degrees (default [0,0,0])
   scale?: Tuple3;                      // (default [1,1,1])
@@ -114,5 +115,5 @@ export function migrateMap(raw: LegacyMapDef): MapDef {
 function normPlacement(o: unknown): Placement {
   const p = o as Record<string, unknown>;
   const rot = typeof p.rot === "number" ? [0, p.rot, 0] as Tuple3 : (p.rot as Tuple3 | undefined);
-  return { type: p.type as string, at: p.at as Tuple3, rot, scale: p.scale as Tuple3 | undefined, params: p.params as Record<string, unknown> | undefined };
+  return { type: p.type as string, name: p.name as string | undefined, at: p.at as Tuple3, rot, scale: p.scale as Tuple3 | undefined, params: p.params as Record<string, unknown> | undefined };
 }

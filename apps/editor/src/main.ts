@@ -79,15 +79,7 @@ function buildToolbar(): void {
     b.addEventListener("click", () => selectTool(t));
     tools.append(b);
   }
-  bar.append(tools, el("span", "bar-sep"), el("span", "bar-label", "Add:"),
-    button("Box", () => add({ type: "box", at: [0, 1, 0], scale: [4, 2, 4] })),
-    button("Water", () => add({ type: "water", at: [0, 0.3, 0], scale: [6, 1, 6] })),
-    button("Stairs", () => add({ type: "stairs", at: [0, 0, 0] })),
-    button("Spawn", () => add({ type: "spawn", at: [0, 0, 0] })),
-    button("Pickup", () => add({ type: "pickup", at: [0, 1, 0] })),
-    button("Power-up", () => add({ type: "powerup", at: [0, 1, 0] })),
-    button("Sound", () => add({ type: "sound", at: [0, 2, 0] })),
-  );
+  bar.append(tools);
   const status = el("span", "status"); status.id = "status"; bar.append(status);
   highlightTool("select");
 }
@@ -160,8 +152,17 @@ function setupDrop(): void {
     const at = viewport.dropGround(e.clientX, e.clientY) ?? [0, 0, 0] as Tuple3;
     if (p.kind === "model") add({ type: "prop", at, params: { model: p.name } });
     else if (p.kind === "audio") add({ type: "sound", at: [at[0], at[1] + 1.5, at[2]], params: { clip: p.name } });
-    else add({ type: p.name, at, ...(p.name === "box" ? { scale: [2, 2, 2] as Tuple3 } : {}) });
+    else add(objectPlacement(p.name, at));
   });
+}
+
+/** sensible starting transform for an object type dropped onto the ground */
+function objectPlacement(type: string, at: Tuple3): Placement {
+  if (type === "box") return { type, at: [at[0], at[1] + 1, at[2]], scale: [4, 2, 4] };
+  if (type === "water") return { type, at: [at[0], at[1] + 0.3, at[2]], scale: [6, 1, 6] };
+  if (type === "pickup" || type === "powerup") return { type, at: [at[0], at[1] + 1, at[2]] };
+  if (type === "sound") return { type, at: [at[0], at[1] + 2, at[2]] };
+  return { type, at };
 }
 
 // ── viewport sync ─────────────────────────────────────────────────────────────

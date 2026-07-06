@@ -5,15 +5,19 @@
 // transform gizmo; all projection/picking math is done manually from the camera
 // basis so it doesn't depend on engine screen-space conventions.
 import {
-  AmbientLight, BackgroundMode, Camera, Color, DirectLight, Entity, Vector3, WebGLEngine,
+  AmbientLight, BackgroundMode, BoundingBox, Camera, Color, DirectLight, Entity,
+  MeshRenderer, Vector3, WebGLEngine,
 } from "@galacean/engine";
 import type { MapDef, Placement, Tuple3 } from "@slopwars/shared";
 import { placeRot, placeScale } from "@slopwars/shared";
 import { GameMap } from "@game/map";
 import { GameModels, loadModels } from "@game/models";
-import { resolveTextures } from "@game/textures";
+import { resolveTextures, type MapTextures } from "@game/textures";
 import "@game/objects"; // side effect: register built-in object types
 import { state } from "./state";
+
+/** an axis-aligned world box, min/max as plain tuples */
+interface Box { min: Tuple3; max: Tuple3 }
 
 export type Tool = "select" | "move" | "rotate" | "scale";
 
@@ -37,6 +41,15 @@ export class Viewport {
   private canvas!: HTMLCanvasElement;
   private overlay!: HTMLCanvasElement;
   private octx!: CanvasRenderingContext2D;
+
+  // per-object-index → entities produced for it (for 3D picking + highlighting)
+  private objEntities: Entity[][] = [];
+  // cached resolved textures so a live drag can rebuild synchronously each frame
+  private texCache: MapTextures | null = null;
+  private texKey = "";
+  // set while a transform drag mutates the map; consumed in the frame loop so the
+  // rebuild is throttled to one per frame (the object follows the cursor live)
+  private liveDirty = false;
 
   // free-fly camera (position + yaw/pitch), Unreal-style RMB-to-fly
   private pos = new Vector3(0, 24, 52);
@@ -100,9 +113,26 @@ export class Viewport {
 
   async render(def: MapDef): Promise<void> {
     if (!this.ready) return;
-    const tex = await resolveTextures(this.engine, def.textures);
+    const key = JSON.stringify(def.textures ?? {});
+    if (key !== this.texKey || !this.texCache) {
+      this.texCache = await resolveTextures(this.engine, def.textures);
+      this.texKey = key;
+    }
+    this.rebuild(def, this.texCache);
+  }
+
+  /** synchronous rebuild with already-resolved textures (used by live drags) */
+  private rebuild(def: MapDef, tex: MapTextures): void {
+    this.objEntities = [];
+    this.map.onBuildEntity = (i, e) => { (this.objEntities[i] ??= []).push(e); };
     this.map.load(this.engine, this.root, tex, this.models, def);
     this.applyEnv(def);
+  }
+
+  /** immediate re-render during a drag (textures already cached from render()) */
+  private renderLive(): void {
+    if (!this.ready || !this.texCache || !state.map) return;
+    this.rebuild(state.map, this.texCache);
   }
 
   setTool(t: Tool): void { this.tool = t; }
@@ -210,6 +240,8 @@ export class Viewport {
       this.pos.z += (f[2] * kf + r[2] * kr) * sp;
       if (kf || kr || ku) this.applyCamera();
     }
+    // live transform: rebuild at most once per frame so the object follows the drag
+    if (this.liveDirty) { this.liveDirty = false; this.renderLive(); }
     this.drawOverlay();
     requestAnimationFrame(this.frame);
   };
@@ -237,9 +269,37 @@ export class Viewport {
       ctx.globalAlpha = 1;
     }
 
-    // gizmo on the selected object
+    // highlight + gizmo on the selected object
     const sel = state.selIndex >= 0 ? map.objects[state.selIndex] : null;
-    if (sel) this.drawGizmo(sel);
+    if (sel) {
+      const box = this.objBox(state.selIndex);
+      if (box) this.drawHighlight(box);
+      this.drawGizmo(sel);
+    }
+  }
+
+  /** draw a glowing wireframe box around the selected object's world bounds */
+  private drawHighlight(b: Box): void {
+    const ctx = this.octx;
+    const [x0, y0, z0] = b.min, [x1, y1, z1] = b.max;
+    const corners: Tuple3[] = [
+      [x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1],
+      [x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1],
+    ];
+    const pts = corners.map((c) => this.project(c));
+    const edges = [[0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [5, 6], [6, 7], [7, 4], [0, 4], [1, 5], [2, 6], [3, 7]];
+    ctx.save();
+    ctx.strokeStyle = "#f5a623";
+    ctx.shadowColor = "#f5a623"; ctx.shadowBlur = 8;   // glow
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    for (const [a, d] of edges) {
+      const pa = pts[a], pb = pts[d];
+      if (!pa.visible || !pb.visible) continue;
+      ctx.moveTo(pa.x, pa.y); ctx.lineTo(pb.x, pb.y);
+    }
+    ctx.stroke();
+    ctx.restore();
   }
 
   private drawGizmo(o: Placement): void {
@@ -308,10 +368,15 @@ export class Viewport {
     this.py = clamp(e.clientY - rc.top, 0, rc.height);
     if (e.button === 2) { this.flying = true; this.beginDrag("camera"); return; }  // RMB → fly
     if (e.button !== 0) return;
-    const hit = this.pick(this.px, this.py);
+    // prefer clicking the actual 3D model; fall back to the projected marker dot
+    // (so markers/sounds without visible geometry stay selectable)
+    let hit = this.pick3D(this.px, this.py);
+    if (hit < 0) hit = this.pick(this.px, this.py);
     if (hit >= 0) {
       state.select(hit);
       if (this.tool !== "select") this.beginDrag("transform");
+    } else {
+      state.select(-1);   // click empty space → deselect
     }
   }
 
@@ -382,6 +447,56 @@ export class Viewport {
       o.scale = sc;
     }
     state.touch();
+    this.liveDirty = true;   // rebuild on the next frame so the change is visible live
+  }
+
+  // ── 3D picking + selection highlight ───────────────────────────────────────
+  /** camera ray through an overlay pixel: origin + normalized direction */
+  private pixelRay(px: number, py: number): { o: number[]; d: number[] } {
+    const { f, r, u } = this.basis();
+    const rc = this.rect();
+    const aspect = rc.width / rc.height;
+    const tanF = Math.tan((this.camera.fieldOfView * DEG) / 2);
+    const ndcx = (px / rc.width) * 2 - 1;
+    const ndcy = 1 - (py / rc.height) * 2;
+    const d = norm([
+      f[0] + r[0] * ndcx * tanF * aspect + u[0] * ndcy * tanF,
+      f[1] + r[1] * ndcx * tanF * aspect + u[1] * ndcy * tanF,
+      f[2] + r[2] * ndcx * tanF * aspect + u[2] * ndcy * tanF,
+    ]);
+    return { o: [this.pos.x, this.pos.y, this.pos.z], d };
+  }
+
+  /** union world-AABB of an object's rendered geometry (null if it has none) */
+  private objBox(index: number): Box | null {
+    const ents = this.objEntities[index];
+    if (!ents || ents.length === 0) return null;
+    const box = new BoundingBox();
+    let has = false;
+    for (const e of ents) {
+      if (e.destroyed) continue;
+      for (const r of e.getComponentsIncludeChildren(MeshRenderer, [])) {
+        if (!r.mesh) continue;
+        if (!has) { box.copyFrom(r.bounds); has = true; } else BoundingBox.merge(box, r.bounds, box);
+      }
+    }
+    if (!has) return null;
+    const { min, max } = box;
+    return { min: [min.x, min.y, min.z], max: [max.x, max.y, max.z] };
+  }
+
+  /** nearest object whose 3D mesh the pixel ray hits (−1 if the ray misses all) */
+  private pick3D(px: number, py: number): number {
+    const map = state.map; if (!map) return -1;
+    const { o, d } = this.pixelRay(px, py);
+    let best = Infinity, idx = -1;
+    for (let i = 0; i < map.objects.length; i++) {
+      const b = this.objBox(i);
+      if (!b) continue;
+      const t = rayBox(o, d, b);
+      if (t !== null && t < best) { best = t; idx = i; }
+    }
+    return idx;
   }
 }
 
@@ -393,6 +508,26 @@ function clamp(v: number, a: number, b: number): number { return v < a ? a : v >
 function round(n: number): number { return Math.round(n * 100) / 100; }
 function round2(n: number): number { return Math.round(n * 1000) / 1000; }
 function isTyping(): boolean { const el = document.activeElement; return !!el && (el.tagName === "INPUT" || el.tagName === "SELECT" || el.tagName === "TEXTAREA"); }
+
+/** ray (origin o, dir d) vs AABB — returns entry distance along d, or null if no
+ *  hit in front of the ray (slab method). */
+function rayBox(o: number[], d: number[], b: Box): number | null {
+  let tmin = 0, tmax = Infinity;
+  for (let i = 0; i < 3; i++) {
+    if (Math.abs(d[i]) < 1e-9) {
+      if (o[i] < b.min[i] || o[i] > b.max[i]) return null;
+    } else {
+      const inv = 1 / d[i];
+      let t1 = (b.min[i] - o[i]) * inv;
+      let t2 = (b.max[i] - o[i]) * inv;
+      if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; }
+      if (t1 > tmin) tmin = t1;
+      if (t2 < tmax) tmax = t2;
+      if (tmin > tmax) return null;
+    }
+  }
+  return tmin > 0 ? tmin : null;
+}
 
 function markerColor(type: string): string {
   if (type === "spawn") return "#4caf50";

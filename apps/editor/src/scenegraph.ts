@@ -3,8 +3,9 @@
 // real selected object — no index drift when things are added/removed. The
 // search bar is built once and the list re-renders on any change/selection so
 // typing keeps its focus.
+import type { Placement } from "@slopwars/shared";
 import { state } from "./state";
-import { clear, el } from "./ui";
+import { clear, el, renamable } from "./ui";
 
 let query = "";
 let listHost: HTMLElement | null = null;
@@ -36,18 +37,20 @@ function renderList(): void {
   const selIdx = state.selIndex;
   let shown = 0;
   map.objects.forEach((o, i) => {
-    const text = label(o.type, o.params);
+    const text = label(o);
     if (query && !text.toLowerCase().includes(query)) return;
-    host.append(row(i, text, i === selIdx));
+    host.append(row(o, i, text, i === selIdx));
     shown++;
   });
   if (shown === 0) host.append(el("div", "empty", query ? "No matches" : "No objects"));
 }
 
-function row(i: number, text: string, selected: boolean): HTMLElement {
+function row(o: Placement, i: number, text: string, selected: boolean): HTMLElement {
   const r = el("div", "sg-row");
   if (selected) r.classList.add("sel");
-  r.append(el("span", "sg-label", text));
+  const lbl = el("span", "sg-label", text);
+  renamable(lbl, () => o.name ?? "", (v) => { o.name = v || undefined; }, () => { state.select(i); state.commit(true); });
+  r.append(lbl);
   r.addEventListener("click", () => state.select(i));
 
   const dup = el("button", "btn mini", "⧉");
@@ -60,10 +63,11 @@ function row(i: number, text: string, selected: boolean): HTMLElement {
   return r;
 }
 
-function label(type: string, params?: Record<string, unknown>): string {
-  if (type === "prop" && params?.model) return `prop · ${params.model}`;
-  if (type === "sound" && params?.clip) return `sound · ${params.clip}`;
-  return type;
+function label(o: Placement): string {
+  if (o.name) return o.name;
+  if (o.type === "prop" && o.params?.model) return `prop · ${o.params.model}`;
+  if (o.type === "sound" && o.params?.clip) return `sound · ${o.params.clip}`;
+  return o.type;
 }
 
 /** kept as an alias so external callers referencing the old name still work */

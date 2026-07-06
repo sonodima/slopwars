@@ -17,6 +17,11 @@ export interface PanelCtx {
 
 const ASSET = (p: string): string => `${import.meta.env.BASE_URL}assets/${p}`;
 
+/** per-category glyph for object cards (markers/structures/etc. dragged in) */
+const CAT_ICON: Record<string, string> = {
+  geometry: "◼", marker: "⚑", sound: "♪", light: "💡", entity: "◈", structure: "▤", prop: "◆",
+};
+
 export function renderBrowser(host: HTMLElement, ctx: PanelCtx): void {
   clear(host);
   let query = "";
@@ -38,9 +43,8 @@ export function renderBrowser(host: HTMLElement, ctx: PanelCtx): void {
     clear(grid);
 
     for (const o of objectCatalog()) {
-      if (o.category === "marker") continue; // markers added from the toolbar
       if (!match(o.name)) continue;
-      grid.append(card(o.name, "◆", () => ({ kind: "object", name: o.name })));
+      grid.append(card(o.name, CAT_ICON[o.category] ?? "◆", () => ({ kind: "object", name: o.name })));
     }
     for (const m of ctx.catalog.models) {
       if (!match(m.name)) continue;
