@@ -34,6 +34,14 @@ function renderList(): void {
   const map = state.map;
   if (!map) { host.append(el("div", "empty", "No map loaded")); return; }
 
+  // "World" is always first: selecting it (= no object selected) shows the map's
+  // sky / lighting / effects in the inspector.
+  const world = el("div", "sg-row sg-world");
+  if (state.selIndex < 0) world.classList.add("sel");
+  world.append(el("span", "sg-ico", "🌍"), el("span", "sg-label", "World"));
+  world.addEventListener("click", () => state.select(-1));
+  host.append(world);
+
   const selIdx = state.selIndex;
   let shown = 0;
   map.objects.forEach((o, i) => {

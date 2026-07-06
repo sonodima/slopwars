@@ -27,6 +27,7 @@ export function renderBrowser(host: HTMLElement, ctx: PanelCtx): void {
   let query = "";
 
   const bar = el("div", "browser-bar");
+  bar.append(el("span", "browser-title", "Assets Browser"));
   const search = el("input", "browser-search") as HTMLInputElement;
   search.type = "search"; search.placeholder = "Search assets…";
   search.addEventListener("input", () => { query = search.value.toLowerCase(); draw(); });
@@ -44,7 +45,9 @@ export function renderBrowser(host: HTMLElement, ctx: PanelCtx): void {
 
     for (const o of objectCatalog()) {
       if (!match(o.name)) continue;
-      grid.append(card(o.name, CAT_ICON[o.category] ?? "◆", () => ({ kind: "object", name: o.name })));
+      const c = card(o.name, CAT_ICON[o.category] ?? "◆", () => ({ kind: "object", name: o.name }));
+      fillThumb(c, ctx.thumbs.objectThumb(o.name, o.category));
+      grid.append(c);
     }
     for (const m of ctx.catalog.models) {
       if (!match(m.name)) continue;
@@ -55,15 +58,12 @@ export function renderBrowser(host: HTMLElement, ctx: PanelCtx): void {
     for (const a of ctx.catalog.audio) {
       if (!match(a.name)) continue;
       const c = card(a.name, "♪", () => ({ kind: "audio", name: a.name }));
-      const audio = el("audio"); audio.src = ASSET(a.file); audio.controls = true; audio.className = "asset-audio";
-      c.append(audio);
+      c.append(audioControls(ASSET(a.file)));
       grid.append(c);
     }
     for (const t of ctx.catalog.textures) {
       if (!match(t.name)) continue;
-      const c = el("div", "asset-card");
-      const thumb = el("div", "asset-thumb"); thumb.append(el("div", "asset-icon", "▦"));
-      c.append(thumb, el("div", "asset-name", t.name));
+      const c = card(t.name, "▦", () => ({ kind: "texture", name: t.name }));
       fillThumb(c, ctx.thumbs.textureThumb(t.name, t.maps));
       grid.append(c);
     }
@@ -85,6 +85,18 @@ function card(name: string, icon: string, payload: () => Payload): HTMLElement {
   return c;
 }
 
+/** compact Play / Stop transport for an audio clip card */
+function audioControls(src: string): HTMLElement {
+  const audio = new Audio(src); audio.preload = "none";
+  const box = el("div", "asset-audioctl");
+  const play = el("button", "btn", "▶ Play");
+  const stop = el("button", "btn", "■ Stop");
+  play.addEventListener("click", (e) => { e.stopPropagation(); void audio.play().catch(() => { /* needs gesture */ }); });
+  stop.addEventListener("click", (e) => { e.stopPropagation(); audio.pause(); audio.currentTime = 0; });
+  box.append(play, stop);
+  return box;
+}
+
 /** swap a card's thumbnail slot for a rendered image once it resolves */
 function fillThumb(c: HTMLElement, p: Promise<string | null>): void {
   const slot = c.querySelector(".asset-thumb");
@@ -96,4 +108,4 @@ function fillThumb(c: HTMLElement, p: Promise<string | null>): void {
   });
 }
 
-export interface Payload { kind: "object" | "model" | "audio"; name: string }
+export interface Payload { kind: "object" | "model" | "audio" | "texture"; name: string }

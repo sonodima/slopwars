@@ -118,6 +118,26 @@ export function button(label: string, onClick: () => void, cls = ""): HTMLButton
   return b;
 }
 
+/** centred modal dialog with a titled card; returns a close() fn. Click the
+ *  backdrop or press Escape to dismiss. */
+export function modal(title: string, body: HTMLElement): { close: () => void } {
+  const back = el("div", "modal-back");
+  const card = el("div", "modal-card");
+  const head = el("div", "modal-head");
+  head.append(el("span", "modal-title", title));
+  const x = el("button", "btn mini", "✕");
+  head.append(x);
+  card.append(head, body);
+  back.append(card);
+  document.body.append(back);
+  const close = (): void => { back.remove(); window.removeEventListener("keydown", onKey); };
+  const onKey = (e: KeyboardEvent): void => { if (e.key === "Escape") close(); };
+  back.addEventListener("mousedown", (e) => { if (e.target === back) close(); });
+  x.addEventListener("click", close);
+  window.addEventListener("keydown", onKey);
+  return { close };
+}
+
 function round(n: number): number { return Math.round(n * 1000) / 1000; }
 
 export function toast(msg: string, error = false): void {

@@ -13,6 +13,12 @@ import { loadGLTF, loadTexture2D } from "@game/assets";
 
 const SIZE = 160;
 
+/** per-category base colour for object primitive thumbnails */
+const CAT_RGB: Record<string, [number, number, number]> = {
+  geometry: [0.55, 0.58, 0.63], structure: [0.6, 0.5, 0.36], prop: [0.66, 0.6, 0.45],
+  entity: [0.7, 0.35, 0.3], marker: [0.3, 0.72, 0.4], sound: [0.6, 0.35, 0.72], light: [0.95, 0.8, 0.4],
+};
+
 export class ThumbRenderer {
   private engine: WebGLEngine | null = null;
   private root!: Entity;
@@ -86,6 +92,24 @@ export class ThumbRenderer {
       if (arm) { m.roughnessMetallicTexture = arm; m.occlusionTexture = arm; } else { m.roughness = 0.85; m.metallic = 0; }
       r.setMaterial(m);
       this.camPose(2.7, 0.5, 0.35);
+      return this.snapshot();
+    });
+  }
+
+  /** lit primitive standing in for a placeable object type (cheap, cached by
+   *  name): a sphere for point-like markers/lights/sounds, a cube otherwise. */
+  objectThumb(name: string, category: string): Promise<string | null> {
+    return this.enqueue(`obj:${name}`, async () => {
+      const e = this.holder.createChild("obj");
+      const r = e.addComponent(MeshRenderer);
+      const point = category === "marker" || category === "sound" || category === "light";
+      r.mesh = point ? PrimitiveMesh.createSphere(this.engine!, 0.9, 32) : PrimitiveMesh.createCuboid(this.engine!, 1.4, 1.4, 1.4);
+      const m = new PBRMaterial(this.engine!);
+      const [cr, cg, cb] = CAT_RGB[category] ?? [0.72, 0.7, 0.62];
+      m.baseColor = new Color(cr, cg, cb, 1);
+      m.roughness = 0.7; m.metallic = category === "entity" ? 0.6 : 0.05;
+      r.setMaterial(m);
+      this.camPose(point ? 2.6 : 3.4, 0.62, 0.42);
       return this.snapshot();
     });
   }

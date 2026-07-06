@@ -5,14 +5,15 @@
 // saves back to maps/<id>.json through the dev API.
 import type { AssetCatalog, Placement, Tuple3 } from "@slopwars/shared";
 import { emptyMap } from "@slopwars/shared";
-import { Viewport, Tool } from "./viewport";
+import { Viewport, Tool, PerfStats } from "./viewport";
 import { ThumbRenderer } from "./preview";
 import { state } from "./state";
 import { mountSceneGraph } from "./scenegraph";
-import { renderInspector, setInspectorCatalog } from "./inspector";
+import { renderInspector, setInspectorCatalog, setInspectorThumbs } from "./inspector";
 import { renderBrowser, Payload } from "./panels";
+import { mountResizers } from "./layout";
 import { api } from "./api";
-import { el, button, toast } from "./ui";
+import { el, button, toast, modal } from "./ui";
 
 const $ = (id: string): HTMLElement => document.getElementById(id) as HTMLElement;
 
@@ -21,32 +22,35 @@ const thumbs = new ThumbRenderer();
 let catalog: AssetCatalog = { models: [], textures: [], audio: [], hdri: [] };
 let rebuildTimer = 0;
 
-const TOOLS: { t: Tool; label: string; key: string }[] = [
-  { t: "select", label: "Select", key: "1" },
-  { t: "move", label: "Move", key: "2" },
-  { t: "rotate", label: "Rotate", key: "3" },
-  { t: "scale", label: "Scale", key: "4" },
+const TOOLS: { t: Tool; label: string }[] = [
+  { t: "move", label: "Move" },
+  { t: "rotate", label: "Rotate" },
+  { t: "scale", label: "Scale" },
 ];
+const GRAPHICS = ["low", "medium", "high"] as const;
 
 async function main(): Promise<void> {
   try { catalog = await api.catalog(); } catch (e) { toast("catalog load failed: " + e, true); }
   setInspectorCatalog(catalog);
+  setInspectorThumbs(thumbs);
 
   buildToolbar();
   mountSceneGraph($("scene-graph"));
   buildDock();
   bindUndoRedo();
+  mountResizers();
 
-  state.onChange(() => scheduleRebuild());
+  state.onChange(() => { scheduleRebuild(); refreshMapName(); });
   state.onSelect(() => renderInspector($("inspector")));
   viewport.onToolChange(highlightTool);
   viewport.onEditCommit = () => state.commit(true);
+  viewport.onPerf = showPerf;
 
-  await loadMapList();
+  newMap();          // start on a blank map (Load opens an existing one)
   setupDrop();
 
   viewport.init("editor-canvas")
-    .then(() => { if (state.map) return viewport.render(state.map); })
+    .then(() => { viewport.setGraphics("high"); if (state.map) return viewport.render(state.map); })
     .catch((e) => { console.error("viewport init failed (data editing still works):", e); toast("3D viewport unavailable", true); });
   thumbs.init().catch(() => { /* thumbnails optional */ });
 }
@@ -64,13 +68,10 @@ function bindUndoRedo(): void {
 // ── toolbar ─────────────────────────────────────────────────────────────────
 function buildToolbar(): void {
   const bar = $("toolbar");
-  const picker = el("select", "map-picker") as HTMLSelectElement;
-  picker.id = "map-picker";
-  picker.addEventListener("change", () => openMap(picker.value));
   const logo = el("img", "brand-icon") as HTMLImageElement;
   logo.src = `${import.meta.env.BASE_URL}logo.png`; logo.alt = "SlopWars";
-  bar.append(logo, el("span", "brand", "Editor"), picker,
-    button("New", newMap), button("Save", saveMap, "primary"), button("Save As…", saveMapAs),
+  bar.append(logo, el("span", "brand", "Editor"),
+    button("New", newMap), button("Load…", openLoadDialog), button("Save", saveMap, "primary"), button("Save As…", saveMapAs),
     el("span", "bar-sep"));
 
   const tools = el("div", "tool-group");
@@ -79,9 +80,18 @@ function buildToolbar(): void {
     b.addEventListener("click", () => selectTool(t));
     tools.append(b);
   }
-  bar.append(tools);
-  const status = el("span", "status"); status.id = "status"; bar.append(status);
-  highlightTool("select");
+  bar.append(tools, el("span", "bar-sep"), el("span", "bar-label", "Graphics"), graphicsPicker());
+
+  const name = el("span", "map-name"); name.id = "map-name"; bar.append(name);
+  highlightTool("move");
+}
+
+function graphicsPicker(): HTMLElement {
+  const sel = el("select", "map-picker") as HTMLSelectElement;
+  for (const g of GRAPHICS) { const o = el("option", undefined, g); o.value = g; sel.append(o); }
+  sel.value = "high";
+  sel.addEventListener("change", () => viewport.setGraphics(sel.value as typeof GRAPHICS[number]));
+  return sel;
 }
 
 function buildDock(): void {
@@ -93,14 +103,28 @@ function highlightTool(t: Tool): void {
   for (const b of Array.from(document.querySelectorAll<HTMLElement>(".btn.tool"))) b.classList.toggle("on", b.dataset.tool === t);
 }
 
+function showPerf(p: PerfStats): void {
+  const n = document.getElementById("perf");
+  if (n) n.textContent = `${p.fps} fps · ${p.objects} obj · ${p.draws} draws · ${(p.tris / 1000).toFixed(1)}k tris`;
+}
+function refreshMapName(): void {
+  const n = document.getElementById("map-name");
+  if (n) n.textContent = state.map ? state.map.meta.name + (state.dirty ? " *" : "") : "";
+}
+
 // ── map management ────────────────────────────────────────────────────────────
-async function loadMapList(): Promise<void> {
+async function openLoadDialog(): Promise<void> {
   let list: { id: string; name: string; file: string }[] = [];
-  try { list = await api.maps(); } catch (e) { toast("maps list failed: " + e, true); }
-  const picker = document.getElementById("map-picker") as HTMLSelectElement;
-  picker.replaceChildren();
-  for (const m of list) { const o = el("option", undefined, `${m.name} (${m.id})`); o.value = m.file; picker.append(o); }
-  if (list.length) { picker.value = list[0].file; await openMap(list[0].file); } else newMap();
+  try { list = await api.maps(); } catch (e) { toast("maps list failed: " + e, true); return; }
+  const body = el("div", "map-list");
+  if (!list.length) body.append(el("div", "empty", "No maps found"));
+  const dlg = modal("Load map", body);
+  for (const m of list) {
+    const row = el("button", "map-row");
+    row.append(el("span", "map-row-name", m.name), el("span", "map-row-id", m.id));
+    row.addEventListener("click", () => { dlg.close(); void openMap(m.file); });
+    body.append(row);
+  }
 }
 
 async function openMap(file: string): Promise<void> {
@@ -108,20 +132,22 @@ async function openMap(file: string): Promise<void> {
     const def = await api.loadMap(file);
     const id = file.replace(/^.*\//, "").replace(/\.json$/, "");
     state.setMap(def, id);
-    setStatus(`loaded ${file}`);
+    if (viewport.ready) await viewport.render(def);
+    refreshMapName();
   } catch (e) { toast("open failed: " + e, true); }
 }
 
 function newMap(): void {
   const id = `untitled-${Math.random().toString(36).slice(2, 6)}`;
   state.setMap(emptyMap(id, "Untitled"), id);
-  setStatus("new map");
+  if (viewport.ready && state.map) void viewport.render(state.map);
+  refreshMapName();
 }
 
 async function saveMap(): Promise<void> {
   const map = state.map; if (!map) return;
   const id = map.meta.id || state.fileId;
-  try { await api.saveMap(id, map); state.dirty = false; setStatus(`saved maps/${id}.json`); toast(`saved maps/${id}.json`); }
+  try { await api.saveMap(id, map); state.dirty = false; refreshMapName(); toast(`saved maps/${id}.json`); }
   catch (e) { toast("save failed: " + e, true); }
 }
 
@@ -132,11 +158,6 @@ async function saveMapAs(): Promise<void> {
   map.meta.id = id.replace(/[^a-zA-Z0-9_-]/g, "");
   state.fileId = map.meta.id;
   await saveMap();
-  const list = await api.maps().catch(() => []);
-  const picker = document.getElementById("map-picker") as HTMLSelectElement;
-  picker.replaceChildren();
-  for (const m of list) { const o = el("option", undefined, `${m.name} (${m.id})`); o.value = m.file; picker.append(o); }
-  const match = list.find((m) => m.id === map.meta.id); if (match) picker.value = match.file;
 }
 
 // ── placement ─────────────────────────────────────────────────────────────────
@@ -170,7 +191,5 @@ function scheduleRebuild(): void {
   window.clearTimeout(rebuildTimer);
   rebuildTimer = window.setTimeout(() => { if (state.map) void viewport.render(state.map); }, 140);
 }
-
-function setStatus(s: string): void { const n = document.getElementById("status"); if (n) n.textContent = s; }
 
 void main();
