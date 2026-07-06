@@ -1,36 +1,53 @@
-// ─── Scene graph: the flat object list, grouped by category ──────────────────
-import { objectCategory, ObjCategory } from "@game/objects";
+// ─── Scene outliner: one flat, searchable list of every placed object ────────
+// Selection is by reference (see state.ts), so highlighting always tracks the
+// real selected object — no index drift when things are added/removed. The
+// search bar is built once and the list re-renders on any change/selection so
+// typing keeps its focus.
 import { state } from "./state";
 import { clear, el } from "./ui";
 
-const ORDER: ObjCategory[] = ["geometry", "structure", "prop", "entity", "light", "marker", "sound"];
+let query = "";
+let listHost: HTMLElement | null = null;
 
-export function renderSceneGraph(host: HTMLElement): void {
+export function mountSceneGraph(host: HTMLElement): void {
+  clear(host);
+  const bar = el("div", "sg-search-bar");
+  const search = el("input", "sg-search") as HTMLInputElement;
+  search.type = "search"; search.placeholder = "Search objects…";
+  search.addEventListener("input", () => { query = search.value.toLowerCase(); renderList(); });
+  bar.append(search);
+
+  const list = el("div", "sg-list");
+  listHost = list;
+  host.append(bar, list);
+
+  state.onChange(renderList);
+  state.onSelect(renderList);
+  renderList();
+}
+
+function renderList(): void {
+  const host = listHost;
+  if (!host) return;
   clear(host);
   const map = state.map;
   if (!map) { host.append(el("div", "empty", "No map loaded")); return; }
 
-  // bucket object indices by category
-  const buckets = new Map<string, number[]>();
+  const selIdx = state.selIndex;
+  let shown = 0;
   map.objects.forEach((o, i) => {
-    const cat = objectCategory(o.type) ?? "prop";
-    (buckets.get(cat) ?? buckets.set(cat, []).get(cat)!).push(i);
+    const text = label(o.type, o.params);
+    if (query && !text.toLowerCase().includes(query)) return;
+    host.append(row(i, text, i === selIdx));
+    shown++;
   });
-
-  const cats = [...new Set([...ORDER, ...buckets.keys()])].filter((c) => buckets.has(c));
-  for (const cat of cats) {
-    const idxs = buckets.get(cat)!;
-    host.append(el("div", "sg-section", `${cat} (${idxs.length})`));
-    for (const i of idxs) host.append(row(i));
-  }
+  if (shown === 0) host.append(el("div", "empty", query ? "No matches" : "No objects"));
 }
 
-function row(i: number): HTMLElement {
-  const o = state.map!.objects[i];
+function row(i: number, text: string, selected: boolean): HTMLElement {
   const r = el("div", "sg-row");
-  if (state.sel.index === i) r.classList.add("sel");
-  r.append(el("span", "sg-label", label(o.type, o.params)));
-  r.append(el("span", "sg-sub", o.at.map((n) => Math.round(n * 10) / 10).join(", ")));
+  if (selected) r.classList.add("sel");
+  r.append(el("span", "sg-label", text));
   r.addEventListener("click", () => state.select(i));
 
   const dup = el("button", "btn mini", "⧉");
@@ -48,3 +65,6 @@ function label(type: string, params?: Record<string, unknown>): string {
   if (type === "sound" && params?.clip) return `sound · ${params.clip}`;
   return type;
 }
+
+/** kept as an alias so external callers referencing the old name still work */
+export const renderSceneGraph = (): void => renderList();

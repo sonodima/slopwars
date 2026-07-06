@@ -44,13 +44,15 @@ export class Viewport {
   private pitch = -0.4;
   private keys = new Set<string>();
   private flying = false;
-  private speed = 26;
+  private speed = 9;
 
   // drag state
   private dragging = false;
   private dragKind: "camera" | "transform" | null = null;
-  private lastX = 0;
-  private lastY = 0;
+  // virtual pointer in canvas-local pixels — kept in sync from movementX/Y so
+  // transform math still works while the real cursor is pointer-locked/hidden
+  private px = 0;
+  private py = 0;
 
   async init(canvasId: string): Promise<void> {
     this.canvas = document.getElementById(canvasId) as HTMLCanvasElement;
@@ -79,10 +81,21 @@ export class Viewport {
     this.setupOverlay();
     this.models = await loadModels(engine);
     this.bindInput();
+    this.bindResize();
     engine.run();
     this.applyCamera();
     this.ready = true;
     requestAnimationFrame(this.frame);
+  }
+
+  /** keep the WebGL drawing buffer matched to the canvas's on-screen size so the
+   *  image is resized (not stretched) when the editor layout changes */
+  private bindResize(): void {
+    const resize = (): void => { if (this.ready || this.engine) this.engine.canvas.resizeByClientSize(); };
+    if (typeof ResizeObserver !== "undefined") {
+      new ResizeObserver(resize).observe(this.canvas.parentElement ?? this.canvas);
+    }
+    window.addEventListener("resize", resize);
   }
 
   async render(def: MapDef): Promise<void> {
@@ -215,7 +228,7 @@ export class Viewport {
       const o = map.objects[i];
       const p = this.project(o.at);
       if (!p.visible) continue;
-      const selected = state.sel.index === i;
+      const selected = state.selIndex === i;
       ctx.beginPath();
       ctx.arc(p.x, p.y, selected ? 5 : 3, 0, Math.PI * 2);
       ctx.fillStyle = selected ? "#f5a623" : markerColor(o.type);
@@ -225,7 +238,7 @@ export class Viewport {
     }
 
     // gizmo on the selected object
-    const sel = state.sel.index >= 0 ? map.objects[state.sel.index] : null;
+    const sel = state.selIndex >= 0 ? map.objects[state.selIndex] : null;
     if (sel) this.drawGizmo(sel);
   }
 
@@ -260,7 +273,11 @@ export class Viewport {
     ov.addEventListener("contextmenu", (e) => e.preventDefault());
     ov.addEventListener("pointerdown", (e) => this.onDown(e));
     window.addEventListener("pointermove", (e) => this.onMove(e));
-    window.addEventListener("pointerup", (e) => this.onUp(e));
+    window.addEventListener("pointerup", () => this.endDrag());
+    // Esc (or any external unlock) while dragging → finish the drag cleanly
+    document.addEventListener("pointerlockchange", () => {
+      if (!document.pointerLockElement && this.dragging) this.endDrag();
+    });
     ov.addEventListener("wheel", (e) => {
       e.preventDefault();
       const { f } = this.basis();
@@ -272,13 +289,11 @@ export class Viewport {
     window.addEventListener("keydown", (e) => {
       if (isTyping()) return;
       this.keys.add(e.code);
-      if (!this.flying) {
-        if (e.code === "KeyQ") this.emitTool("select");
-        else if (e.code === "KeyW") this.emitTool("move");
-        else if (e.code === "KeyE") this.emitTool("rotate");
-        else if (e.code === "KeyR") this.emitTool("scale");
-        else if (e.code === "KeyF" && state.sel.index >= 0) { const o = state.map!.objects[state.sel.index]; this.focus(o.at[0], o.at[1], o.at[2]); }
-      }
+      if (e.code === "Digit1") this.emitTool("select");
+      else if (e.code === "Digit2") this.emitTool("move");
+      else if (e.code === "Digit3") this.emitTool("rotate");
+      else if (e.code === "Digit4") this.emitTool("scale");
+      else if (e.code === "KeyF" && state.selIndex >= 0) { const o = state.map!.objects[state.selIndex]; this.focus(o.at[0], o.at[1], o.at[2]); }
     });
     window.addEventListener("keyup", (e) => this.keys.delete(e.code));
   }
@@ -288,26 +303,31 @@ export class Viewport {
   private emitTool(t: Tool): void { this.tool = t; for (const fn of this.toolListeners) fn(t); }
 
   private onDown(e: PointerEvent): void {
-    this.lastX = e.clientX; this.lastY = e.clientY;
-    if (e.button === 2) {                    // RMB → fly
-      this.flying = true; this.dragging = true; this.dragKind = "camera";
-      this.canvas.style.cursor = "none";
-      return;
-    }
-    if (e.button !== 0) return;
     const rc = this.rect();
-    const px = e.clientX - rc.left, py = e.clientY - rc.top;
-    const hit = this.pick(px, py);
+    this.px = clamp(e.clientX - rc.left, 0, rc.width);
+    this.py = clamp(e.clientY - rc.top, 0, rc.height);
+    if (e.button === 2) { this.flying = true; this.beginDrag("camera"); return; }  // RMB → fly
+    if (e.button !== 0) return;
+    const hit = this.pick(this.px, this.py);
     if (hit >= 0) {
       state.select(hit);
-      if (this.tool !== "select") { this.dragging = true; this.dragKind = "transform"; }
+      if (this.tool !== "select") this.beginDrag("transform");
     }
   }
 
+  /** enter a drag and capture the pointer so the cursor can't leave the viewport */
+  private beginDrag(kind: "camera" | "transform"): void {
+    this.dragging = true; this.dragKind = kind;
+    this.canvas.style.cursor = "none";
+    try { this.canvas.requestPointerLock?.(); } catch { /* not fatal */ }
+  }
+
   private onMove(e: PointerEvent): void {
-    const dx = e.clientX - this.lastX, dy = e.clientY - this.lastY;
-    this.lastX = e.clientX; this.lastY = e.clientY;
     if (!this.dragging) return;
+    const dx = e.movementX, dy = e.movementY;   // works locked or not
+    const rc = this.rect();
+    this.px = clamp(this.px + dx, 0, rc.width);
+    this.py = clamp(this.py + dy, 0, rc.height);
     if (this.dragKind === "camera") {
       this.yaw += dx * 0.0032;
       this.pitch = clamp(this.pitch - dy * 0.0032, -1.5, 1.5);
@@ -317,10 +337,13 @@ export class Viewport {
     }
   }
 
-  private onUp(e: PointerEvent): void {
-    if (e.button === 2) { this.flying = false; this.canvas.style.cursor = ""; }
-    if (this.dragging && this.dragKind === "transform") this.onEditCommit?.();
-    this.dragging = false; this.dragKind = null;
+  private endDrag(): void {
+    if (!this.dragging) return;
+    const wasTransform = this.dragKind === "transform";
+    this.dragging = false; this.dragKind = null; this.flying = false;
+    this.canvas.style.cursor = "";
+    if (document.pointerLockElement === this.canvas) { try { document.exitPointerLock?.(); } catch { /* ignore */ } }
+    if (wasTransform) this.onEditCommit?.();
   }
 
   /** nearest object marker to a pixel, within a threshold (−1 if none) */
@@ -337,14 +360,13 @@ export class Viewport {
   }
 
   private applyTransformDrag(dx: number, dy: number, e: PointerEvent): void {
-    const map = state.map; if (!map || state.sel.index < 0) return;
-    const o = map.objects[state.sel.index];
+    const map = state.map; if (!map || state.selIndex < 0) return;
+    const o = map.objects[state.selIndex];
     if (this.tool === "move") {
       if (e.shiftKey) {                       // vertical
         o.at[1] -= dy * 0.05;
       } else {                                // drag on the ground plane at the object's height
-        const rc = this.rect();
-        const gp = this.groundPoint(e.clientX - rc.left, e.clientY - rc.top, o.at[1]);
+        const gp = this.groundPoint(this.px, this.py, o.at[1]);
         if (gp) { o.at[0] = round(gp[0]); o.at[2] = round(gp[2]); }
       }
       o.at[0] = round(o.at[0]); o.at[1] = round(o.at[1]); o.at[2] = round(o.at[2]);

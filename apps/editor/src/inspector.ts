@@ -11,14 +11,15 @@ import { clear, el, numField, vecField, selectField, checkField, textField } fro
 const MATS = ["wall", "floor", "crate", "metal", "stone", "dark"];
 const AXES = ["x+", "x-", "z+", "z-"];
 
-let catalog: AssetCatalog = { models: [], textures: [], materials: [], audio: [], hdri: [] };
+let catalog: AssetCatalog = { models: [], textures: [], audio: [], hdri: [] };
 export function setInspectorCatalog(c: AssetCatalog): void { catalog = c; }
 
 export function renderInspector(host: HTMLElement): void {
   clear(host);
   const map = state.map;
   if (!map) { host.append(el("div", "empty", "No map loaded")); return; }
-  const touch = (): void => state.touch();
+  // each inspector edit is a discrete, undoable action → commit (records history)
+  const touch = (): void => state.commit();
   const o = state.selected();
   if (!o) return worldInspector(host, map, touch);
   objectInspector(host, o, touch);

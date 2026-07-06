@@ -27,22 +27,6 @@ export interface TextureAsset {
   meta?: Record<string, unknown>;
 }
 
-/** a reusable material discovered under public/assets/materials/{name}.json */
-export interface MaterialAsset {
-  name: string;
-  file: string;            // path under assets/
-  def?: MaterialDef;       // inlined material definition (if it was a .json file)
-}
-
-/** the serialized shape of a material file: which texture set + tiling it uses */
-export interface MaterialDef {
-  texture?: string;        // texture asset name
-  tiling?: [number, number];
-  color?: [number, number, number];
-  roughness?: number;
-  metallic?: number;
-}
-
 /** an audio clip discovered under public/assets/audio/ (flat file or folder) */
 export interface AudioAsset {
   name: string;
@@ -59,7 +43,6 @@ export interface HdriAsset {
 export interface AssetCatalog {
   models: ModelAsset[];
   textures: TextureAsset[];
-  materials: MaterialAsset[];
   audio: AudioAsset[];
   hdri: HdriAsset[];
 }

@@ -6,9 +6,9 @@
 import type { AssetCatalog, Placement, Tuple3 } from "@slopwars/shared";
 import { emptyMap } from "@slopwars/shared";
 import { Viewport, Tool } from "./viewport";
-import { ModelPreview } from "./preview";
+import { ThumbRenderer } from "./preview";
 import { state } from "./state";
-import { renderSceneGraph } from "./scenegraph";
+import { mountSceneGraph } from "./scenegraph";
 import { renderInspector, setInspectorCatalog } from "./inspector";
 import { renderBrowser, Payload } from "./panels";
 import { api } from "./api";
@@ -17,15 +17,15 @@ import { el, button, toast } from "./ui";
 const $ = (id: string): HTMLElement => document.getElementById(id) as HTMLElement;
 
 const viewport = new Viewport();
-const preview = new ModelPreview();
-let catalog: AssetCatalog = { models: [], textures: [], materials: [], audio: [], hdri: [] };
+const thumbs = new ThumbRenderer();
+let catalog: AssetCatalog = { models: [], textures: [], audio: [], hdri: [] };
 let rebuildTimer = 0;
 
 const TOOLS: { t: Tool; label: string; key: string }[] = [
-  { t: "select", label: "Select", key: "Q" },
-  { t: "move", label: "Move", key: "W" },
-  { t: "rotate", label: "Rotate", key: "E" },
-  { t: "scale", label: "Scale", key: "R" },
+  { t: "select", label: "Select", key: "1" },
+  { t: "move", label: "Move", key: "2" },
+  { t: "rotate", label: "Rotate", key: "3" },
+  { t: "scale", label: "Scale", key: "4" },
 ];
 
 async function main(): Promise<void> {
@@ -33,12 +33,14 @@ async function main(): Promise<void> {
   setInspectorCatalog(catalog);
 
   buildToolbar();
+  mountSceneGraph($("scene-graph"));
   buildDock();
+  bindUndoRedo();
 
-  state.onChange(() => { renderSceneGraph($("scene-graph")); scheduleRebuild(); });
+  state.onChange(() => scheduleRebuild());
   state.onSelect(() => renderInspector($("inspector")));
   viewport.onToolChange(highlightTool);
-  viewport.onEditCommit = () => state.emitSelect();
+  viewport.onEditCommit = () => state.commit(true);
 
   await loadMapList();
   setupDrop();
@@ -46,7 +48,17 @@ async function main(): Promise<void> {
   viewport.init("editor-canvas")
     .then(() => { if (state.map) return viewport.render(state.map); })
     .catch((e) => { console.error("viewport init failed (data editing still works):", e); toast("3D viewport unavailable", true); });
-  preview.init($("preview-canvas") as HTMLCanvasElement).catch(() => { /* preview optional */ });
+  thumbs.init().catch(() => { /* thumbnails optional */ });
+}
+
+// ── undo / redo (Ctrl/Cmd+Z, Ctrl/Cmd+Y or Ctrl/Cmd+Shift+Z) ─────────────────
+function bindUndoRedo(): void {
+  window.addEventListener("keydown", (e) => {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    const k = e.key.toLowerCase();
+    if (k === "z" && !e.shiftKey) { e.preventDefault(); state.undo(); }
+    else if ((k === "z" && e.shiftKey) || k === "y") { e.preventDefault(); state.redo(); }
+  });
 }
 
 // ── toolbar ─────────────────────────────────────────────────────────────────
@@ -55,7 +67,9 @@ function buildToolbar(): void {
   const picker = el("select", "map-picker") as HTMLSelectElement;
   picker.id = "map-picker";
   picker.addEventListener("change", () => openMap(picker.value));
-  bar.append(el("span", "brand", "SlopWars"), picker,
+  const logo = el("img", "brand-icon") as HTMLImageElement;
+  logo.src = `${import.meta.env.BASE_URL}logo.png`; logo.alt = "SlopWars";
+  bar.append(logo, el("span", "brand", "Editor"), picker,
     button("New", newMap), button("Save", saveMap, "primary"), button("Save As…", saveMapAs),
     el("span", "bar-sep"));
 
@@ -79,7 +93,7 @@ function buildToolbar(): void {
 }
 
 function buildDock(): void {
-  renderBrowser($("browser"), { catalog, preview, reloadCatalog: async () => { catalog = await api.catalog(); setInspectorCatalog(catalog); return catalog; } });
+  renderBrowser($("browser"), { catalog, thumbs, reloadCatalog: async () => { catalog = await api.catalog(); setInspectorCatalog(catalog); return catalog; } });
 }
 
 function selectTool(t: Tool): void { viewport.setTool(t); highlightTool(t); }

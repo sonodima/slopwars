@@ -174,18 +174,18 @@ defineObject<{ scale: number; top: number; radius: number; plant: "succulent" | 
   build(b, t, p) {
     const [x, , z] = t.at;
     b.placeModel("planter", x, 0, z, p.scale);
-    b.placeModel(p.plant, x, p.top, z, 1.0, Math.random() * 360);
+    b.placeModel(p.plant, x, p.top, z, 1.0, t.rot[1]);
     b.pushSolid({ min: { x: x - p.radius, y: 0, z: z - p.radius }, max: { x: x + p.radius, y: 0.7, z: z + p.radius } });
   },
 });
 
-/** ground vegetation (visual only) — rests on the floor, random yaw if unset */
+/** ground vegetation (visual only) — rests on the floor */
 function vegType(model: "succulent" | "shrub"): ObjectType<{ scale: number }> {
   return {
     defaults: { scale: 1.0 }, category: "prop",
     build(b, t, p) {
       const [x, , z] = t.at;
-      b.placeModel(model, x, b.map.floorY(x, z), z, p.scale, t.rot[1] || Math.random() * 360);
+      b.placeModel(model, x, b.map.floorY(x, z), z, p.scale, t.rot[1]);
     },
   };
 }
@@ -197,12 +197,12 @@ defineObject("succulent", vegType("succulent"));
 // native bounding box × scale. `nw/nh/nd` are the native metres (see models.ts).
 // solid=false → decoration only (vegetation the player walks through). These
 // tuned types are kept for the existing maps; new placements use "prop".
-function modelProp(model: string, nw: number, nh: number, nd: number, defScale: number, solid = true): ObjectType<{ scale: number; randomYaw: boolean }> {
+function modelProp(model: string, nw: number, nh: number, nd: number, defScale: number, solid = true): ObjectType<{ scale: number }> {
   return {
-    defaults: { scale: defScale, randomYaw: false }, category: "prop",
+    defaults: { scale: defScale }, category: "prop",
     build(b, t, p) {
       const [x, baseY, z] = t.at;
-      const yaw = t.rot[1] || (p.randomYaw ? Math.random() * 360 : 0);
+      const yaw = t.rot[1];
       const e = b.placeModel(model, x, baseY, z, p.scale, yaw);
       if (!solid) return;
       const near90 = Math.abs(((yaw % 180) + 180) % 180 - 90) < 45;
