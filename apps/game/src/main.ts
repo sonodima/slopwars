@@ -13,7 +13,7 @@ import { resolveTextures } from "./textures";
 import { GameModels } from "./models";
 import { MapEnv } from "./maps/schema";
 import {
-  DEFAULT_MAP, mapById, mapMetas, pickVotedMap, randomMapId, tallyVotes,
+  DEFAULT_MAP, loadMapPool, mapById, mapMetas, pickVotedMap, randomMapId, tallyVotes,
 } from "./maps";
 import { HE_DAMAGE, HE_RADIUS, MOL_RADIUS, MOL_TICK_DMG, NadeKind, Projectiles } from "./nades";
 import { Net } from "./net";
@@ -230,6 +230,7 @@ class Game {
 
     // ── map (resolves textures + sky, builds geometry/env/pickups) ──
     this.hud.loadingLabel("map & textures");
+    await loadMapPool();                 // fetch maps/*.json into the registry
     await this.loadMap(DEFAULT_MAP);
     bump("ready");
 
