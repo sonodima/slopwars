@@ -6,7 +6,7 @@ import {
   BoundingBox, Color, Engine, Entity, MeshRenderer, PBRMaterial, PrimitiveMesh, Vector4,
 } from "@galacean/engine";
 import { GameModels, instantiate } from "./models";
-import { MapTextures, PbrSet } from "./textures";
+import { MapTextures, PbrSet, DEFAULT_FOLDER } from "./textures";
 import type { AABB, GameMap } from "./map";
 
 type Vec3T = readonly [number, number, number];
@@ -41,6 +41,11 @@ export class MapBuilder {
   }
 
   pushSolid(a: AABB): void { this.map.solids.push(a); }
+
+  /** the PBR set for a texture folder, falling back to the default folder */
+  texOf(folder?: string): PbrSet {
+    return (folder && this.tex.get(folder)) || this.tex.get(DEFAULT_FOLDER) || this.tex.values().next().value!;
+  }
 
   /** report a freshly created entity to the (editor-only) build hook so it can be
    *  associated with the placement it came from — no-op in the game. */
@@ -131,18 +136,4 @@ export class MapBuilder {
     this.track(e);
   }
 
-  /** rising staircase (each step is a solid box); `at` = low-step start corner */
-  stairs(at: readonly [number, number, number], axis: "x+" | "x-" | "z+" | "z-", rise: number, run: number, width: number, set: PbrSet, steps = 8): void {
-    const sl = run / steps;
-    for (let i = 0; i < steps; i++) {
-      const sh = (rise / steps) * (i + 1);
-      if (axis === "x+" || axis === "x-") {
-        const cx = axis === "x+" ? at[0] + sl * i + sl / 2 : at[0] - sl * i - sl / 2;
-        this.box(cx, sh / 2, at[2], sl, sh, width, set, 0.5, 0.5);
-      } else {
-        const cz = axis === "z+" ? at[2] + sl * i + sl / 2 : at[2] - sl * i - sl / 2;
-        this.box(at[0], sh / 2, cz, width, sh, sl, set, 0.5, 0.5);
-      }
-    }
-  }
 }

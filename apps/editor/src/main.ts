@@ -1,8 +1,9 @@
 // ─── SlopWars Map Editor — shell + wiring ────────────────────────────────────
-// Toolbar (map + transform tools + quick-add) · left scene graph · center 3D
-// viewport with fly camera + gizmos · right inspector · bottom unified asset
-// browser. Everything placed is an object; edits mutate an in-memory MapDef that
-// saves back to maps/<id>.json through the dev API.
+// Toolbar (New/Load/Save · transform tools · graphics preset · map name) · left
+// scene graph (World + objects) · center 3D viewport with fly camera + gizmos ·
+// right inspector · bottom asset browser. Panels are resizable. Everything placed
+// is an object; edits mutate an in-memory MapDef saved to maps/<id>.json via the
+// dev API. Editor opens on a blank map; Load pulls an existing one.
 import type { AssetCatalog, Placement, Tuple3 } from "@slopwars/shared";
 import { emptyMap } from "@slopwars/shared";
 import { Viewport, Tool, PerfStats } from "./viewport";

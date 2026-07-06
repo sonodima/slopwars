@@ -1,6 +1,6 @@
 // ─── Object registry: every placeable thing in a map is a registered object ───
 // Following modern game-engine convention, a map is just a list of object
-// placements — geometry (box/water/stairs), props, spawns, pickups, power-ups,
+// placements — geometry (box/water), props, spawns, pickups, power-ups,
 // sounds and lights are ALL object types. Each type declares DEFAULT params, an
 // editor `category`, and a build() that turns a transform (position/rotation/
 // scale) + params into geometry/collision/behaviour. New behaviours = one
@@ -10,7 +10,8 @@ import catalog from "virtual:asset-catalog";
 import type { MapBuilder } from "./mapbuilder";
 import { AABB } from "./map";
 import { assetUrl } from "./assets";
-import type { MatId, Placement } from "./maps/schema";
+import { DEFAULT_FOLDER } from "./textures";
+import type { MapDef, Placement } from "./maps/schema";
 
 export const BARREL_HP = 120;
 
@@ -66,16 +67,30 @@ export function objectCatalog(): ObjEntry[] {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/** every texture folder a map references (via any object's `tex`, merged over
+ *  defaults) plus the folders structures use internally — what the renderer must
+ *  load before building. */
+export function mapTextureFolders(def: MapDef): string[] {
+  const set = new Set<string>(["metal", "stone", "crate"]); // used inside structures
+  for (const o of def.objects) {
+    const t = REGISTRY.get(o.type);
+    if (!t) continue;
+    const merged = { ...t.defaults, ...(o.params ?? {}) } as Record<string, unknown>;
+    if (typeof merged.tex === "string") set.add(merged.tex);
+  }
+  return [...set];
+}
+
 // ─── geometry ─────────────────────────────────────────────────────────────────
 
 /** textured cuboid — the structural workhorse. scale IS its w/h/d (scale gizmo
- *  resizes it). solid=false → decoration (no collision). */
-defineObject<{ mat: MatId; tile: [number, number]; solid: boolean }>("box", {
-  defaults: { mat: "wall", tile: [1, 1], solid: true },
+ *  resizes it). `tex` is a texture folder name. solid=false → decoration. */
+defineObject<{ tex: string; tile: [number, number]; solid: boolean }>("box", {
+  defaults: { tex: DEFAULT_FOLDER, tile: [1, 1], solid: true },
   category: "geometry",
   build(b, t, p) {
     const [x, y, z] = t.at; const [w, h, d] = t.scale; const [tu, tv] = p.tile;
-    const e = b.mesh(x, y, z, w, h, d, b.tex[p.mat], tu, tv);
+    const e = b.mesh(x, y, z, w, h, d, b.texOf(p.tex), tu, tv);
     const [rx, ry, rz] = t.rot;
     if (rx || ry || rz) e.transform.setRotation(rx, ry, rz);   // visual only (collision stays AABB)
     if (p.solid !== false) b.pushSolid({ min: { x: x - w / 2, y: y - h / 2, z: z - d / 2 }, max: { x: x + w / 2, y: y + h / 2, z: z + d / 2 } });
@@ -86,13 +101,6 @@ defineObject<{ mat: MatId; tile: [number, number]; solid: boolean }>("box", {
 defineObject<object>("water", {
   defaults: {}, category: "geometry",
   build(b, t) { const [x, y, z] = t.at; b.water(x, y, z, t.scale[0]); },
-});
-
-/** rising staircase (params-driven; each step is a solid box) */
-defineObject<{ axis: "x+" | "x-" | "z+" | "z-"; rise: number; run: number; width: number; steps: number; mat: MatId }>("stairs", {
-  defaults: { axis: "x+", rise: 3, run: 5, width: 2, steps: 8, mat: "dark" },
-  category: "geometry",
-  build(b, t, p) { b.stairs(t.at, p.axis, p.rise, p.run, p.width, b.tex[p.mat], p.steps); },
 });
 
 // ─── markers (built after geometry so floor heights resolve) ──────────────────
@@ -213,7 +221,7 @@ function modelProp(model: string, nw: number, nh: number, nd: number, defScale: 
       const h = nh * p.scale;
       const solidAABB: AABB = { min: { x: x - hw, y: baseY, z: z - hd }, max: { x: x + hw, y: baseY + h, z: z + hd } };
       if (e) b.pushSolid(solidAABB);
-      else b.box(x, baseY + h / 2, z, hw * 2, h, hd * 2, b.tex.crate, 1, 1); // fallback cube if model missing
+      else b.box(x, baseY + h / 2, z, hw * 2, h, hd * 2, b.texOf("crate"), 1, 1); // fallback cube if model missing
     },
   };
 }
@@ -249,61 +257,61 @@ defineObject("leafplant", modelProp("leafplant", 0.6, 0.42, 0.56, 1.6, false));
 // ─── code-built structures (no model) ─────────────────────────────────────────
 
 /** low wooden pallet (visual+solid, short) */
-defineObject<object>("pallet", {
-  defaults: {}, category: "structure",
-  build(b, t) { const [x, , z] = t.at; b.box(x, 0.08, z, 1.3, 0.16, 1.1, b.tex.crate, 0.8, 0.7); },
+defineObject<{ tex: string }>("pallet", {
+  defaults: { tex: "crate" }, category: "structure",
+  build(b, t, p) { const [x, , z] = t.at; b.box(x, 0.08, z, 1.3, 0.16, 1.1, b.texOf(p.tex), 0.8, 0.7); },
 });
 
 /** stack of sandbags; rot 1 = rotate footprint 90° */
-defineObject<{ rot: 0 | 1 }>("sandbags", {
-  defaults: { rot: 0 }, category: "structure",
+defineObject<{ rot: 0 | 1; tex: string }>("sandbags", {
+  defaults: { rot: 0, tex: "wall" }, category: "structure",
   build(b, t, p) {
     const [x, , z] = t.at;
     const w = p.rot ? 0.65 : 1.5, d = p.rot ? 1.5 : 0.65;
-    b.box(x, 0.28, z, w, 0.56, d, b.tex.wall, 0.6, 0.3);
-    b.box(x + (p.rot ? 0 : 0.1), 0.72, z + (p.rot ? 0.1 : 0), w * 0.8, 0.34, d * 0.8, b.tex.wall, 0.5, 0.2);
+    b.box(x, 0.28, z, w, 0.56, d, b.texOf(p.tex), 0.6, 0.3);
+    b.box(x + (p.rot ? 0 : 0.1), 0.72, z + (p.rot ? 0.1 : 0), w * 0.8, 0.34, d * 0.8, b.texOf(p.tex), 0.5, 0.2);
   },
 });
 
 /** market stall: counter + 4 poles + a jumpable canopy */
-defineObject<object>("stall", {
-  defaults: {}, category: "structure",
-  build(b, t) {
+defineObject<{ tex: string }>("stall", {
+  defaults: { tex: "crate" }, category: "structure",
+  build(b, t, p) {
     const [x, , z] = t.at;
-    b.box(x, 0.5, z, 2.6, 1.0, 1.1, b.tex.crate, 1.4, 0.6);
+    b.box(x, 0.5, z, 2.6, 1.0, 1.1, b.texOf(p.tex), 1.4, 0.6);
     for (const [dx, dz] of [[-1.2, -0.9], [1.2, -0.9], [-1.2, 0.9], [1.2, 0.9]]) {
-      b.box(x + dx, 1.2, z + dz, 0.14, 2.4, 0.14, b.tex.crate, 0.1, 1.4);
+      b.box(x + dx, 1.2, z + dz, 0.14, 2.4, 0.14, b.texOf(p.tex), 0.1, 1.4);
     }
-    b.box(x, 2.45, z, 3.1, 0.14, 2.4, b.tex.metal, 1.4, 1);
-    b.box(x - 0.5, 0.08, z + 1.7, 1.3, 0.16, 1.1, b.tex.crate, 0.8, 0.7); // pallet beside
+    b.box(x, 2.45, z, 3.1, 0.14, 2.4, b.texOf("metal"), 1.4, 1);
+    b.box(x - 0.5, 0.08, z + 1.7, 1.3, 0.16, 1.1, b.texOf(p.tex), 0.8, 0.7); // pallet beside
   },
 });
 
 /** stone column with capital + base (cylinder shaft) */
-defineObject<{ height: number; radius: number }>("column", {
-  defaults: { height: 2.9, radius: 0.32 }, category: "structure",
+defineObject<{ height: number; radius: number; tex: string }>("column", {
+  defaults: { height: 2.9, radius: 0.32, tex: "stone" }, category: "structure",
   build(b, t, p) {
     const [x, , z] = t.at;
-    b.cylinder(x, 1.45, z, p.radius, p.radius, p.height, b.tex.stone, 0.6, 1.4, 10);
-    b.box(x, 3.05, z, 0.85, 0.3, 0.85, b.tex.stone, 0.3, 0.15); // capital
-    b.box(x, 0.15, z, 0.85, 0.3, 0.85, b.tex.stone, 0.3, 0.15); // base
+    b.cylinder(x, 1.45, z, p.radius, p.radius, p.height, b.texOf(p.tex), 0.6, 1.4, 10);
+    b.box(x, 3.05, z, 0.85, 0.3, 0.85, b.texOf(p.tex), 0.3, 0.15); // capital
+    b.box(x, 0.15, z, 0.85, 0.3, 0.85, b.texOf(p.tex), 0.3, 0.15); // base
     b.pushSolid({ min: { x: x - p.radius, y: 0, z: z - p.radius }, max: { x: x + p.radius, y: p.height, z: z + p.radius } });
   },
 });
 
 /** window opening in an x-facing wall: sill + header fills around a 1.6-wide hole */
-defineObject<{ ledge: boolean }>("window", {
-  defaults: { ledge: true }, category: "structure",
+defineObject<{ ledge: boolean; tex: string }>("window", {
+  defaults: { ledge: true, tex: "wall" }, category: "structure",
   build(b, t, p) {
     const [x, , z] = t.at;
-    b.box(x, 0.55, z, 0.9, 1.1, 1.6, b.tex.wall, 0.5, 0.4);   // sill fill
-    b.box(x, 2.85, z, 0.9, 1.1, 1.6, b.tex.wall, 0.5, 0.4);   // header fill
-    if (p.ledge) b.box(x, 1.12, z, 1.1, 0.14, 1.9, b.tex.stone, 0.6, 0.08); // sill ledge
+    b.box(x, 0.55, z, 0.9, 1.1, 1.6, b.texOf(p.tex), 0.5, 0.4);   // sill fill
+    b.box(x, 2.85, z, 0.9, 1.1, 1.6, b.texOf(p.tex), 0.5, 0.4);   // header fill
+    if (p.ledge) b.box(x, 1.12, z, 1.1, 0.14, 1.9, b.texOf("stone"), 0.6, 0.08); // sill ledge
   },
 });
 
 /** metal awning slab jutting from a wall (visual+solid) */
-defineObject<{ w: number; d: number }>("awning", {
-  defaults: { w: 2.6, d: 1.3 }, category: "structure",
-  build(b, t, p) { const [x, y, z] = t.at; b.box(x, y + 0.06, z, p.d, 0.12, p.w, b.tex.metal, 0.6, 1); },
+defineObject<{ w: number; d: number; tex: string }>("awning", {
+  defaults: { w: 2.6, d: 1.3, tex: "metal" }, category: "structure",
+  build(b, t, p) { const [x, y, z] = t.at; b.box(x, y + 0.06, z, p.d, 0.12, p.w, b.texOf(p.tex), 0.6, 1); },
 });

@@ -46,11 +46,6 @@
       0
     ]
   },
-  "textures": {
-    "wall": "koi_wall",
-    "stone": "koi_stone",
-    "floor": "koi_floor"
-  },
   "objects": [
     {
       "type": "box",
@@ -65,12 +60,12 @@
         48
       ],
       "params": {
-        "mat": "floor",
         "tile": [
           16,
           12
         ],
-        "solid": true
+        "solid": true,
+        "tex": "koi_floor"
       }
     },
     {
@@ -86,12 +81,12 @@
         1.2
       ],
       "params": {
-        "mat": "wall",
         "tile": [
           12,
           1.2
         ],
-        "solid": true
+        "solid": true,
+        "tex": "koi_wall"
       }
     },
     {
@@ -107,12 +102,12 @@
         1.2
       ],
       "params": {
-        "mat": "wall",
         "tile": [
           12,
           1.2
         ],
-        "solid": true
+        "solid": true,
+        "tex": "koi_wall"
       }
     },
     {
@@ -128,12 +123,12 @@
         46
       ],
       "params": {
-        "mat": "wall",
         "tile": [
           9,
           1.2
         ],
-        "solid": true
+        "solid": true,
+        "tex": "koi_wall"
       }
     },
     {
@@ -149,12 +144,12 @@
         46
       ],
       "params": {
-        "mat": "wall",
         "tile": [
           9,
           1.2
         ],
-        "solid": true
+        "solid": true,
+        "tex": "koi_wall"
       }
     },
     {
@@ -170,12 +165,12 @@
         0.5
       ],
       "params": {
-        "mat": "stone",
         "tile": [
           12,
           0.2
         ],
-        "solid": true
+        "solid": true,
+        "tex": "koi_stone"
       }
     },
     {
@@ -191,12 +186,12 @@
         0.5
       ],
       "params": {
-        "mat": "stone",
         "tile": [
           12,
           0.2
         ],
-        "solid": true
+        "solid": true,
+        "tex": "koi_stone"
       }
     },
     {
@@ -212,12 +207,12 @@
         46
       ],
       "params": {
-        "mat": "stone",
         "tile": [
           9,
           0.2
         ],
-        "solid": true
+        "solid": true,
+        "tex": "koi_stone"
       }
     },
     {
@@ -233,12 +228,12 @@
         46
       ],
       "params": {
-        "mat": "stone",
         "tile": [
           9,
           0.2
         ],
-        "solid": true
+        "solid": true,
+        "tex": "koi_stone"
       }
     },
     {
@@ -254,12 +249,12 @@
         0.9
       ],
       "params": {
-        "mat": "wall",
         "tile": [
           1.4,
           0.8
         ],
-        "solid": true
+        "solid": true,
+        "tex": "koi_wall"
       }
     },
     {
@@ -275,12 +270,12 @@
         0.9
       ],
       "params": {
-        "mat": "wall",
         "tile": [
           3.3,
           0.8
         ],
-        "solid": true
+        "solid": true,
+        "tex": "koi_wall"
       }
     },
     {
@@ -296,12 +291,12 @@
         0.9
       ],
       "params": {
-        "mat": "wall",
         "tile": [
           1.4,
           0.8
         ],
-        "solid": true
+        "solid": true,
+        "tex": "koi_wall"
       }
     },
     {
@@ -317,12 +312,12 @@
         1.1
       ],
       "params": {
-        "mat": "stone",
         "tile": [
           0.25,
           0.9
         ],
-        "solid": true
+        "solid": true,
+        "tex": "koi_stone"
       }
     },
     {
@@ -338,12 +333,12 @@
         1.1
       ],
       "params": {
-        "mat": "stone",
         "tile": [
           0.25,
           0.9
         ],
-        "solid": true
+        "solid": true,
+        "tex": "koi_stone"
       }
     },
     {
@@ -359,12 +354,12 @@
         1.1
       ],
       "params": {
-        "mat": "stone",
         "tile": [
           0.9,
           0.45
         ],
-        "solid": true
+        "solid": true,
+        "tex": "koi_stone"
       }
     },
     {
@@ -380,12 +375,12 @@
         1.1
       ],
       "params": {
-        "mat": "stone",
         "tile": [
           0.25,
           0.9
         ],
-        "solid": true
+        "solid": true,
+        "tex": "koi_stone"
       }
     },
     {
@@ -401,12 +396,12 @@
         1.1
       ],
       "params": {
-        "mat": "stone",
         "tile": [
           0.25,
           0.9
         ],
-        "solid": true
+        "solid": true,
+        "tex": "koi_stone"
       }
     },
     {
@@ -422,12 +417,12 @@
         1.1
       ],
       "params": {
-        "mat": "stone",
         "tile": [
           0.9,
           0.45
         ],
-        "solid": true
+        "solid": true,
+        "tex": "koi_stone"
       }
     },
     {
@@ -443,12 +438,12 @@
         1.2
       ],
       "params": {
-        "mat": "stone",
         "tile": [
           6,
           0.25
         ],
-        "solid": true
+        "solid": true,
+        "tex": "koi_stone"
       }
     },
     {
@@ -464,12 +459,12 @@
         0.9
       ],
       "params": {
-        "mat": "wall",
         "tile": [
           1.4,
           0.8
         ],
-        "solid": true
+        "solid": true,
+        "tex": "koi_wall"
       }
     },
     {
@@ -485,12 +480,12 @@
         0.9
       ],
       "params": {
-        "mat": "wall",
         "tile": [
           3.3,
           0.8
         ],
-        "solid": true
+        "solid": true,
+        "tex": "koi_wall"
       }
     },
     {
@@ -506,12 +501,12 @@
         0.9
       ],
       "params": {
-        "mat": "wall",
         "tile": [
           1.4,
           0.8
         ],
-        "solid": true
+        "solid": true,
+        "tex": "koi_wall"
       }
     },
     {
@@ -527,12 +522,12 @@
         1.1
       ],
       "params": {
-        "mat": "stone",
         "tile": [
           0.25,
           0.9
         ],
-        "solid": true
+        "solid": true,
+        "tex": "koi_stone"
       }
     },
     {
@@ -548,12 +543,12 @@
         1.1
       ],
       "params": {
-        "mat": "stone",
         "tile": [
           0.25,
           0.9
         ],
-        "solid": true
+        "solid": true,
+        "tex": "koi_stone"
       }
     },
     {
@@ -569,12 +564,12 @@
         1.1
       ],
       "params": {
-        "mat": "stone",
         "tile": [
           0.9,
           0.45
         ],
-        "solid": true
+        "solid": true,
+        "tex": "koi_stone"
       }
     },
     {
@@ -590,12 +585,12 @@
         1.1
       ],
       "params": {
-        "mat": "stone",
         "tile": [
           0.25,
           0.9
         ],
-        "solid": true
+        "solid": true,
+        "tex": "koi_stone"
       }
     },
     {
@@ -611,12 +606,12 @@
         1.1
       ],
       "params": {
-        "mat": "stone",
         "tile": [
           0.25,
           0.9
         ],
-        "solid": true
+        "solid": true,
+        "tex": "koi_stone"
       }
     },
     {
@@ -632,12 +627,12 @@
         1.1
       ],
       "params": {
-        "mat": "stone",
         "tile": [
           0.9,
           0.45
         ],
-        "solid": true
+        "solid": true,
+        "tex": "koi_stone"
       }
     },
     {
@@ -653,12 +648,12 @@
         1.2
       ],
       "params": {
-        "mat": "stone",
         "tile": [
           6,
           0.25
         ],
-        "solid": true
+        "solid": true,
+        "tex": "koi_stone"
       }
     },
     {
@@ -674,12 +669,12 @@
         0.5
       ],
       "params": {
-        "mat": "stone",
         "tile": [
           1.4,
           0.25
         ],
-        "solid": true
+        "solid": true,
+        "tex": "koi_stone"
       }
     },
     {
@@ -695,12 +690,12 @@
         0.5
       ],
       "params": {
-        "mat": "stone",
         "tile": [
           1.4,
           0.25
         ],
-        "solid": true
+        "solid": true,
+        "tex": "koi_stone"
       }
     },
     {
@@ -716,12 +711,12 @@
         3.4
       ],
       "params": {
-        "mat": "stone",
         "tile": [
           0.25,
           1.2
         ],
-        "solid": true
+        "solid": true,
+        "tex": "koi_stone"
       }
     },
     {
@@ -737,12 +732,12 @@
         3.4
       ],
       "params": {
-        "mat": "stone",
         "tile": [
           0.25,
           1.2
         ],
-        "solid": true
+        "solid": true,
+        "tex": "koi_stone"
       }
     },
     {
@@ -771,12 +766,12 @@
         0.9
       ],
       "params": {
-        "mat": "stone",
         "tile": [
           0.4,
           0.6
         ],
-        "solid": true
+        "solid": true,
+        "tex": "koi_stone"
       }
     },
     {
@@ -792,12 +787,12 @@
         6.2
       ],
       "params": {
-        "mat": "wall",
         "tile": [
           1.8,
           0.9
         ],
-        "solid": true
+        "solid": true,
+        "tex": "koi_wall"
       }
     },
     {
@@ -813,12 +808,12 @@
         8.4
       ],
       "params": {
-        "mat": "wall",
         "tile": [
           2.4,
           0.9
         ],
-        "solid": true
+        "solid": true,
+        "tex": "koi_wall"
       }
     },
     {
@@ -834,12 +829,12 @@
         8.2
       ],
       "params": {
-        "mat": "wall",
         "tile": [
           2.4,
           0.9
         ],
-        "solid": true
+        "solid": true,
+        "tex": "koi_wall"
       }
     },
     {
@@ -855,12 +850,12 @@
         0.9
       ],
       "params": {
-        "mat": "wall",
         "tile": [
           2.5,
           0.9
         ],
-        "solid": true
+        "solid": true,
+        "tex": "koi_wall"
       }
     },
     {
@@ -876,12 +871,12 @@
         0.9
       ],
       "params": {
-        "mat": "wall",
         "tile": [
           2.5,
           0.9
         ],
-        "solid": true
+        "solid": true,
+        "tex": "koi_wall"
       }
     },
     {
@@ -897,12 +892,12 @@
         26
       ],
       "params": {
-        "mat": "stone",
         "tile": [
           0.2,
           7
         ],
-        "solid": true
+        "solid": true,
+        "tex": "koi_stone"
       }
     },
     {
@@ -918,12 +913,12 @@
         26
       ],
       "params": {
-        "mat": "dark",
         "tile": [
           3,
           7
         ],
-        "solid": true
+        "solid": true,
+        "tex": "dark"
       }
     },
     {
@@ -939,28 +934,180 @@
         18.5
       ],
       "params": {
-        "mat": "stone",
         "tile": [
           0.15,
           5
+        ],
+        "solid": true,
+        "tex": "koi_stone"
+      }
+    },
+    {
+      "type": "box",
+      "at": [
+        -11.4,
+        0.238,
+        11.813
+      ],
+      "scale": [
+        2.1,
+        0.475,
+        0.775
+      ],
+      "params": {
+        "tex": "dark",
+        "tile": [
+          0.5,
+          0.5
         ],
         "solid": true
       }
     },
     {
-      "type": "stairs",
+      "type": "box",
       "at": [
         -11.4,
-        0,
-        12.2
+        0.475,
+        11.038
+      ],
+      "scale": [
+        2.1,
+        0.95,
+        0.775
       ],
       "params": {
-        "axis": "z-",
-        "rise": 3.8,
-        "run": 6.2,
-        "width": 2.1,
-        "steps": 8,
-        "mat": "dark"
+        "tex": "dark",
+        "tile": [
+          0.5,
+          0.5
+        ],
+        "solid": true
+      }
+    },
+    {
+      "type": "box",
+      "at": [
+        -11.4,
+        0.712,
+        10.263
+      ],
+      "scale": [
+        2.1,
+        1.425,
+        0.775
+      ],
+      "params": {
+        "tex": "dark",
+        "tile": [
+          0.5,
+          0.5
+        ],
+        "solid": true
+      }
+    },
+    {
+      "type": "box",
+      "at": [
+        -11.4,
+        0.95,
+        9.488
+      ],
+      "scale": [
+        2.1,
+        1.9,
+        0.775
+      ],
+      "params": {
+        "tex": "dark",
+        "tile": [
+          0.5,
+          0.5
+        ],
+        "solid": true
+      }
+    },
+    {
+      "type": "box",
+      "at": [
+        -11.4,
+        1.188,
+        8.713
+      ],
+      "scale": [
+        2.1,
+        2.375,
+        0.775
+      ],
+      "params": {
+        "tex": "dark",
+        "tile": [
+          0.5,
+          0.5
+        ],
+        "solid": true
+      }
+    },
+    {
+      "type": "box",
+      "at": [
+        -11.4,
+        1.425,
+        7.937
+      ],
+      "scale": [
+        2.1,
+        2.85,
+        0.775
+      ],
+      "params": {
+        "tex": "dark",
+        "tile": [
+          0.5,
+          0.5
+        ],
+        "solid": true
+      }
+    },
+    {
+      "type": "box",
+      "at": [
+        -11.4,
+        1.662,
+        7.162
+      ],
+      "scale": [
+        2.1,
+        3.325,
+        0.775
+      ],
+      "params": {
+        "tex": "dark",
+        "tile": [
+          0.5,
+          0.5
+        ],
+        "solid": true
+      }
+    },
+    {
+      "type": "box",
+      "at": [
+        -11.4,
+        1.9,
+        6.387
+      ],
+      "scale": [
+        2.1,
+        3.8,
+        0.775
+      ],
+      "params": {
+        "tex": "dark",
+        "tile": [
+          0.5,
+          0.5
+        ],
+        "solid": true
       }
     },
     {
@@ -976,12 +1123,12 @@
         1.8
       ],
       "params": {
-        "mat": "dark",
         "tile": [
           1,
           0.5
         ],
-        "solid": true
+        "solid": true,
+        "tex": "dark"
       }
     },
     {
@@ -997,12 +1144,12 @@
         5.5
       ],
       "params": {
-        "mat": "wall",
         "tile": [
           1.8,
           0.9
         ],
-        "solid": true
+        "solid": true,
+        "tex": "koi_wall"
       }
     },
     {
@@ -1018,12 +1165,12 @@
         3.8
       ],
       "params": {
-        "mat": "wall",
         "tile": [
           1.2,
           0.9
         ],
-        "solid": true
+        "solid": true,
+        "tex": "koi_wall"
       }
     },
     {
@@ -1039,12 +1186,12 @@
         2.8
       ],
       "params": {
-        "mat": "stone",
         "tile": [
           0.9,
           0.3
         ],
-        "solid": true
+        "solid": true,
+        "tex": "koi_stone"
       }
     },
     {
@@ -1060,12 +1207,12 @@
         0.9
       ],
       "params": {
-        "mat": "wall",
         "tile": [
           3,
           0.9
         ],
-        "solid": true
+        "solid": true,
+        "tex": "koi_wall"
       }
     },
     {
@@ -1081,12 +1228,12 @@
         5.5
       ],
       "params": {
-        "mat": "wall",
         "tile": [
           1.6,
           0.9
         ],
-        "solid": true
+        "solid": true,
+        "tex": "koi_wall"
       }
     },
     {
@@ -1102,12 +1249,12 @@
         4.9
       ],
       "params": {
-        "mat": "wall",
         "tile": [
           1.4,
           0.9
         ],
-        "solid": true
+        "solid": true,
+        "tex": "koi_wall"
       }
     },
     {
@@ -1123,12 +1270,12 @@
         0.9
       ],
       "params": {
-        "mat": "wall",
         "tile": [
           1.6,
           0.9
         ],
-        "solid": true
+        "solid": true,
+        "tex": "koi_wall"
       }
     },
     {
@@ -1144,12 +1291,12 @@
         0.9
       ],
       "params": {
-        "mat": "wall",
         "tile": [
           1.2,
           0.9
         ],
-        "solid": true
+        "solid": true,
+        "tex": "koi_wall"
       }
     },
     {
@@ -1165,12 +1312,12 @@
         1.02
       ],
       "params": {
-        "mat": "stone",
         "tile": [
           0.9,
           0.3
         ],
-        "solid": true
+        "solid": true,
+        "tex": "koi_stone"
       }
     },
     {
@@ -1186,12 +1333,12 @@
         12.9
       ],
       "params": {
-        "mat": "dark",
         "tile": [
           3,
           3
         ],
-        "solid": true
+        "solid": true,
+        "tex": "dark"
       }
     },
     {
@@ -1207,12 +1354,12 @@
         12.9
       ],
       "params": {
-        "mat": "stone",
         "tile": [
           0.15,
           3
         ],
-        "solid": true
+        "solid": true,
+        "tex": "koi_stone"
       }
     },
     {
@@ -1228,12 +1375,12 @@
         0.4
       ],
       "params": {
-        "mat": "stone",
         "tile": [
           3,
           0.15
         ],
-        "solid": true
+        "solid": true,
+        "tex": "koi_stone"
       }
     },
     {
@@ -1249,12 +1396,12 @@
         1.2
       ],
       "params": {
-        "mat": "crate",
         "tile": [
           0.9,
           0.4
         ],
-        "solid": true
+        "solid": true,
+        "tex": "crate"
       }
     },
     {
@@ -1270,12 +1417,12 @@
         6.1
       ],
       "params": {
-        "mat": "wall",
         "tile": [
           1.8,
           0.8
         ],
-        "solid": true
+        "solid": true,
+        "tex": "koi_wall"
       }
     },
     {
@@ -1291,12 +1438,12 @@
         2.9
       ],
       "params": {
-        "mat": "wall",
         "tile": [
           0.9,
           0.8
         ],
-        "solid": true
+        "solid": true,
+        "tex": "koi_wall"
       }
     },
     {
@@ -1312,12 +1459,12 @@
         11
       ],
       "params": {
-        "mat": "dark",
         "tile": [
           2,
           3
         ],
-        "solid": true
+        "solid": true,
+        "tex": "dark"
       }
     },
     {
@@ -1333,12 +1480,12 @@
         9.4
       ],
       "params": {
-        "mat": "stone",
         "tile": [
           0.12,
           3
         ],
-        "solid": true
+        "solid": true,
+        "tex": "koi_stone"
       }
     },
     {
@@ -1354,28 +1501,180 @@
         0.4
       ],
       "params": {
-        "mat": "stone",
         "tile": [
           2,
           0.12
+        ],
+        "solid": true,
+        "tex": "koi_stone"
+      }
+    },
+    {
+      "type": "box",
+      "at": [
+        18,
+        0.213,
+        8.6
+      ],
+      "scale": [
+        0.8,
+        0.425,
+        2.4
+      ],
+      "params": {
+        "tex": "dark",
+        "tile": [
+          0.5,
+          0.5
         ],
         "solid": true
       }
     },
     {
-      "type": "stairs",
+      "type": "box",
       "at": [
-        17.6,
-        0,
+        18.8,
+        0.425,
         8.6
       ],
+      "scale": [
+        0.8,
+        0.85,
+        2.4
+      ],
       "params": {
-        "axis": "x+",
-        "rise": 3.4,
-        "run": 6.4,
-        "width": 2.4,
-        "steps": 8,
-        "mat": "dark"
+        "tex": "dark",
+        "tile": [
+          0.5,
+          0.5
+        ],
+        "solid": true
+      }
+    },
+    {
+      "type": "box",
+      "at": [
+        19.6,
+        0.638,
+        8.6
+      ],
+      "scale": [
+        0.8,
+        1.275,
+        2.4
+      ],
+      "params": {
+        "tex": "dark",
+        "tile": [
+          0.5,
+          0.5
+        ],
+        "solid": true
+      }
+    },
+    {
+      "type": "box",
+      "at": [
+        20.4,
+        0.85,
+        8.6
+      ],
+      "scale": [
+        0.8,
+        1.7,
+        2.4
+      ],
+      "params": {
+        "tex": "dark",
+        "tile": [
+          0.5,
+          0.5
+        ],
+        "solid": true
+      }
+    },
+    {
+      "type": "box",
+      "at": [
+        21.2,
+        1.063,
+        8.6
+      ],
+      "scale": [
+        0.8,
+        2.125,
+        2.4
+      ],
+      "params": {
+        "tex": "dark",
+        "tile": [
+          0.5,
+          0.5
+        ],
+        "solid": true
+      }
+    },
+    {
+      "type": "box",
+      "at": [
+        22,
+        1.275,
+        8.6
+      ],
+      "scale": [
+        0.8,
+        2.55,
+        2.4
+      ],
+      "params": {
+        "tex": "dark",
+        "tile": [
+          0.5,
+          0.5
+        ],
+        "solid": true
+      }
+    },
+    {
+      "type": "box",
+      "at": [
+        22.8,
+        1.488,
+        8.6
+      ],
+      "scale": [
+        0.8,
+        2.975,
+        2.4
+      ],
+      "params": {
+        "tex": "dark",
+        "tile": [
+          0.5,
+          0.5
+        ],
+        "solid": true
+      }
+    },
+    {
+      "type": "box",
+      "at": [
+        23.6,
+        1.7,
+        8.6
+      ],
+      "scale": [
+        0.8,
+        3.4,
+        2.4
+      ],
+      "params": {
+        "tex": "dark",
+        "tile": [
+          0.5,
+          0.5
+        ],
+        "solid": true
       }
     },
     {
@@ -1384,7 +1683,10 @@
         -22.3,
         0,
         -6
-      ]
+      ],
+      "params": {
+        "tex": "koi_wall"
+      }
     },
     {
       "type": "window",
@@ -1392,7 +1694,10 @@
         -22.3,
         0,
         4
-      ]
+      ],
+      "params": {
+        "tex": "koi_wall"
+      }
     },
     {
       "type": "column",
@@ -1400,7 +1705,10 @@
         -13.2,
         0,
         -10.5
-      ]
+      ],
+      "params": {
+        "tex": "koi_stone"
+      }
     },
     {
       "type": "column",
@@ -1408,7 +1716,10 @@
         -13.2,
         0,
         -7
-      ]
+      ],
+      "params": {
+        "tex": "koi_stone"
+      }
     },
     {
       "type": "column",
@@ -1416,7 +1727,10 @@
         -13.2,
         0,
         -3.5
-      ]
+      ],
+      "params": {
+        "tex": "koi_stone"
+      }
     },
     {
       "type": "column",
@@ -1424,7 +1738,10 @@
         -13.2,
         0,
         0
-      ]
+      ],
+      "params": {
+        "tex": "koi_stone"
+      }
     },
     {
       "type": "column",
@@ -1432,7 +1749,10 @@
         -13.2,
         0,
         3.5
-      ]
+      ],
+      "params": {
+        "tex": "koi_stone"
+      }
     },
     {
       "type": "column",
@@ -1440,7 +1760,10 @@
         -13.2,
         0,
         7
-      ]
+      ],
+      "params": {
+        "tex": "koi_stone"
+      }
     },
     {
       "type": "column",
@@ -1448,7 +1771,10 @@
         -13.2,
         0,
         10.5
-      ]
+      ],
+      "params": {
+        "tex": "koi_stone"
+      }
     },
     {
       "type": "lantern",
@@ -1472,7 +1798,10 @@
         12.4,
         2.6,
         -4.2
-      ]
+      ],
+      "params": {
+        "tex": "metal"
+      }
     },
     {
       "type": "window",
@@ -1482,7 +1811,8 @@
         -5
       ],
       "params": {
-        "east": true
+        "east": true,
+        "tex": "koi_wall"
       }
     },
     {
@@ -1491,7 +1821,10 @@
         21.5,
         0,
         -2
-      ]
+      ],
+      "params": {
+        "tex": "crate"
+      }
     },
     {
       "type": "pallet",
@@ -1499,7 +1832,10 @@
         15.5,
         0,
         -9.5
-      ]
+      ],
+      "params": {
+        "tex": "crate"
+      }
     },
     {
       "type": "lantern",
@@ -1523,7 +1859,10 @@
         8.5,
         0,
         -6.5
-      ]
+      ],
+      "params": {
+        "tex": "crate"
+      }
     },
     {
       "type": "stall",
@@ -1531,7 +1870,10 @@
         8.5,
         0,
         5.5
-      ]
+      ],
+      "params": {
+        "tex": "crate"
+      }
     },
     {
       "type": "sandbags",
@@ -1541,7 +1883,8 @@
         -1.5
       ],
       "params": {
-        "rot": 0
+        "rot": 0,
+        "tex": "koi_wall"
       }
     },
     {
@@ -1552,7 +1895,8 @@
         0
       ],
       "params": {
-        "rot": 1
+        "rot": 1,
+        "tex": "koi_wall"
       }
     },
     {
@@ -1563,7 +1907,8 @@
         1.5
       ],
       "params": {
-        "rot": 0
+        "rot": 0,
+        "tex": "koi_wall"
       }
     },
     {
@@ -1574,7 +1919,8 @@
         -0.8
       ],
       "params": {
-        "rot": 1
+        "rot": 1,
+        "tex": "koi_wall"
       }
     },
     {
@@ -1827,7 +2173,10 @@
         -15,
         0,
         -16
-      ]
+      ],
+      "params": {
+        "tex": "crate"
+      }
     },
     {
       "type": "pallet",
@@ -1835,7 +2184,10 @@
         14,
         0,
         18.5
-      ]
+      ],
+      "params": {
+        "tex": "crate"
+      }
     },
     {
       "type": "shrub",

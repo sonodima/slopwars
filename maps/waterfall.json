@@ -46,12 +46,6 @@
       15
     ]
   },
-  "textures": {
-    "floor": "wf_floor",
-    "wall": "wf_wall",
-    "stone": "wf_stone",
-    "dark": "wf_dark"
-  },
   "objects": [
     {
       "type": "box",
@@ -66,12 +60,12 @@
         42
       ],
       "params": {
-        "mat": "floor",
         "tile": [
           16,
           11
         ],
-        "solid": true
+        "solid": true,
+        "tex": "wf_floor"
       }
     },
     {
@@ -87,12 +81,12 @@
         1.2
       ],
       "params": {
-        "mat": "wall",
         "tile": [
           15,
           1.6
         ],
-        "solid": true
+        "solid": true,
+        "tex": "wf_wall"
       }
     },
     {
@@ -108,12 +102,12 @@
         1.2
       ],
       "params": {
-        "mat": "wall",
         "tile": [
           15,
           1.6
         ],
-        "solid": true
+        "solid": true,
+        "tex": "wf_wall"
       }
     },
     {
@@ -129,12 +123,12 @@
         42
       ],
       "params": {
-        "mat": "wall",
         "tile": [
           11,
           1.6
         ],
-        "solid": true
+        "solid": true,
+        "tex": "wf_wall"
       }
     },
     {
@@ -150,12 +144,12 @@
         42
       ],
       "params": {
-        "mat": "wall",
         "tile": [
           11,
           1.6
         ],
-        "solid": true
+        "solid": true,
+        "tex": "wf_wall"
       }
     },
     {
@@ -171,12 +165,12 @@
         9
       ],
       "params": {
-        "mat": "stone",
         "tile": [
           6,
           1.6
         ],
-        "solid": true
+        "solid": true,
+        "tex": "wf_stone"
       }
     },
     {
@@ -192,12 +186,12 @@
         9
       ],
       "params": {
-        "mat": "stone",
         "tile": [
           6,
           1.6
         ],
-        "solid": true
+        "solid": true,
+        "tex": "wf_stone"
       }
     },
     {
@@ -213,12 +207,12 @@
         0.4
       ],
       "params": {
-        "mat": "dark",
         "tile": [
           6,
           0.15
         ],
-        "solid": true
+        "solid": true,
+        "tex": "wf_dark"
       }
     },
     {
@@ -234,12 +228,12 @@
         0.4
       ],
       "params": {
-        "mat": "dark",
         "tile": [
           6,
           0.15
         ],
-        "solid": true
+        "solid": true,
+        "tex": "wf_dark"
       }
     },
     {
@@ -255,44 +249,348 @@
         8
       ],
       "params": {
-        "mat": "stone",
         "tile": [
           3,
           1
+        ],
+        "solid": true,
+        "tex": "wf_stone"
+      }
+    },
+    {
+      "type": "box",
+      "at": [
+        -16,
+        0.2,
+        -8.875
+      ],
+      "scale": [
+        3.4,
+        0.4,
+        0.75
+      ],
+      "params": {
+        "tex": "wf_stone",
+        "tile": [
+          0.5,
+          0.5
         ],
         "solid": true
       }
     },
     {
-      "type": "stairs",
+      "type": "box",
       "at": [
         -16,
-        0,
-        -8.5
+        0.4,
+        -9.625
+      ],
+      "scale": [
+        3.4,
+        0.8,
+        0.75
       ],
       "params": {
-        "axis": "z-",
-        "rise": 3.2,
-        "run": 6,
-        "width": 3.4,
-        "steps": 8,
-        "mat": "stone"
+        "tex": "wf_stone",
+        "tile": [
+          0.5,
+          0.5
+        ],
+        "solid": true
       }
     },
     {
-      "type": "stairs",
+      "type": "box",
       "at": [
-        16,
-        0,
-        -8.5
+        -16,
+        0.6,
+        -10.375
+      ],
+      "scale": [
+        3.4,
+        1.2,
+        0.75
       ],
       "params": {
-        "axis": "z-",
-        "rise": 3.2,
-        "run": 6,
-        "width": 3.4,
-        "steps": 8,
-        "mat": "stone"
+        "tex": "wf_stone",
+        "tile": [
+          0.5,
+          0.5
+        ],
+        "solid": true
+      }
+    },
+    {
+      "type": "box",
+      "at": [
+        -16,
+        0.8,
+        -11.125
+      ],
+      "scale": [
+        3.4,
+        1.6,
+        0.75
+      ],
+      "params": {
+        "tex": "wf_stone",
+        "tile": [
+          0.5,
+          0.5
+        ],
+        "solid": true
+      }
+    },
+    {
+      "type": "box",
+      "at": [
+        -16,
+        1,
+        -11.875
+      ],
+      "scale": [
+        3.4,
+        2,
+        0.75
+      ],
+      "params": {
+        "tex": "wf_stone",
+        "tile": [
+          0.5,
+          0.5
+        ],
+        "solid": true
+      }
+    },
+    {
+      "type": "box",
+      "at": [
+        -16,
+        1.2,
+        -12.625
+      ],
+      "scale": [
+        3.4,
+        2.4,
+        0.75
+      ],
+      "params": {
+        "tex": "wf_stone",
+        "tile": [
+          0.5,
+          0.5
+        ],
+        "solid": true
+      }
+    },
+    {
+      "type": "box",
+      "at": [
+        -16,
+        1.4,
+        -13.375
+      ],
+      "scale": [
+        3.4,
+        2.8,
+        0.75
+      ],
+      "params": {
+        "tex": "wf_stone",
+        "tile": [
+          0.5,
+          0.5
+        ],
+        "solid": true
+      }
+    },
+    {
+      "type": "box",
+      "at": [
+        -16,
+        1.6,
+        -14.125
+      ],
+      "scale": [
+        3.4,
+        3.2,
+        0.75
+      ],
+      "params": {
+        "tex": "wf_stone",
+        "tile": [
+          0.5,
+          0.5
+        ],
+        "solid": true
+      }
+    },
+    {
+      "type": "box",
+      "at": [
+        16,
+        0.2,
+        -8.875
+      ],
+      "scale": [
+        3.4,
+        0.4,
+        0.75
+      ],
+      "params": {
+        "tex": "wf_stone",
+        "tile": [
+          0.5,
+          0.5
+        ],
+        "solid": true
+      }
+    },
+    {
+      "type": "box",
+      "at": [
+        16,
+        0.4,
+        -9.625
+      ],
+      "scale": [
+        3.4,
+        0.8,
+        0.75
+      ],
+      "params": {
+        "tex": "wf_stone",
+        "tile": [
+          0.5,
+          0.5
+        ],
+        "solid": true
+      }
+    },
+    {
+      "type": "box",
+      "at": [
+        16,
+        0.6,
+        -10.375
+      ],
+      "scale": [
+        3.4,
+        1.2,
+        0.75
+      ],
+      "params": {
+        "tex": "wf_stone",
+        "tile": [
+          0.5,
+          0.5
+        ],
+        "solid": true
+      }
+    },
+    {
+      "type": "box",
+      "at": [
+        16,
+        0.8,
+        -11.125
+      ],
+      "scale": [
+        3.4,
+        1.6,
+        0.75
+      ],
+      "params": {
+        "tex": "wf_stone",
+        "tile": [
+          0.5,
+          0.5
+        ],
+        "solid": true
+      }
+    },
+    {
+      "type": "box",
+      "at": [
+        16,
+        1,
+        -11.875
+      ],
+      "scale": [
+        3.4,
+        2,
+        0.75
+      ],
+      "params": {
+        "tex": "wf_stone",
+        "tile": [
+          0.5,
+          0.5
+        ],
+        "solid": true
+      }
+    },
+    {
+      "type": "box",
+      "at": [
+        16,
+        1.2,
+        -12.625
+      ],
+      "scale": [
+        3.4,
+        2.4,
+        0.75
+      ],
+      "params": {
+        "tex": "wf_stone",
+        "tile": [
+          0.5,
+          0.5
+        ],
+        "solid": true
+      }
+    },
+    {
+      "type": "box",
+      "at": [
+        16,
+        1.4,
+        -13.375
+      ],
+      "scale": [
+        3.4,
+        2.8,
+        0.75
+      ],
+      "params": {
+        "tex": "wf_stone",
+        "tile": [
+          0.5,
+          0.5
+        ],
+        "solid": true
+      }
+    },
+    {
+      "type": "box",
+      "at": [
+        16,
+        1.6,
+        -14.125
+      ],
+      "scale": [
+        3.4,
+        3.2,
+        0.75
+      ],
+      "params": {
+        "tex": "wf_stone",
+        "tile": [
+          0.5,
+          0.5
+        ],
+        "solid": true
       }
     },
     {
@@ -308,12 +606,12 @@
         13
       ],
       "params": {
-        "mat": "dark",
         "tile": [
           2.5,
           3.5
         ],
-        "solid": true
+        "solid": true,
+        "tex": "wf_dark"
       }
     },
     {
@@ -329,12 +627,12 @@
         13
       ],
       "params": {
-        "mat": "dark",
         "tile": [
           2.5,
           3.5
         ],
-        "solid": true
+        "solid": true,
+        "tex": "wf_dark"
       }
     },
     {
@@ -350,12 +648,12 @@
         13
       ],
       "params": {
-        "mat": "stone",
         "tile": [
           0.15,
           3.5
         ],
-        "solid": true
+        "solid": true,
+        "tex": "wf_stone"
       }
     },
     {
@@ -371,44 +669,348 @@
         13
       ],
       "params": {
-        "mat": "stone",
         "tile": [
           0.15,
           3.5
+        ],
+        "solid": true,
+        "tex": "wf_stone"
+      }
+    },
+    {
+      "type": "box",
+      "at": [
+        -27.219,
+        0.113,
+        12
+      ],
+      "scale": [
+        0.563,
+        0.225,
+        3.2
+      ],
+      "params": {
+        "tex": "wf_stone",
+        "tile": [
+          0.5,
+          0.5
         ],
         "solid": true
       }
     },
     {
-      "type": "stairs",
+      "type": "box",
       "at": [
-        -27.5,
-        0,
+        -26.656,
+        0.225,
         12
       ],
+      "scale": [
+        0.563,
+        0.45,
+        3.2
+      ],
       "params": {
-        "axis": "x+",
-        "rise": 1.8,
-        "run": 4.5,
-        "width": 3.2,
-        "steps": 8,
-        "mat": "stone"
+        "tex": "wf_stone",
+        "tile": [
+          0.5,
+          0.5
+        ],
+        "solid": true
       }
     },
     {
-      "type": "stairs",
+      "type": "box",
       "at": [
-        27.5,
-        0,
+        -26.094,
+        0.338,
         12
       ],
+      "scale": [
+        0.563,
+        0.675,
+        3.2
+      ],
       "params": {
-        "axis": "x-",
-        "rise": 1.8,
-        "run": 4.5,
-        "width": 3.2,
-        "steps": 8,
-        "mat": "stone"
+        "tex": "wf_stone",
+        "tile": [
+          0.5,
+          0.5
+        ],
+        "solid": true
+      }
+    },
+    {
+      "type": "box",
+      "at": [
+        -25.531,
+        0.45,
+        12
+      ],
+      "scale": [
+        0.563,
+        0.9,
+        3.2
+      ],
+      "params": {
+        "tex": "wf_stone",
+        "tile": [
+          0.5,
+          0.5
+        ],
+        "solid": true
+      }
+    },
+    {
+      "type": "box",
+      "at": [
+        -24.969,
+        0.563,
+        12
+      ],
+      "scale": [
+        0.563,
+        1.125,
+        3.2
+      ],
+      "params": {
+        "tex": "wf_stone",
+        "tile": [
+          0.5,
+          0.5
+        ],
+        "solid": true
+      }
+    },
+    {
+      "type": "box",
+      "at": [
+        -24.406,
+        0.675,
+        12
+      ],
+      "scale": [
+        0.563,
+        1.35,
+        3.2
+      ],
+      "params": {
+        "tex": "wf_stone",
+        "tile": [
+          0.5,
+          0.5
+        ],
+        "solid": true
+      }
+    },
+    {
+      "type": "box",
+      "at": [
+        -23.844,
+        0.788,
+        12
+      ],
+      "scale": [
+        0.563,
+        1.575,
+        3.2
+      ],
+      "params": {
+        "tex": "wf_stone",
+        "tile": [
+          0.5,
+          0.5
+        ],
+        "solid": true
+      }
+    },
+    {
+      "type": "box",
+      "at": [
+        -23.281,
+        0.9,
+        12
+      ],
+      "scale": [
+        0.563,
+        1.8,
+        3.2
+      ],
+      "params": {
+        "tex": "wf_stone",
+        "tile": [
+          0.5,
+          0.5
+        ],
+        "solid": true
+      }
+    },
+    {
+      "type": "box",
+      "at": [
+        27.219,
+        0.113,
+        12
+      ],
+      "scale": [
+        0.563,
+        0.225,
+        3.2
+      ],
+      "params": {
+        "tex": "wf_stone",
+        "tile": [
+          0.5,
+          0.5
+        ],
+        "solid": true
+      }
+    },
+    {
+      "type": "box",
+      "at": [
+        26.656,
+        0.225,
+        12
+      ],
+      "scale": [
+        0.563,
+        0.45,
+        3.2
+      ],
+      "params": {
+        "tex": "wf_stone",
+        "tile": [
+          0.5,
+          0.5
+        ],
+        "solid": true
+      }
+    },
+    {
+      "type": "box",
+      "at": [
+        26.094,
+        0.338,
+        12
+      ],
+      "scale": [
+        0.563,
+        0.675,
+        3.2
+      ],
+      "params": {
+        "tex": "wf_stone",
+        "tile": [
+          0.5,
+          0.5
+        ],
+        "solid": true
+      }
+    },
+    {
+      "type": "box",
+      "at": [
+        25.531,
+        0.45,
+        12
+      ],
+      "scale": [
+        0.563,
+        0.9,
+        3.2
+      ],
+      "params": {
+        "tex": "wf_stone",
+        "tile": [
+          0.5,
+          0.5
+        ],
+        "solid": true
+      }
+    },
+    {
+      "type": "box",
+      "at": [
+        24.969,
+        0.563,
+        12
+      ],
+      "scale": [
+        0.563,
+        1.125,
+        3.2
+      ],
+      "params": {
+        "tex": "wf_stone",
+        "tile": [
+          0.5,
+          0.5
+        ],
+        "solid": true
+      }
+    },
+    {
+      "type": "box",
+      "at": [
+        24.406,
+        0.675,
+        12
+      ],
+      "scale": [
+        0.563,
+        1.35,
+        3.2
+      ],
+      "params": {
+        "tex": "wf_stone",
+        "tile": [
+          0.5,
+          0.5
+        ],
+        "solid": true
+      }
+    },
+    {
+      "type": "box",
+      "at": [
+        23.844,
+        0.788,
+        12
+      ],
+      "scale": [
+        0.563,
+        1.575,
+        3.2
+      ],
+      "params": {
+        "tex": "wf_stone",
+        "tile": [
+          0.5,
+          0.5
+        ],
+        "solid": true
+      }
+    },
+    {
+      "type": "box",
+      "at": [
+        23.281,
+        0.9,
+        12
+      ],
+      "scale": [
+        0.563,
+        1.8,
+        3.2
+      ],
+      "params": {
+        "tex": "wf_stone",
+        "tile": [
+          0.5,
+          0.5
+        ],
+        "solid": true
       }
     },
     {
@@ -437,12 +1039,12 @@
         0.5
       ],
       "params": {
-        "mat": "stone",
         "tile": [
           5,
           0.15
         ],
-        "solid": true
+        "solid": true,
+        "tex": "wf_stone"
       }
     },
     {

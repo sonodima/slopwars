@@ -13,6 +13,7 @@ import { placeRot, placeScale } from "@slopwars/shared";
 import { GameMap } from "@game/map";
 import { GameModels, loadModels } from "@game/models";
 import { resolveTextures, type MapTextures } from "@game/textures";
+import { mapTextureFolders } from "@game/objects";
 import { loadHDRCube } from "@game/assets";
 import "@game/objects"; // side effect: register built-in object types
 import { state } from "./state";
@@ -144,9 +145,10 @@ export class Viewport {
 
   async render(def: MapDef): Promise<void> {
     if (!this.ready) return;
-    const key = JSON.stringify(def.textures ?? {});
+    const folders = mapTextureFolders(def);
+    const key = folders.slice().sort().join(",");
     if (key !== this.texKey || !this.texCache) {
-      this.texCache = await resolveTextures(this.engine, def.textures);
+      this.texCache = await resolveTextures(this.engine, folders);
       this.texKey = key;
     }
     this.rebuild(def, this.texCache);
@@ -737,6 +739,6 @@ function markerColor(type: string): string {
   if (type === "pickup") return "#29b6f6";
   if (type === "powerup") return "#ffca28";
   if (type === "sound") return "#ab47bc";
-  if (type === "box" || type === "water" || type === "stairs") return "#78909c";
+  if (type === "box" || type === "water") return "#78909c";
   return "#cfc3a8";
 }

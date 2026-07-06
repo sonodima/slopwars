@@ -10,6 +10,7 @@ import { loadHDRCube } from "./assets";
 import { Hud } from "./hud";
 import { GameMap } from "./map";
 import { resolveTextures } from "./textures";
+import { mapTextureFolders } from "./objects";
 import { GameModels } from "./models";
 import { MapEnv } from "./maps/schema";
 import {
@@ -1327,7 +1328,7 @@ class Game {
     this.pwMats = [];
     this.pwActive = [];
     const def = mapById(id);
-    const tex = await resolveTextures(this.engine, def.textures);
+    const tex = await resolveTextures(this.engine, mapTextureFolders(def));
     this.map.load(this.engine, this.root, tex, this.models, def);
     this.currentMapId = id;
     await this.applyEnv(def.env);
