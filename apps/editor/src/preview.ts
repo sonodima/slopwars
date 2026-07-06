@@ -1,88 +1,145 @@
-// ─── Model preview: a small self-contained turntable for the asset browser ───
-// Its own tiny WebGL engine so it never disturbs the main viewport. Loads one
-// glTF at a time and lets you drag to rotate it. Fully guarded — if WebGL or a
-// load fails, the browser simply shows no preview.
+// ─── Thumbnail renderer: off-screen PBR previews for the asset browser ───────
+// A single hidden WebGL engine renders each asset once — a framed glTF model or
+// a lit PBR sphere for a texture set — and hands back a data-URL the browser
+// drops straight into the asset card. Requests are queued so only one render is
+// in flight at a time, and every result is cached by key. Fully guarded: if
+// WebGL or a load fails the card simply keeps its icon fallback.
 import {
-  AmbientLight, BoundingBox, Camera, Color, DirectLight, Entity, MeshRenderer, Vector3, WebGLEngine,
+  AmbientLight, BackgroundMode, BoundingBox, Camera, Color, DirectLight, Entity,
+  MeshRenderer, PBRMaterial, PrimitiveMesh, Vector3, Vector4, WebGLEngine,
 } from "@galacean/engine";
-import { loadGLTF } from "@game/assets";
+import type { TextureMaps } from "@slopwars/shared";
+import { loadGLTF, loadTexture2D } from "@game/assets";
 
-export class ModelPreview {
+const SIZE = 160;
+
+export class ThumbRenderer {
   private engine: WebGLEngine | null = null;
   private root!: Entity;
   private holder!: Entity;
   private camE!: Entity;
-  private yaw = 0.6;
-  private pitch = 0.3;
-  private dist = 4;
-  private current = "";
+  private camera!: Camera;
+  private canvas!: HTMLCanvasElement;
+  private cache = new Map<string, string>();
+  private queue: Promise<unknown> = Promise.resolve();
   ok = false;
 
-  async init(canvas: HTMLCanvasElement): Promise<void> {
+  async init(): Promise<void> {
     try {
-      const engine = await WebGLEngine.create({ canvas });
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = SIZE;
+      this.canvas = canvas;
+      const engine = await WebGLEngine.create({ canvas, graphicDeviceOptions: { preserveDrawingBuffer: true } });
       this.engine = engine;
-      engine.canvas.resizeByClientSize();
+      engine.canvas.width = SIZE; engine.canvas.height = SIZE;
+
       const scene = engine.sceneManager.activeScene;
-      scene.background.solidColor = new Color(0.09, 0.1, 0.11, 1);
+      scene.background.mode = BackgroundMode.SolidColor;
+      scene.background.solidColor = new Color(0.078, 0.086, 0.098, 1);
       this.root = scene.createRootEntity("root");
-      const lightE = this.root.createChild("l");
-      lightE.transform.setRotation(-40, -30, 0);
-      lightE.addComponent(DirectLight).color = new Color(1.2, 1.2, 1.15, 1);
+
+      const key = this.root.createChild("key");
+      key.transform.setRotation(-40, -30, 0);
+      key.addComponent(DirectLight).color = new Color(1.25, 1.22, 1.15, 1);
+      const fill = this.root.createChild("fill");
+      fill.transform.setRotation(-8, 150, 0);
+      fill.addComponent(DirectLight).color = new Color(0.35, 0.4, 0.5, 1);
       const amb: AmbientLight = scene.ambientLight;
-      amb.diffuseSolidColor = new Color(0.55, 0.58, 0.62, 1);
-      amb.diffuseIntensity = 0.9;
+      amb.diffuseSolidColor = new Color(0.5, 0.53, 0.6, 1);
+      amb.diffuseIntensity = 1.0;
+
       this.camE = this.root.createChild("cam");
-      this.camE.addComponent(Camera).fieldOfView = 40;
+      this.camera = this.camE.addComponent(Camera);
+      this.camera.fieldOfView = 35;
       this.holder = this.root.createChild("holder");
-      this.bindDrag(canvas);
       engine.run();
-      this.place();
       this.ok = true;
-    } catch (e) { console.warn("preview init failed", e); this.ok = false; }
+    } catch (e) { console.warn("thumb renderer init failed", e); this.ok = false; }
   }
 
-  async show(gltfPath: string): Promise<void> {
-    if (!this.engine || this.current === gltfPath) return;
-    this.current = gltfPath;
-    this.holder.clearChildren();
-    try {
-      const res = await loadGLTF(this.engine, gltfPath);
-      if (this.current !== gltfPath) return; // superseded
+  /** framed turntable snapshot of a glTF model */
+  modelThumb(gltfPath: string): Promise<string | null> {
+    return this.enqueue(`model:${gltfPath}`, async () => {
+      const res = await loadGLTF(this.engine!, gltfPath);
       const e = res.instantiateSceneRoot();
       this.holder.addChild(e);
-      this.frame(e);
-    } catch (err) { console.warn("preview load failed", gltfPath, err); }
+      this.frameEntity(e);
+      return this.snapshot();
+    });
   }
 
-  private frame(e: Entity): void {
+  /** lit PBR sphere showing a texture set (color/normal/arm) */
+  textureThumb(key: string, maps: TextureMaps): Promise<string | null> {
+    return this.enqueue(`tex:${key}`, async () => {
+      const e = this.holder.createChild("sphere");
+      const r = e.addComponent(MeshRenderer);
+      r.mesh = PrimitiveMesh.createSphere(this.engine!, 1, 48);
+      const m = new PBRMaterial(this.engine!);
+      m.tilingOffset = new Vector4(1, 1, 0, 0);
+      const [color, normal, arm] = await Promise.all([
+        maps.color ? loadTexture2D(this.engine!, maps.color) : null,
+        maps.normal ? loadTexture2D(this.engine!, maps.normal) : null,
+        maps.arm ? loadTexture2D(this.engine!, maps.arm) : null,
+      ]);
+      if (color) m.baseTexture = color;
+      if (normal) m.normalTexture = normal;
+      if (arm) { m.roughnessMetallicTexture = arm; m.occlusionTexture = arm; } else { m.roughness = 0.85; m.metallic = 0; }
+      r.setMaterial(m);
+      this.camPose(2.7, 0.5, 0.35);
+      return this.snapshot();
+    });
+  }
+
+  // ── internals ──────────────────────────────────────────────────────────────
+  /** serialize renders (one engine, one framebuffer) and memoize by key */
+  private enqueue(key: string, run: () => Promise<string | null>): Promise<string | null> {
+    if (!this.engine) return Promise.resolve(null);
+    const hit = this.cache.get(key);
+    if (hit) return Promise.resolve(hit);
+    const task = this.queue.then(async () => {
+      const cached = this.cache.get(key);
+      if (cached) return cached;
+      this.holder.clearChildren();
+      try {
+        const url = await run();
+        if (url) this.cache.set(key, url);
+        return url;
+      } catch (e) { console.warn("thumb render failed", key, e); return null; }
+    });
+    this.queue = task.catch(() => undefined);
+    return task;
+  }
+
+  private async snapshot(): Promise<string> {
+    await this.frames(2);
+    return this.canvas.toDataURL("image/png");
+  }
+
+  private frames(n: number): Promise<void> {
+    return new Promise((resolve) => {
+      const tick = (): void => { if (--n <= 0) resolve(); else requestAnimationFrame(tick); };
+      requestAnimationFrame(tick);
+    });
+  }
+
+  private frameEntity(e: Entity): void {
     const rs = e.getComponentsIncludeChildren(MeshRenderer, []);
     const box = new BoundingBox();
     let has = false;
     for (const r of rs) { if (!r.mesh) continue; if (!has) { box.copyFrom(r.bounds); has = true; } else BoundingBox.merge(box, r.bounds, box); }
+    let size = 2;
     if (has) {
       const cx = (box.min.x + box.max.x) / 2, cy = (box.min.y + box.max.y) / 2, cz = (box.min.z + box.max.z) / 2;
       e.transform.setPosition(-cx, -cy, -cz);
-      const size = Math.max(box.max.x - box.min.x, box.max.y - box.min.y, box.max.z - box.min.z) || 1;
-      this.dist = size * 2.2;
+      size = Math.max(box.max.x - box.min.x, box.max.y - box.min.y, box.max.z - box.min.z) || 1;
     }
-    this.place();
+    this.camPose(size * 2.0, 0.55, 0.4);
   }
 
-  private place(): void {
-    const cp = Math.cos(this.pitch);
-    this.camE.transform.setPosition(this.dist * cp * Math.sin(this.yaw), this.dist * Math.sin(this.pitch), this.dist * cp * Math.cos(this.yaw));
+  /** orbit the camera around the origin at `dist`, yaw/pitch in radians */
+  private camPose(dist: number, yaw: number, pitch: number): void {
+    const cp = Math.cos(pitch);
+    this.camE.transform.setPosition(dist * cp * Math.sin(yaw), dist * Math.sin(pitch), dist * cp * Math.cos(yaw));
     this.camE.transform.lookAt(new Vector3(0, 0, 0), new Vector3(0, 1, 0));
-  }
-
-  private bindDrag(canvas: HTMLCanvasElement): void {
-    let down = false, px = 0, py = 0;
-    canvas.addEventListener("pointerdown", (e) => { down = true; px = e.clientX; py = e.clientY; });
-    window.addEventListener("pointerup", () => { down = false; });
-    window.addEventListener("pointermove", (e) => {
-      if (!down) return;
-      this.yaw -= (e.clientX - px) * 0.01; this.pitch = Math.max(-1.4, Math.min(1.4, this.pitch + (e.clientY - py) * 0.01));
-      px = e.clientX; py = e.clientY; this.place();
-    });
   }
 }

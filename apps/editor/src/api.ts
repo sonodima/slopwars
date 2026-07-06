@@ -2,7 +2,7 @@
 // These hit the middleware in the asset-catalog Vite plugin (editor:true), which
 // reads/writes the repo's maps/ and public/assets/materials/ directories. This
 // is the git-first workflow: the editor writes JSON into the working tree.
-import type { AssetCatalog, MapCatalogEntry, MapDef, MaterialDef } from "@slopwars/shared";
+import type { AssetCatalog, MapCatalogEntry, MapDef } from "@slopwars/shared";
 
 async function jget<T>(url: string): Promise<T> {
   const res = await fetch(url);
@@ -21,6 +21,4 @@ export const api = {
   maps: (): Promise<MapCatalogEntry[]> => jget("/__editor/maps"),
   loadMap: (file: string): Promise<MapDef> => jget(`/${file}`),
   saveMap: (id: string, def: MapDef): Promise<unknown> => jpost("/__editor/save", { id, def }),
-  saveMaterial: (name: string, def: MaterialDef): Promise<unknown> => jpost("/__editor/material", { name, def }),
-  deleteMaterial: (name: string): Promise<unknown> => jpost("/__editor/material/delete", { name }),
 };

@@ -8,7 +8,7 @@
 //   import maps    from "virtual:map-catalog"      // MapCatalogEntry[]
 //
 // In dev it also serves `maps/*.json` (which live outside publicDir) and exposes
-// a small editor API to list/save maps and create/delete materials — the
+// a small editor API to list and save maps — the
 // git-first workflow: the editor writes JSON into the repo, you commit it, and
 // the client picks it up on the next scan. On build, every map is emitted into
 // the bundle so the deployed client can fetch it.
@@ -16,7 +16,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { Plugin } from "vite";
 import type {
-  AssetCatalog, AudioAsset, HdriAsset, MapCatalogEntry, MaterialAsset,
+  AssetCatalog, AudioAsset, HdriAsset, MapCatalogEntry,
   ModelAsset, TextureAsset, TextureMaps,
 } from "./catalog";
 
@@ -82,23 +82,6 @@ function scanTextures(assets: string): TextureAsset[] {
   }).sort((a, b) => a.name.localeCompare(b.name));
 }
 
-function scanMaterials(assets: string): MaterialAsset[] {
-  const base = path.join(assets, "materials");
-  const out: MaterialAsset[] = [];
-  for (const f of readFilesFlat(base)) {
-    if (!f.endsWith(".json")) continue;
-    const name = f.replace(/\.json$/, "");
-    let def; try { def = JSON.parse(fs.readFileSync(path.join(base, f), "utf8")); } catch { def = undefined; }
-    out.push({ name, file: `materials/${f}`, def });
-  }
-  for (const name of readDirs(base)) {
-    const metaPath = path.join(base, name, "meta.json");
-    let def; if (fs.existsSync(metaPath)) { try { def = JSON.parse(fs.readFileSync(metaPath, "utf8")); } catch { /* ignore */ } }
-    out.push({ name, file: `materials/${name}/meta.json`, def });
-  }
-  return out.sort((a, b) => a.name.localeCompare(b.name));
-}
-
 function scanAudio(assets: string): AudioAsset[] {
   const base = path.join(assets, "audio");
   const out: AudioAsset[] = [];
@@ -124,7 +107,6 @@ export function scanAssets(root: string): AssetCatalog {
   return {
     models: scanModels(assets),
     textures: scanTextures(assets),
-    materials: scanMaterials(assets),
     audio: scanAudio(assets),
     hdri: scanHdri(assets),
   };
@@ -187,7 +169,6 @@ export function assetCatalogPlugin(opts: Options = {}): Plugin {
 
     configureServer(server) {
       const mapsDir = path.join(root, "maps");
-      const materialsDir = path.join(root, "public", "assets", "materials");
 
       server.middlewares.use((req, res, next) => {
         const url = (req.url ?? "").split("?")[0];
@@ -213,28 +194,6 @@ export function assetCatalogPlugin(opts: Options = {}): Plugin {
             fs.mkdirSync(mapsDir, { recursive: true });
             fs.writeFileSync(path.join(mapsDir, `${name}.json`), JSON.stringify(def, null, 2) + "\n");
             json(res, 200, { ok: true, file: `maps/${name}.json` });
-          }).catch((e) => json(res, 500, { error: String(e) }));
-          return;
-        }
-
-        if (req.method === "POST" && url === "/__editor/material") {
-          readBody(req).then((body) => {
-            const { name, def } = JSON.parse(body);
-            const n = sanitize(name);
-            if (!n) return json(res, 400, { error: "invalid material name" });
-            fs.mkdirSync(materialsDir, { recursive: true });
-            fs.writeFileSync(path.join(materialsDir, `${n}.json`), JSON.stringify(def, null, 2) + "\n");
-            json(res, 200, { ok: true });
-          }).catch((e) => json(res, 500, { error: String(e) }));
-          return;
-        }
-
-        if (req.method === "POST" && url === "/__editor/material/delete") {
-          readBody(req).then((body) => {
-            const { name } = JSON.parse(body);
-            const file = path.join(materialsDir, `${sanitize(name)}.json`);
-            if (fs.existsSync(file)) fs.unlinkSync(file);
-            json(res, 200, { ok: true });
           }).catch((e) => json(res, 500, { error: String(e) }));
           return;
         }
