@@ -24,12 +24,12 @@ export function numField(label: string, get: () => number, set: (v: number) => v
   return row;
 }
 
-/** three numeric inputs bound to a [x,y,z] tuple */
-export function vec3Field(label: string, tuple: number[], onChange: () => void, step = 0.1): HTMLElement {
+/** N numeric inputs bound to a numeric tuple (2 or 3 components) */
+export function vecField(label: string, tuple: number[], onChange: () => void, step = 0.1): HTMLElement {
   const row = el("div", "field vec3");
   row.append(el("span", "field-label", label));
   const box = el("div", "vec3-inputs");
-  const names = ["x", "y", "z"];
+  const names = ["x", "y", "z", "w"];
   for (let i = 0; i < tuple.length; i++) {
     const inp = el("input", "field-input");
     inp.type = "number"; inp.step = String(step); inp.value = String(round(tuple[i])); inp.title = names[i] ?? String(i);

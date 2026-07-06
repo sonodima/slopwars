@@ -1,8 +1,7 @@
 // ─── Editor state: the map being edited + current selection, with listeners ──
-import type { Brush, MapDef, Placement } from "@slopwars/shared";
-
-export type SelKind = "none" | "env" | "brush" | "object" | "spawn" | "pickup" | "powerup";
-export interface Selection { kind: SelKind; index: number }
+// Everything in a map is an object placement now, so selection is just an index
+// into `map.objects` (-1 = nothing selected).
+import type { MapDef, Placement } from "@slopwars/shared";
 
 type Listener = () => void;
 
@@ -11,7 +10,7 @@ class EditorState {
   /** the map's file id (maps/<id>.json); may differ from meta.id until saved */
   fileId = "";
   dirty = false;
-  sel: Selection = { kind: "none", index: -1 };
+  sel = { index: -1 };
 
   private changeListeners = new Set<Listener>();   // map data changed → rebuild + trees
   private selListeners = new Set<Listener>();       // selection changed → inspector
@@ -19,27 +18,51 @@ class EditorState {
   onChange(fn: Listener): void { this.changeListeners.add(fn); }
   onSelect(fn: Listener): void { this.selListeners.add(fn); }
 
-  /** load a fresh map into the editor (clears selection + dirty flag) */
   setMap(map: MapDef, fileId: string): void {
     this.map = map;
     this.fileId = fileId;
     this.dirty = false;
-    this.sel = { kind: "none", index: -1 };
+    this.sel = { index: -1 };
     this.emitChange();
     this.emitSelect();
   }
 
-  select(kind: SelKind, index: number): void {
-    this.sel = { kind, index };
+  select(index: number): void {
+    this.sel = { index };
     this.emitSelect();
   }
 
-  /** the currently-selected brush/object (or null) */
-  selectedBrush(): Brush | null {
-    return this.map && this.sel.kind === "brush" ? this.map.brushes[this.sel.index] ?? null : null;
+  selected(): Placement | null {
+    return this.map && this.sel.index >= 0 ? this.map.objects[this.sel.index] ?? null : null;
   }
-  selectedObject(): Placement | null {
-    return this.map && this.sel.kind === "object" ? this.map.objects[this.sel.index] ?? null : null;
+
+  /** append a placement and select it */
+  add(o: Placement): number {
+    if (!this.map) return -1;
+    this.map.objects.push(o);
+    const i = this.map.objects.length - 1;
+    this.touch();
+    this.select(i);
+    return i;
+  }
+
+  /** remove a placement by index (fixes up selection) */
+  remove(index: number): void {
+    if (!this.map) return;
+    this.map.objects.splice(index, 1);
+    if (this.sel.index === index) this.select(-1);
+    else if (this.sel.index > index) this.sel.index--;
+    this.touch();
+  }
+
+  /** duplicate a placement (offset slightly) and select the copy */
+  duplicate(index: number): void {
+    if (!this.map) return;
+    const src = this.map.objects[index];
+    if (!src) return;
+    const copy: Placement = JSON.parse(JSON.stringify(src));
+    copy.at = [copy.at[0] + 2, copy.at[1], copy.at[2] + 2];
+    this.add(copy);
   }
 
   /** mark the map mutated: rebuild the viewport + refresh trees */

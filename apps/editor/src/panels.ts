@@ -1,110 +1,110 @@
-// ─── Asset panels (bottom dock): Models · Textures · Materials · Audio · Objects
-// A file-driven browser over the scanned catalog. Objects place into the map;
-// Materials create/delete JSON files via the dev API. Everything here is sourced
-// from the pipeline — add an asset folder and it shows up on reload.
+// ─── Unified asset browser (bottom dock) ─────────────────────────────────────
+// One browser for everything the pipeline discovered: placeable Objects, Models
+// (drag → creates a "prop"), Audio (drag → creates a "sound"), Textures, and
+// Materials (create/delete). Items are draggable onto the viewport; a model
+// turntable preview sits on the left. Payloads: {kind:"object"|"model"|"audio", name}.
 import type { AssetCatalog, MaterialDef } from "@slopwars/shared";
-import { objectTypeNames } from "@game/objects";
+import { objectCatalog } from "@game/objects";
 import { clear, el, button, toast } from "./ui";
 import { api } from "./api";
+import { ModelPreview } from "./preview";
 
 export interface PanelCtx {
   catalog: AssetCatalog;
-  placeObject: (type: string) => void;
+  preview: ModelPreview;
   reloadCatalog: () => Promise<AssetCatalog>;
 }
 
-const TABS = ["Objects", "Models", "Textures", "Materials", "Audio"] as const;
-type Tab = typeof TABS[number];
-
+const CATS = ["All", "Objects", "Models", "Audio", "Textures", "Materials"] as const;
+type Cat = typeof CATS[number];
 const ASSET = (p: string): string => `${import.meta.env.BASE_URL}assets/${p}`;
 
-export function renderPanels(tabsHost: HTMLElement, bodyHost: HTMLElement, ctx: PanelCtx): void {
-  let active: Tab = "Objects";
-  const draw = (): void => {
-    clear(tabsHost);
-    for (const t of TABS) {
-      const b = el("button", `tab ${t === active ? "on" : ""}`, t);
-      b.addEventListener("click", () => { active = t; draw(); });
-      tabsHost.append(b);
+export function renderBrowser(host: HTMLElement, ctx: PanelCtx): void {
+  clear(host);
+  let cat: Cat = "All";
+  let query = "";
+
+  const bar = el("div", "browser-bar");
+  const chips = el("div", "chips");
+  const search = el("input", "browser-search") as HTMLInputElement;
+  search.type = "search"; search.placeholder = "Search assets…";
+  search.addEventListener("input", () => { query = search.value.toLowerCase(); draw(); });
+  bar.append(chips, search);
+
+  const body = el("div", "browser-body");
+  const grid = el("div", "asset-grid");
+  body.append(grid);
+  host.append(bar, body);
+
+  const drawChips = (): void => {
+    clear(chips);
+    for (const c of CATS) {
+      const b = el("button", `chip ${c === cat ? "on" : ""}`, c);
+      b.addEventListener("click", () => { cat = c; drawChips(); draw(); });
+      chips.append(b);
     }
-    clear(bodyHost);
-    if (active === "Objects") objectsPanel(bodyHost, ctx);
-    else if (active === "Models") modelsPanel(bodyHost, ctx);
-    else if (active === "Textures") texturesPanel(bodyHost, ctx);
-    else if (active === "Materials") materialsPanel(bodyHost, ctx, draw);
-    else if (active === "Audio") audioPanel(bodyHost, ctx);
   };
+
+  const match = (s: string): boolean => !query || s.toLowerCase().includes(query);
+
+  const draw = (): void => {
+    clear(grid);
+    for (const f of Array.from(host.querySelectorAll(".mat-form"))) f.remove();
+    if (cat === "Materials") return materials(grid, ctx, () => draw());
+    const show = (c: Cat): boolean => cat === "All" || cat === c;
+
+    if (show("Objects")) for (const o of objectCatalog()) {
+      if (o.category === "marker") continue; // markers added from the toolbar
+      if (!match(o.name)) continue;
+      grid.append(card(o.name, "◆", () => ({ kind: "object", name: o.name })));
+    }
+    if (show("Models")) for (const m of ctx.catalog.models) {
+      if (!match(m.name)) continue;
+      const c = card(m.name, "▣", () => ({ kind: "model", name: m.name }));
+      c.addEventListener("mouseenter", () => ctx.preview.show(m.gltf));
+      grid.append(c);
+    }
+    if (show("Audio")) for (const a of ctx.catalog.audio) {
+      if (!match(a.name)) continue;
+      const c = card(a.name, "♪", () => ({ kind: "audio", name: a.name }));
+      const audio = el("audio"); audio.src = ASSET(a.file); audio.controls = true; audio.className = "asset-audio";
+      c.append(audio);
+      grid.append(c);
+    }
+    if (show("Textures")) for (const t of ctx.catalog.textures) {
+      if (!match(t.name)) continue;
+      const c = el("div", "asset-card");
+      if (t.maps.color) { const img = el("img", "asset-thumb"); img.src = ASSET(t.maps.color); img.loading = "lazy"; c.append(img); }
+      else c.append(el("div", "asset-icon", "▦"));
+      c.append(el("div", "asset-name", t.name));
+      grid.append(c);
+    }
+    if (grid.childElementCount === 0) grid.append(el("div", "empty", "Nothing here"));
+  };
+
+  drawChips();
   draw();
 }
 
-function grid(host: HTMLElement): HTMLElement { const g = el("div", "asset-grid"); host.append(g); return g; }
-
-function objectsPanel(host: HTMLElement, ctx: PanelCtx): void {
-  host.append(el("p", "panel-hint", "Click to place an entity at the origin, then position it in the inspector."));
-  const g = grid(host);
-  for (const name of objectTypeNames()) {
-    const card = el("div", "asset-card obj");
-    card.append(el("div", "asset-icon", "◆"));
-    card.append(el("div", "asset-name", name));
-    card.addEventListener("click", () => ctx.placeObject(name));
-    g.append(card);
-  }
+/** a draggable asset card carrying a placement payload */
+function card(name: string, icon: string, payload: () => Payload): HTMLElement {
+  const c = el("div", "asset-card grab");
+  c.append(el("div", "asset-icon", icon), el("div", "asset-name", name));
+  c.draggable = true;
+  c.addEventListener("dragstart", (e) => { e.dataTransfer?.setData("application/x-slop", JSON.stringify(payload())); });
+  return c;
 }
 
-function modelsPanel(host: HTMLElement, ctx: PanelCtx): void {
-  host.append(el("p", "panel-hint", `${ctx.catalog.models.length} models discovered in public/assets/models/.`));
-  const g = grid(host);
-  for (const m of ctx.catalog.models) {
-    const card = el("div", "asset-card");
-    card.append(el("div", "asset-icon", "▣"));
-    card.append(el("div", "asset-name", m.name));
-    card.title = m.gltf;
-    g.append(card);
-  }
-}
+export interface Payload { kind: "object" | "model" | "audio"; name: string }
 
-function texturesPanel(host: HTMLElement, ctx: PanelCtx): void {
-  host.append(el("p", "panel-hint", "PBR texture sets. Bind a folder to a material slot in the Environment inspector."));
-  const g = grid(host);
-  for (const t of ctx.catalog.textures) {
-    const card = el("div", "asset-card");
-    if (t.maps.color) {
-      const img = el("img", "asset-thumb");
-      img.src = ASSET(t.maps.color); img.loading = "lazy";
-      card.append(img);
-    } else {
-      card.append(el("div", "asset-icon", "▦"));
-    }
-    card.append(el("div", "asset-name", t.name));
-    card.title = Object.keys(t.maps).join(", ");
-    g.append(card);
-  }
-}
-
-function audioPanel(host: HTMLElement, ctx: PanelCtx): void {
-  host.append(el("p", "panel-hint", `${ctx.catalog.audio.length} audio clips.`));
-  const g = grid(host);
-  for (const a of ctx.catalog.audio) {
-    const card = el("div", "asset-card");
-    card.append(el("div", "asset-icon", "♪"));
-    card.append(el("div", "asset-name", a.name));
-    const play = el("audio"); play.src = ASSET(a.file); play.controls = true; play.className = "asset-audio";
-    card.append(play);
-    g.append(card);
-  }
-}
-
-function materialsPanel(host: HTMLElement, ctx: PanelCtx, redraw: () => void): void {
-  host.append(el("p", "panel-hint", "Reusable materials → public/assets/materials/<name>.json"));
-
-  // create form
+function materials(grid: HTMLElement, ctx: PanelCtx, redraw: () => void): void {
   const form = el("div", "mat-form");
-  const nameIn = el("input", "field-input"); nameIn.placeholder = "material name";
-  const texSel = el("select", "field-input");
+  const nameIn = el("input", "field-input") as HTMLInputElement; nameIn.placeholder = "material name";
+  const texSel = el("select", "field-input") as HTMLSelectElement;
   texSel.append(el("option", undefined, "(texture set)"));
   for (const t of ctx.catalog.textures) { const o = el("option", undefined, t.name); o.value = t.name; texSel.append(o); }
-  const rough = el("input", "field-input"); rough.type = "number"; rough.step = "0.05"; rough.value = "0.7"; rough.title = "roughness";
-  const metal = el("input", "field-input"); metal.type = "number"; metal.step = "0.05"; metal.value = "0"; metal.title = "metallic";
+  const rough = el("input", "field-input") as HTMLInputElement; rough.type = "number"; rough.step = "0.05"; rough.value = "0.7"; rough.title = "roughness";
+  const metal = el("input", "field-input") as HTMLInputElement; metal.type = "number"; metal.step = "0.05"; metal.value = "0"; metal.title = "metallic";
   const create = button("Create", async () => {
     const name = nameIn.value.trim();
     if (!name) { toast("name required", true); return; }
@@ -113,20 +113,15 @@ function materialsPanel(host: HTMLElement, ctx: PanelCtx, redraw: () => void): v
     catch (e) { toast(String(e), true); }
   }, "primary");
   form.append(nameIn, texSel, rough, metal, create);
-  host.append(form);
+  grid.parentElement!.insertBefore(form, grid);
 
-  const g = grid(host);
-  if (ctx.catalog.materials.length === 0) g.append(el("div", "empty", "No materials yet"));
+  if (ctx.catalog.materials.length === 0) grid.append(el("div", "empty", "No materials yet"));
   for (const m of ctx.catalog.materials) {
-    const card = el("div", "asset-card");
-    card.append(el("div", "asset-icon", "●"));
-    card.append(el("div", "asset-name", m.name));
+    const c = el("div", "asset-card");
+    c.append(el("div", "asset-icon", "●"), el("div", "asset-name", m.name));
     const del = el("button", "btn mini", "✕");
-    del.addEventListener("click", async () => {
-      try { await api.deleteMaterial(m.name); await ctx.reloadCatalog(); toast(`deleted ${m.name}`); redraw(); }
-      catch (e) { toast(String(e), true); }
-    });
-    card.append(del);
-    g.append(card);
+    del.addEventListener("click", async () => { try { await api.deleteMaterial(m.name); await ctx.reloadCatalog(); redraw(); } catch (e) { toast(String(e), true); } });
+    c.append(del);
+    grid.append(c);
   }
 }

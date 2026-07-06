@@ -54,8 +54,10 @@ export const MODEL_ALIAS = {
 } as const;
 
 export type ModelId = keyof typeof MODEL_ALIAS;
-/** null when a model failed to load — callers must guard (loading stays resilient) */
-export type GameModels = Record<ModelId, GLTFResource | null>;
+/** loaded models, keyed by BOTH the real folder name (so any model can be placed
+ *  by name — e.g. the generic "prop" object) and the semantic alias ids the game
+ *  references. null when a model failed to load — callers must guard. */
+export type GameModels = Record<string, GLTFResource | null>;
 
 /** how many models the pipeline will load — drives the loading bar denominator */
 export const MODEL_LOAD_COUNT = catalog.models.length;
@@ -76,6 +78,9 @@ export async function loadModels(engine: Engine, onEach?: (name: string) => void
     ),
   );
   const out = {} as GameModels;
+  // real folder names first (any model placeable by name)…
+  for (const [name, res] of byName) out[name] = res;
+  // …then the semantic aliases the game references
   for (const id of Object.keys(MODEL_ALIAS) as ModelId[]) {
     const folder = MODEL_ALIAS[id];
     if (!byName.has(folder)) console.warn("[model] alias target missing from catalog:", id, "->", folder);

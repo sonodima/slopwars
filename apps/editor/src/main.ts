@@ -1,41 +1,52 @@
 // ─── SlopWars Map Editor — shell + wiring ────────────────────────────────────
-// Layout: toolbar (map management) · left scene graph · center 3D viewport ·
-// right inspector · bottom asset dock. The viewport reuses the game's renderer,
-// so the preview is faithful; edits mutate an in-memory MapDef that saves back
-// to maps/<id>.json through the dev API (git-first workflow).
-import type { AssetCatalog, Brush, MapCatalogEntry } from "@slopwars/shared";
+// Toolbar (map + transform tools + quick-add) · left scene graph · center 3D
+// viewport with fly camera + gizmos · right inspector · bottom unified asset
+// browser. Everything placed is an object; edits mutate an in-memory MapDef that
+// saves back to maps/<id>.json through the dev API.
+import type { AssetCatalog, Placement, Tuple3 } from "@slopwars/shared";
 import { emptyMap } from "@slopwars/shared";
-import { Viewport } from "./viewport";
+import { Viewport, Tool } from "./viewport";
+import { ModelPreview } from "./preview";
 import { state } from "./state";
 import { renderSceneGraph } from "./scenegraph";
-import { renderInspector } from "./inspector";
-import { renderPanels } from "./panels";
+import { renderInspector, setInspectorCatalog } from "./inspector";
+import { renderBrowser, Payload } from "./panels";
 import { api } from "./api";
 import { el, button, toast } from "./ui";
 
 const $ = (id: string): HTMLElement => document.getElementById(id) as HTMLElement;
 
 const viewport = new Viewport();
+const preview = new ModelPreview();
 let catalog: AssetCatalog = { models: [], textures: [], materials: [], audio: [], hdri: [] };
 let rebuildTimer = 0;
 
+const TOOLS: { t: Tool; label: string; key: string }[] = [
+  { t: "select", label: "Select", key: "Q" },
+  { t: "move", label: "Move", key: "W" },
+  { t: "rotate", label: "Rotate", key: "E" },
+  { t: "scale", label: "Scale", key: "R" },
+];
+
 async function main(): Promise<void> {
-  // build the whole UI first so it appears instantly and data editing works even
-  // if WebGL is unavailable; the 3D viewport initializes in the background.
   try { catalog = await api.catalog(); } catch (e) { toast("catalog load failed: " + e, true); }
+  setInspectorCatalog(catalog);
 
   buildToolbar();
   buildDock();
 
-  // wire state → views
   state.onChange(() => { renderSceneGraph($("scene-graph")); scheduleRebuild(); });
-  state.onSelect(() => { renderInspector($("inspector"), () => { /* onEdit handled via onChange */ }); focusSelection(); });
+  state.onSelect(() => renderInspector($("inspector")));
+  viewport.onToolChange(highlightTool);
+  viewport.onEditCommit = () => state.emitSelect();
 
   await loadMapList();
+  setupDrop();
 
   viewport.init("editor-canvas")
     .then(() => { if (state.map) return viewport.render(state.map); })
     .catch((e) => { console.error("viewport init failed (data editing still works):", e); toast("3D viewport unavailable", true); });
+  preview.init($("preview-canvas") as HTMLCanvasElement).catch(() => { /* preview optional */ });
 }
 
 // ── toolbar ─────────────────────────────────────────────────────────────────
@@ -44,44 +55,46 @@ function buildToolbar(): void {
   const picker = el("select", "map-picker") as HTMLSelectElement;
   picker.id = "map-picker";
   picker.addEventListener("change", () => openMap(picker.value));
-  bar.append(el("span", "brand", "SlopWars Editor"), picker);
+  bar.append(el("span", "brand", "SlopWars"), picker,
+    button("New", newMap), button("Save", saveMap, "primary"), button("Save As…", saveMapAs),
+    el("span", "bar-sep"));
 
-  bar.append(
-    button("New", newMap),
-    button("Save", saveMap, "primary"),
-    button("Save As…", saveMapAs),
-    el("span", "bar-sep"),
-    el("span", "bar-label", "Add brush:"),
-    button("Box", () => addBrush({ k: "box", at: [0, 1, 0], size: [4, 2, 4], mat: "wall", tile: [1, 1] })),
-    button("Water", () => addBrush({ k: "water", at: [0, 0.4, 0], s: 4 })),
-    button("Stairs", () => addBrush({ k: "stairs", at: [0, 0, 0], axis: "x+", rise: 3, run: 5, width: 2 })),
-    el("span", "bar-sep"),
-    button("Spawn", addSpawn),
-    button("Pickup", () => addPoint("pickups")),
-    button("Power-up", () => addPoint("powerups")),
+  const tools = el("div", "tool-group");
+  for (const { t, label } of TOOLS) {
+    const b = el("button", "btn tool", label); b.dataset.tool = t;
+    b.addEventListener("click", () => selectTool(t));
+    tools.append(b);
+  }
+  bar.append(tools, el("span", "bar-sep"), el("span", "bar-label", "Add:"),
+    button("Box", () => add({ type: "box", at: [0, 1, 0], scale: [4, 2, 4] })),
+    button("Water", () => add({ type: "water", at: [0, 0.3, 0], scale: [6, 1, 6] })),
+    button("Stairs", () => add({ type: "stairs", at: [0, 0, 0] })),
+    button("Spawn", () => add({ type: "spawn", at: [0, 0, 0] })),
+    button("Pickup", () => add({ type: "pickup", at: [0, 1, 0] })),
+    button("Power-up", () => add({ type: "powerup", at: [0, 1, 0] })),
+    button("Sound", () => add({ type: "sound", at: [0, 2, 0] })),
   );
-
-  const status = el("span", "status"); status.id = "status";
-  bar.append(status);
+  const status = el("span", "status"); status.id = "status"; bar.append(status);
+  highlightTool("select");
 }
 
 function buildDock(): void {
-  renderPanels($("dock-tabs"), $("dock-body"), {
-    catalog,
-    placeObject,
-    reloadCatalog: async () => { catalog = await api.catalog(); return catalog; },
-  });
+  renderBrowser($("browser"), { catalog, preview, reloadCatalog: async () => { catalog = await api.catalog(); setInspectorCatalog(catalog); return catalog; } });
+}
+
+function selectTool(t: Tool): void { viewport.setTool(t); highlightTool(t); }
+function highlightTool(t: Tool): void {
+  for (const b of Array.from(document.querySelectorAll<HTMLElement>(".btn.tool"))) b.classList.toggle("on", b.dataset.tool === t);
 }
 
 // ── map management ────────────────────────────────────────────────────────────
 async function loadMapList(): Promise<void> {
-  let list: MapCatalogEntry[] = [];
+  let list: { id: string; name: string; file: string }[] = [];
   try { list = await api.maps(); } catch (e) { toast("maps list failed: " + e, true); }
   const picker = document.getElementById("map-picker") as HTMLSelectElement;
   picker.replaceChildren();
   for (const m of list) { const o = el("option", undefined, `${m.name} (${m.id})`); o.value = m.file; picker.append(o); }
-  if (list.length) { picker.value = list[0].file; await openMap(list[0].file); }
-  else newMap();
+  if (list.length) { picker.value = list[0].file; await openMap(list[0].file); } else newMap();
 }
 
 async function openMap(file: string): Promise<void> {
@@ -94,7 +107,7 @@ async function openMap(file: string): Promise<void> {
 }
 
 function newMap(): void {
-  const id = uniqueId("untitled");
+  const id = `untitled-${Math.random().toString(36).slice(2, 6)}`;
   state.setMap(emptyMap(id, "Untitled"), id);
   setStatus("new map");
 }
@@ -108,68 +121,41 @@ async function saveMap(): Promise<void> {
 
 async function saveMapAs(): Promise<void> {
   const map = state.map; if (!map) return;
-  const id = prompt("Save as map id (letters, digits, - and _):", map.meta.id);
+  const id = prompt("Save as map id:", map.meta.id);
   if (!id) return;
-  const clean = id.replace(/[^a-zA-Z0-9_-]/g, "");
-  map.meta.id = clean;
-  state.fileId = clean;
+  map.meta.id = id.replace(/[^a-zA-Z0-9_-]/g, "");
+  state.fileId = map.meta.id;
   await saveMap();
-  await refreshPickerKeepSelection(clean);
-}
-
-async function refreshPickerKeepSelection(id: string): Promise<void> {
-  const list = await api.maps().catch(() => [] as MapCatalogEntry[]);
+  const list = await api.maps().catch(() => []);
   const picker = document.getElementById("map-picker") as HTMLSelectElement;
   picker.replaceChildren();
   for (const m of list) { const o = el("option", undefined, `${m.name} (${m.id})`); o.value = m.file; picker.append(o); }
-  const match = list.find((m) => m.id === id);
-  if (match) picker.value = match.file;
+  const match = list.find((m) => m.id === map.meta.id); if (match) picker.value = match.file;
 }
 
-// ── mutations ─────────────────────────────────────────────────────────────────
-function addBrush(b: Brush): void {
-  const map = state.map; if (!map) return;
-  map.brushes.push(b);
-  state.touch();
-  state.select("brush", map.brushes.length - 1);
-}
-function placeObject(type: string): void {
-  const map = state.map; if (!map) return;
-  map.objects.push({ type, at: [0, 0, 0] });
-  state.touch();
-  state.select("object", map.objects.length - 1);
-}
-function addSpawn(): void {
-  const map = state.map; if (!map) return;
-  map.spawns.push({ at: [0, 0], yaw: 0 });
-  state.touch();
-  state.select("spawn", map.spawns.length - 1);
-}
-function addPoint(which: "pickups" | "powerups"): void {
-  const map = state.map; if (!map) return;
-  map[which].push([0, 1, 0]);
-  state.touch();
-  state.select(which === "pickups" ? "pickup" : "powerup", map[which].length - 1);
+// ── placement ─────────────────────────────────────────────────────────────────
+function add(o: Placement): void { state.add(o); }
+
+function setupDrop(): void {
+  const vp = $("viewport");
+  vp.addEventListener("dragover", (e) => e.preventDefault());
+  vp.addEventListener("drop", (e) => {
+    e.preventDefault();
+    const raw = e.dataTransfer?.getData("application/x-slop"); if (!raw) return;
+    const p = JSON.parse(raw) as Payload;
+    const at = viewport.dropGround(e.clientX, e.clientY) ?? [0, 0, 0] as Tuple3;
+    if (p.kind === "model") add({ type: "prop", at, params: { model: p.name } });
+    else if (p.kind === "audio") add({ type: "sound", at: [at[0], at[1] + 1.5, at[2]], params: { clip: p.name } });
+    else add({ type: p.name, at, ...(p.name === "box" ? { scale: [2, 2, 2] as Tuple3 } : {}) });
+  });
 }
 
 // ── viewport sync ─────────────────────────────────────────────────────────────
 function scheduleRebuild(): void {
   window.clearTimeout(rebuildTimer);
-  rebuildTimer = window.setTimeout(() => { if (state.map) void viewport.render(state.map); }, 120);
+  rebuildTimer = window.setTimeout(() => { if (state.map) void viewport.render(state.map); }, 140);
 }
 
-function focusSelection(): void {
-  const map = state.map; if (!map) return;
-  const s = state.sel;
-  if (s.kind === "brush") { const b = map.brushes[s.index]; if (b) viewport.focus(b.at[0], b.at[1], b.at[2]); }
-  else if (s.kind === "object") { const o = map.objects[s.index]; if (o) viewport.focus(o.at[0], o.at[1], o.at[2]); }
-  else if (s.kind === "spawn") { const sp = map.spawns[s.index]; if (sp) viewport.focus(sp.at[0], 1, sp.at[1]); }
-  else if (s.kind === "pickup") { const p = map.pickups[s.index]; if (p) viewport.focus(p[0], p[1], p[2]); }
-  else if (s.kind === "powerup") { const p = map.powerups[s.index]; if (p) viewport.focus(p[0], p[1], p[2]); }
-}
-
-// ── helpers ───────────────────────────────────────────────────────────────────
-function uniqueId(base: string): string { return `${base}-${Math.random().toString(36).slice(2, 6)}`; }
 function setStatus(s: string): void { const n = document.getElementById("status"); if (n) n.textContent = s; }
 
 void main();

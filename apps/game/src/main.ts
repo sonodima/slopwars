@@ -705,6 +705,11 @@ class Game {
   // ─── loop ───────────────────────────────────────────────────────────────────
 
   tick(dt: number, now: number): void {
+    // positional map sounds fade by the camera's distance to each emitter
+    if (this.map.root) {
+      const cp = this.camEntity.transform.worldPosition;
+      this.map.tickSounds({ x: cp.x, y: cp.y, z: cp.z });
+    }
     if (this.inGame) {
       const kFwd = (this.keys.has("KeyW") ? 1 : 0) - (this.keys.has("KeyS") ? 1 : 0);
       const kRight = (this.keys.has("KeyD") ? 1 : 0) - (this.keys.has("KeyA") ? 1 : 0);

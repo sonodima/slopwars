@@ -3,11 +3,13 @@
 // Both brush interpretation (loader) and named object types (objects.ts) build
 // exclusively through this, so there is one place that knows how to make a wall.
 import {
-  Color, Engine, Entity, MeshRenderer, PBRMaterial, PrimitiveMesh, Vector4,
+  BoundingBox, Color, Engine, Entity, MeshRenderer, PBRMaterial, PrimitiveMesh, Vector4,
 } from "@galacean/engine";
-import { GameModels, ModelId, instantiate } from "./models";
+import { GameModels, instantiate } from "./models";
 import { MapTextures, PbrSet } from "./textures";
 import type { AABB, GameMap } from "./map";
+
+type Vec3T = readonly [number, number, number];
 
 export class MapBuilder {
   private mats = new Map<string, PBRMaterial>();
@@ -69,7 +71,7 @@ export class MapBuilder {
   }
 
   /** instantiate a loaded glTF model (null-safe: returns null if it failed to load) */
-  placeModel(id: ModelId, x: number, y: number, z: number, scale: number, rotY = 0): Entity | null {
+  placeModel(id: string, x: number, y: number, z: number, scale: number, rotY = 0): Entity | null {
     const e = instantiate(this.models[id]);
     if (!e) return null;
     e.transform.setPosition(x, y, z);
@@ -78,6 +80,35 @@ export class MapBuilder {
     this.root.addChild(e);
     this.map.tris += 500; // approx, for stats overlay
     return e;
+  }
+
+  /** instantiate a model with a full transform (per-axis scale + euler rotation).
+   *  used by the generic "prop" object so any model can be dropped in and posed. */
+  placeModelTf(id: string, at: Vec3T, rot: Vec3T, scale: Vec3T): Entity | null {
+    const e = instantiate(this.models[id]);
+    if (!e) return null;
+    e.transform.setPosition(at[0], at[1], at[2]);
+    e.transform.setScale(scale[0], scale[1], scale[2]);
+    e.transform.setRotation(rot[0], rot[1], rot[2]);
+    this.root.addChild(e);
+    this.map.tris += 500;
+    return e;
+  }
+
+  /** world-space AABB of a placed model, unioned from its mesh renderers' bounds.
+   *  lets props derive collision from actual geometry (null if no renderers). */
+  modelAABB(e: Entity): AABB | null {
+    const renderers = e.getComponentsIncludeChildren(MeshRenderer, []);
+    if (renderers.length === 0) return null;
+    const box = new BoundingBox();
+    let has = false;
+    for (const r of renderers) {
+      if (!r.mesh) continue;
+      if (!has) { box.copyFrom(r.bounds); has = true; } else { BoundingBox.merge(box, r.bounds, box); }
+    }
+    if (!has) return null;
+    const { min, max } = box;
+    return { min: { x: min.x, y: min.y, z: min.z }, max: { x: max.x, y: max.y, z: max.z } };
   }
 
   water(x: number, y: number, z: number, s: number): void {
