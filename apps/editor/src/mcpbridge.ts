@@ -1,17 +1,14 @@
 // ─── MCP bridge (editor side) ────────────────────────────────────────────────
-// Polls the Tauri backend for commands enqueued by the external MCP server and
-// executes them against the live editor: reading/adding/moving/deleting objects,
-// editing params, importing assets, driving the viewport camera, and grabbing
-// screenshots. Results are posted back so the MCP tool call resolves. This is how
-// Claude Code / Codex / other agents "act in the editor" while it's open. The
-// command queue lives in the Rust backend (src-tauri/src/mcp.rs), which also runs
-// the local HTTP endpoint the stdio MCP server talks to — so the app is fully
-// self-contained, no Vite dev server required.
-import { invoke } from "@tauri-apps/api/core";
+// Long-polls the editor host for *live* commands — ones that need the running
+// page: reading/adding/moving/deleting objects, editing params, driving the
+// viewport camera, grabbing screenshots, and map save/load/new. Results are
+// posted back so the MCP tool call resolves. The MCP server lives in the host
+// (apps/editor/host/); file tools like asset import run there directly and never
+// reach this bridge. This is how Claude Code / Codex / other agents "act in the
+// editor" while it's open.
 import type { AssetCatalog, Placement, Tuple3 } from "@slopwars/shared";
 import { objectCatalog, objectTypeNames } from "@game/objects";
 import { state } from "./state";
-import { api } from "./api";
 import type { Viewport } from "./viewport";
 import { toast } from "./ui";
 
@@ -26,20 +23,23 @@ export interface McpBridgeCtx {
 
 interface Cmd { op: string; [k: string]: unknown }
 
-/** start the poll loop; safe no-op if the backend bridge isn't reachable */
+/** start the poll loop; safe no-op if the dev endpoints aren't reachable */
 export function startMcpBridge(ctx: McpBridgeCtx): void {
   let announced = false;
   const loop = async (): Promise<void> => {
     try {
-      const cmds = await invoke<{ id: string; cmd: Cmd }[]>("mcp_poll");
-      for (const { id, cmd } of cmds) {
-        if (!announced) { announced = true; toast("MCP connected"); }
-        let result: unknown;
-        try { result = await run(ctx, cmd); }
-        catch (e) { result = { error: String(e) }; }
-        await invoke("mcp_result", { id, result });
+      const res = await fetch("/__editor/bridge/poll");
+      if (res.ok) {
+        const cmds = (await res.json()) as { id: string; cmd: Cmd }[];
+        for (const { id, cmd } of cmds) {
+          if (!announced) { announced = true; toast("MCP connected"); }
+          let result: unknown;
+          try { result = await run(ctx, cmd); }
+          catch (e) { result = { error: String(e) }; }
+          await fetch("/__editor/bridge/result", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, result }) });
+        }
       }
-    } catch { /* backend not ready — retry */ }
+    } catch { /* dev server not ready / offline — retry */ }
     setTimeout(loop, 200);
   };
   void loop();
@@ -114,11 +114,11 @@ async function run(ctx: McpBridgeCtx, cmd: Cmd): Promise<unknown> {
     case "listGroups":
       return { groups: state.groups() };
 
-    case "import": {
-      const result = await api.importAsset(cmd.req as Parameters<typeof api.importAsset>[0]);
-      if (!result.error) await ctx.reloadCatalog();
-      return result;
-    }
+    // asset imports run server-side in the host (headless, no editor window
+    // required); the host fires this so an open editor refreshes its browser.
+    case "reloadCatalog":
+      await ctx.reloadCatalog();
+      return { ok: true };
 
     case "cameraState":
       return vp.cameraState();
