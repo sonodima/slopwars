@@ -7,6 +7,7 @@ import {
 } from "@galacean/engine";
 import { GameModels, instantiate } from "./models";
 import { MapTextures, PbrSet, DEFAULT_FOLDER } from "./textures";
+import { buildWater } from "./water";
 import type { AABB, GameMap } from "./map";
 
 type Vec3T = readonly [number, number, number];
@@ -151,15 +152,8 @@ export class MapBuilder {
   }
 
   water(x: number, y: number, z: number, s: number): void {
-    const e = this.root.createChild("water");
-    e.transform.setPosition(x, y, z);
-    const r = e.addComponent(MeshRenderer);
-    r.mesh = PrimitiveMesh.createCuboid(this.engine, s, 0.08, s);
-    const m = new PBRMaterial(this.engine);
-    m.baseColor = new Color(0.05, 0.14, 0.19, 1);
-    m.roughness = 0.16; m.metallic = 0.12;
-    r.setMaterial(m);
-    r.receiveShadows = true;
+    // realistic animated water (refraction + reflection + flow) — see water.ts
+    const e = buildWater(this.engine, this.root, x, y, z, s);
     this.map.tris += 12;
     this.track(e);
   }

@@ -132,6 +132,7 @@ export class Viewport {
     this.camera.fieldOfView = 55;
     this.camera.nearClipPlane = 0.05;
     this.camera.farClipPlane = 600;
+    this.camera.opaqueTextureEnabled = true;   // transmissive water refracts the scene
 
     this.setupOverlay();
     this.models = await loadModels(engine);

@@ -198,6 +198,7 @@ class Game {
     cam.farClipPlane = 220;
     cam.enableHDR = true;
     cam.enablePostProcess = true;
+    cam.opaqueTextureEnabled = true;   // lets transmissive water refract the scene
     cam.msaaSamples = MSAASamples.FourX;
 
     const ppE = root.createChild("post");

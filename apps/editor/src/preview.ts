@@ -91,6 +91,7 @@ export class ThumbRenderer {
       this.camE = this.root.createChild("cam");
       this.camera = this.camE.addComponent(Camera);
       this.camera.fieldOfView = FOV;
+      this.camera.opaqueTextureEnabled = true;   // water previews refract too
       this.holder = this.root.createChild("holder");
       engine.run();
       this.ok = true;
