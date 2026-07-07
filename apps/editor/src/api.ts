@@ -1,11 +1,20 @@
-// ─── Editor API client: file operations via the Tauri backend ────────────────
-// These invoke Rust commands (src-tauri/src/commands.rs) that read/write the
-// repo's maps/ and public/assets/ directories directly on disk. This is the
-// git-first workflow: the editor writes JSON into the working tree using real
-// desktop file access — no dev-server middleware required, and it keeps working
-// in the packaged app.
-import { invoke } from "@tauri-apps/api/core";
+// ─── Editor API client: talk to the dev server's file endpoints ──────────────
+// These hit the middleware in the asset-catalog Vite plugin (editor:true), which
+// reads/writes the repo's maps/ and public/assets/materials/ directories. This
+// is the git-first workflow: the editor writes JSON into the working tree.
 import type { AssetCatalog, MapCatalogEntry, MapDef } from "@slopwars/shared";
+
+async function jget<T>(url: string): Promise<T> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`${url} → ${res.status}`);
+  return res.json() as Promise<T>;
+}
+async function jpost(url: string, body: unknown): Promise<unknown> {
+  const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((data as { error?: string }).error ?? `${url} → ${res.status}`);
+  return data;
+}
 
 /** one uploaded file for an import: base64 `data`, original `name`, optional
  *  PBR `slot` (texture sets). */
@@ -14,9 +23,9 @@ export interface ImportRequest { kind: "texture" | "model" | "audio" | "hdri"; n
 export interface ImportResult { ok?: boolean; error?: string; name?: string; files?: string[] }
 
 export const api = {
-  catalog: (): Promise<AssetCatalog> => invoke("scan_assets"),
-  maps: (): Promise<MapCatalogEntry[]> => invoke("scan_maps"),
-  loadMap: (file: string): Promise<MapDef> => invoke("load_map", { file }),
-  saveMap: (id: string, def: MapDef): Promise<unknown> => invoke("save_map", { id, def }),
-  importAsset: (req: ImportRequest): Promise<ImportResult> => invoke("import_asset", { req }),
+  catalog: (): Promise<AssetCatalog> => jget("/__editor/catalog"),
+  maps: (): Promise<MapCatalogEntry[]> => jget("/__editor/maps"),
+  loadMap: (file: string): Promise<MapDef> => jget(`/${file}`),
+  saveMap: (id: string, def: MapDef): Promise<unknown> => jpost("/__editor/save", { id, def }),
+  importAsset: (req: ImportRequest): Promise<ImportResult> => jpost("/__editor/import", req) as Promise<ImportResult>,
 };
