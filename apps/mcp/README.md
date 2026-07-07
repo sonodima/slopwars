@@ -7,20 +7,23 @@ textures / models / audio / HDRIs, move + rotate the viewport camera, and take
 screenshots.
 
 It's dependency-free (JSON-RPC 2.0 over stdio, plain Node ≥18) and talks to the
-editor's dev-server bridge, so the running editor page executes every action live
-and writes changes into the repo (the same git-first flow as the rest of the
-editor).
+editor app's **built-in MCP bridge** (a small HTTP endpoint in the Tauri Rust
+backend), so the running editor window executes every action live and writes
+changes into the repo (the same git-first flow as the rest of the editor). No
+separate dev server is required.
 
 ## Usage
 
-1. Start the editor and **open it in a browser** (the page executes the commands):
+1. Launch the editor **desktop app** (its window executes the commands):
 
    ```bash
-   pnpm dev:editor          # → http://localhost:5173
+   pnpm dev:editor          # Tauri app; bridge listens on http://127.0.0.1:5174
    ```
 
-2. Point your AI tool at the server. It connects to `http://localhost:5173` by
-   default — override with `SLOPWARS_EDITOR_URL`.
+2. Point your AI tool at the server. It connects to `http://127.0.0.1:5174` by
+   default — override with `SLOPWARS_BRIDGE_URL` (`SLOPWARS_EDITOR_URL` is still
+   accepted). The bridge port can be changed with `SLOPWARS_BRIDGE_PORT` on the
+   editor app.
 
    **Claude Code** (`.mcp.json` or `claude mcp add`):
 
@@ -30,7 +33,7 @@ editor).
        "slopwars-editor": {
          "command": "node",
          "args": ["apps/mcp/server.mjs"],
-         "env": { "SLOPWARS_EDITOR_URL": "http://localhost:5173" }
+         "env": { "SLOPWARS_BRIDGE_URL": "http://127.0.0.1:5174" }
        }
      }
    }
@@ -44,7 +47,7 @@ editor).
    args = ["apps/mcp/server.mjs"]
    ```
 
-When a command arrives, the editor shows an "MCP connected" toast.
+When a command arrives, the editor window shows an "MCP connected" toast.
 
 ## Tools
 

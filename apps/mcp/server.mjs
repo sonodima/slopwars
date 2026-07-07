@@ -4,24 +4,25 @@
 // lets AI tools drive the SlopWars map editor: list/add/move/rotate/scale/delete
 // objects, edit params, import textures/models/audio/HDRIs, move + rotate the
 // viewport camera, and take screenshots. It forwards each tool call to the editor
-// dev server's MCP bridge (/__editor/mcp/cmd), which the running editor page
-// executes live. Start the editor first (`pnpm dev:editor`), then point your tool
-// at:  node apps/mcp/server.mjs   (env SLOPWARS_EDITOR_URL, default :5173)
+// app's built-in MCP bridge (Tauri backend, /mcp/cmd), which the running editor
+// window executes live. Launch the editor app first (`pnpm dev:editor`), then point
+// your tool at:  node apps/mcp/server.mjs
+//   env SLOPWARS_BRIDGE_URL (or SLOPWARS_EDITOR_URL), default http://127.0.0.1:5174
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-const EDITOR_URL = (process.env.SLOPWARS_EDITOR_URL || "http://localhost:5173").replace(/\/$/, "");
+const BRIDGE_URL = (process.env.SLOPWARS_BRIDGE_URL || process.env.SLOPWARS_EDITOR_URL || "http://127.0.0.1:5174").replace(/\/$/, "");
 const log = (...a) => process.stderr.write(a.join(" ") + "\n");
 
 // ── talk to the editor bridge ────────────────────────────────────────────────
 async function callEditor(op, extra = {}) {
   let res;
   try {
-    res = await fetch(`${EDITOR_URL}/__editor/mcp/cmd`, {
+    res = await fetch(`${BRIDGE_URL}/mcp/cmd`, {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ op, ...extra }),
     });
   } catch (e) {
-    throw new Error(`cannot reach the editor at ${EDITOR_URL} (run \`pnpm dev:editor\`): ${e}`);
+    throw new Error(`cannot reach the editor at ${BRIDGE_URL} (launch the editor app: \`pnpm dev:editor\`): ${e}`);
   }
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error || `editor error ${res.status}`);
@@ -171,4 +172,4 @@ process.stdin.on("data", (chunk) => {
   }
 });
 process.stdin.on("end", () => process.exit(0));
-log(`slopwars-editor MCP server ready (editor: ${EDITOR_URL})`);
+log(`slopwars-editor MCP server ready (bridge: ${BRIDGE_URL})`);
