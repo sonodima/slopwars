@@ -59,14 +59,52 @@ async function main(): Promise<void> {
   thumbs.init().catch(() => { /* thumbnails optional */ });
 }
 
-// ── undo / redo (Ctrl/Cmd+Z, Ctrl/Cmd+Y or Ctrl/Cmd+Shift+Z) ─────────────────
+// ── keyboard: undo/redo · clipboard · delete · grouping ──────────────────────
+let clipboard: Placement[] = [];
+function isTypingTarget(el: EventTarget | null): boolean {
+  const n = el as HTMLElement | null;
+  return !!n && (n.tagName === "INPUT" || n.tagName === "SELECT" || n.tagName === "TEXTAREA" || n.isContentEditable);
+}
 function bindUndoRedo(): void {
   window.addEventListener("keydown", (e) => {
-    if (!(e.ctrlKey || e.metaKey)) return;
+    if (isTypingTarget(e.target)) return;
+    const mod = e.ctrlKey || e.metaKey;
     const k = e.key.toLowerCase();
-    if (k === "z" && !e.shiftKey) { e.preventDefault(); state.undo(); }
-    else if ((k === "z" && e.shiftKey) || k === "y") { e.preventDefault(); state.redo(); }
+
+    if (mod && k === "z" && !e.shiftKey) { e.preventDefault(); state.undo(); return; }
+    if (mod && ((k === "z" && e.shiftKey) || k === "y")) { e.preventDefault(); state.redo(); return; }
+
+    // clipboard (copy/cut/paste operate on the whole selection)
+    if (mod && k === "c") { e.preventDefault(); copySelection(); return; }
+    if (mod && k === "x") { e.preventDefault(); copySelection(); deleteSelection(); return; }
+    if (mod && k === "v") { e.preventDefault(); pasteClipboard(); return; }
+
+    // grouping
+    if (mod && k === "g" && !e.shiftKey) { e.preventDefault(); const id = state.createGroup(); if (id) state.selectGroup(id, "outliner"); return; }
+    if (mod && k === "g" && e.shiftKey) { e.preventDefault(); ungroupSelection(); return; }
+
+    // delete
+    if (!mod && (e.key === "Delete" || e.key === "Backspace")) { e.preventDefault(); deleteSelection(); return; }
   });
+}
+
+function copySelection(): void {
+  const sel = state.selectedObjects();
+  if (sel.length) clipboard = JSON.parse(JSON.stringify(sel));
+}
+function pasteClipboard(): void {
+  if (!clipboard.length) return;
+  const copies: Placement[] = JSON.parse(JSON.stringify(clipboard));
+  for (const c of copies) { c.at = [c.at[0] + 2, c.at[1], c.at[2] + 2]; delete c.group; }  // paste at top level, offset
+  state.addMany(copies);
+}
+function deleteSelection(): void {
+  const sel = state.selectedObjects();
+  if (sel.length) state.removeObjects(sel);
+}
+function ungroupSelection(): void {
+  const o = state.selected() ?? state.selectedObjects()[0];
+  if (o?.group) state.ungroup(o.group);
 }
 
 // ── toolbar ─────────────────────────────────────────────────────────────────

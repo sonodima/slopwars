@@ -20,6 +20,19 @@ export interface Placement {
   rot?: Tuple3;                        // euler degrees (default [0,0,0])
   scale?: Tuple3;                      // (default [1,1,1])
   params?: Record<string, unknown>;    // shallow-merged over the type's defaults
+  /** editor-only: id of the group this object belongs to (see MapDef.groups).
+   *  Purely organizational — the game ignores it; objects keep world transforms. */
+  group?: string;
+}
+
+/** editor-only grouping node. Groups nest (via `parent`) and let the editor move/
+ *  rotate/scale their members together. The game loader ignores groups entirely —
+ *  they carry no geometry and every object keeps its absolute transform. */
+export interface GroupDef {
+  id: string;
+  name: string;
+  parent?: string;     // parent group id (undefined = top level)
+  collapsed?: boolean; // outliner fold state
 }
 
 /** skybox + lighting + fog identity for the map */
@@ -45,6 +58,8 @@ export interface MapDef {
   env: MapEnv;
   /** every placed object, in order (geometry, props, markers, sounds, …) */
   objects: Placement[];
+  /** editor-only object groups (organizational; ignored by the game) */
+  groups?: GroupDef[];
 }
 
 // ── transform helpers ────────────────────────────────────────────────────────

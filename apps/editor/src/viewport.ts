@@ -32,6 +32,7 @@ export interface PerfStats { fps: number; tris: number; objects: number; draws: 
 const DEG = Math.PI / 180;
 const AXIS_COL: Record<Handle, string> = { x: "#e5484d", y: "#5bd15b", z: "#3b82f6", xyz: "#d6d6d6" };
 const AXIS_IDX: Record<Handle, number> = { x: 0, y: 1, z: 2, xyz: 0 };
+const AXIS_DIR: Record<Handle, Tuple3> = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1], xyz: [0, 0, 0] };
 
 export class Viewport {
   ready = false;
@@ -73,10 +74,13 @@ export class Viewport {
 
   // gizmo handle the pointer is hovering (for highlight), recomputed each frame
   private hover: Handle | null = null;
-  // snapshot captured when a gizmo handle is grabbed; drives axis-constrained edits
+  // snapshot captured when a gizmo handle is grabbed; drives axis-constrained edits.
+  // `members` is every selected object (start transforms) so a group moves/scales/
+  // rotates together around the shared `pivot`.
   private drag: {
     handle: Handle;
-    startVec: Tuple3;          // pos / scale / rot at grab time
+    pivot: Tuple3;             // gizmo centre in world (selection centroid)
+    members: { o: Placement; at: Tuple3; rot: Tuple3; scale: Tuple3 }[];
     unit: [number, number];    // screen-space axis direction (unit)
     wpp: number;               // world units per screen pixel along the axis
     cx: number; cy: number;    // gizmo centre in screen px
@@ -395,7 +399,7 @@ export class Viewport {
       const o = map.objects[i];
       const p = this.project(o.at);
       if (!p.visible) continue;
-      const selected = state.selIndex === i;
+      const selected = state.isSelected(o);
       ctx.beginPath();
       ctx.arc(p.x, p.y, selected ? 5 : 3, 0, Math.PI * 2);
       ctx.fillStyle = selected ? "#f5a623" : markerColor(o.type);
@@ -404,13 +408,29 @@ export class Viewport {
       ctx.globalAlpha = 1;
     }
 
-    // highlight + gizmo on the selected object
-    const sel = state.selIndex >= 0 ? map.objects[state.selIndex] : null;
-    if (sel) {
-      const box = this.objBox(state.selIndex);
+    // highlight every selected object + a single gizmo at the selection pivot
+    for (const o of state.selectedObjects()) {
+      const box = this.objBox(map.objects.indexOf(o));
       if (box) this.drawHighlight(box);
-      this.drawGizmo(sel);
     }
+    const pivot = this.selPivot();
+    if (pivot) this.drawGizmo(pivot);
+  }
+
+  /** gizmo pivot = centroid of the selected objects' positions (null if none) */
+  private selPivot(): Tuple3 | null {
+    const sel = state.selectedObjects();
+    if (!sel.length) return null;
+    let x = 0, y = 0, z = 0;
+    for (const o of sel) { x += o.at[0]; y += o.at[1]; z += o.at[2]; }
+    return [x / sel.length, y / sel.length, z / sel.length];
+  }
+
+  /** outermost ancestor group id of a group (for click-selects-whole-group) */
+  private topGroup(id: string): string {
+    let g = state.groupById(id); let top = id;
+    while (g?.parent) { top = g.parent; g = state.groupById(g.parent); }
+    return top;
   }
 
   /** draw a glowing wireframe box around the selected object's world bounds */
@@ -469,15 +489,15 @@ export class Viewport {
     return pts;
   }
 
-  private drawGizmo(o: Placement): void {
+  private drawGizmo(pivot: Tuple3): void {
     const ctx = this.octx;
-    const c = this.project(o.at);
+    const c = this.project(pivot);
     if (!c.visible) return;
-    const L = this.gizmoLen(o.at);
+    const L = this.gizmoLen(pivot);
 
     if (this.tool === "rotate") {
       for (const { h, dir } of Viewport.AXES) {
-        const pts = this.ring(o.at, dir, L);
+        const pts = this.ring(pivot, dir, L);
         ctx.beginPath();
         let started = false;
         for (const p of pts) { if (!p.visible) { started = false; continue; } if (!started) { ctx.moveTo(p.x, p.y); started = true; } else ctx.lineTo(p.x, p.y); }
@@ -486,7 +506,7 @@ export class Viewport {
       }
     } else {
       for (const { h, dir } of Viewport.AXES) {
-        const tip = this.project([o.at[0] + dir[0] * L, o.at[1] + dir[1] * L, o.at[2] + dir[2] * L]);
+        const tip = this.project([pivot[0] + dir[0] * L, pivot[1] + dir[1] * L, pivot[2] + dir[2] * L]);
         if (!tip.visible) continue;
         const on = this.hover === h || this.drag?.handle === h;
         ctx.strokeStyle = on ? "#ffd257" : AXIS_COL[h];
@@ -518,14 +538,14 @@ export class Viewport {
   }
 
   /** which gizmo handle (if any) is under a screen pixel, for the active tool */
-  private pickHandle(px: number, py: number, o: Placement): Handle | null {
-    const c = this.project(o.at);
+  private pickHandle(px: number, py: number, pivot: Tuple3): Handle | null {
+    const c = this.project(pivot);
     if (!c.visible) return null;
-    const L = this.gizmoLen(o.at);
+    const L = this.gizmoLen(pivot);
     let best = 10, hit: Handle | null = null;   // 10px grab radius
     if (this.tool === "rotate") {
       for (const { h, dir } of Viewport.AXES) {
-        for (const p of this.ring(o.at, dir, L)) {
+        for (const p of this.ring(pivot, dir, L)) {
           if (!p.visible) continue;
           const d = Math.hypot(p.x - px, p.y - py);
           if (d < best) { best = d; hit = h; }
@@ -534,7 +554,7 @@ export class Viewport {
       return hit;
     }
     for (const { h, dir } of Viewport.AXES) {
-      const tip = this.project([o.at[0] + dir[0] * L, o.at[1] + dir[1] * L, o.at[2] + dir[2] * L]);
+      const tip = this.project([pivot[0] + dir[0] * L, pivot[1] + dir[1] * L, pivot[2] + dir[2] * L]);
       if (!tip.visible) continue;
       const d = distToSeg(px, py, c.x, c.y, tip.x, tip.y);
       if (d < best) { best = d; hit = h; }
@@ -589,12 +609,19 @@ export class Viewport {
     if (e.button !== 0) return;
     const map = state.map; if (!map) return;
     // grabbing a gizmo handle of the current selection starts an axis-locked edit
-    const sel = state.selIndex >= 0 ? map.objects[state.selIndex] : null;
-    if (sel) { const h = this.pickHandle(this.px, this.py, sel); if (h) { this.beginTransform(h, sel); return; } }
+    const pivot = this.selPivot();
+    if (pivot) { const h = this.pickHandle(this.px, this.py, pivot); if (h) { this.beginTransform(h); return; } }
     // otherwise click selects: prefer the 3D model, fall back to the marker dot
     let hit = this.pick3D(this.px, this.py);
     if (hit < 0) hit = this.pick(this.px, this.py);
-    state.select(hit, "viewport");   // -1 → deselect; source lets the outliner scroll to it
+    if (hit < 0) { state.select(-1, "viewport"); return; }
+    const additive = e.ctrlKey || e.metaKey || e.shiftKey;   // toggle in a multi-select
+    if (additive) { state.select(hit, "viewport", true); return; }
+    // a plain click on a grouped object selects the whole (top-level) group so it
+    // moves together; Alt-click drills in to the single object.
+    const o = map.objects[hit];
+    if (o.group && !e.altKey) state.selectGroup(this.topGroup(o.group), "viewport");
+    else state.select(hit, "viewport");
   }
 
   /** RMB fly: capture + hide the cursor so it can't leave the viewport */
@@ -604,25 +631,30 @@ export class Viewport {
     try { this.canvas.requestPointerLock?.(); } catch { /* not fatal */ }
   }
 
-  /** grab a gizmo handle → snapshot the transform + screen-space axis basis */
-  private beginTransform(h: Handle, o: Placement): void {
-    const c = this.project(o.at);
-    const L = this.gizmoLen(o.at);
+  /** grab a gizmo handle → snapshot the pivot, every selected object's transform,
+   *  and the screen-space axis basis (so a group edits together) */
+  private beginTransform(h: Handle): void {
+    const pivot = this.selPivot();
+    if (!pivot) return;
+    const c = this.project(pivot);
+    const L = this.gizmoLen(pivot);
     let unit: [number, number] = [1, 0], wpp = 0;
     if (h !== "xyz") {
       const dir = Viewport.AXES.find((a) => a.h === h)!.dir;
-      const tip = this.project([o.at[0] + dir[0] * L, o.at[1] + dir[1] * L, o.at[2] + dir[2] * L]);
+      const tip = this.project([pivot[0] + dir[0] * L, pivot[1] + dir[1] * L, pivot[2] + dir[2] * L]);
       const dxp = tip.x - c.x, dyp = tip.y - c.y, len = Math.hypot(dxp, dyp) || 1;
       unit = [dxp / len, dyp / len]; wpp = L / len;
     }
     // screen-plane basis for the centre (xyz) move handle: camera right/up in
-    // world + world-units-per-screen-pixel at the object's depth
+    // world + world-units-per-screen-pixel at the pivot's depth
     const { r, u, f } = this.basis();
-    const fz = Math.max(0.5, dot([o.at[0] - this.pos.x, o.at[1] - this.pos.y, o.at[2] - this.pos.z], f));
+    const fz = Math.max(0.5, dot([pivot[0] - this.pos.x, pivot[1] - this.pos.y, pivot[2] - this.pos.z], f));
     const tanF = Math.tan((this.camera.fieldOfView * DEG) / 2);
     const pwpp = (2 * tanF * fz) / this.rect().height;
-    const startVec: Tuple3 = (this.tool === "move" ? o.at : this.tool === "scale" ? placeScale(o) : placeRot(o)).slice() as Tuple3;
-    this.drag = { handle: h, startVec, unit, wpp, cx: c.x, cy: c.y, startAngle: Math.atan2(this.py - c.y, this.px - c.x), startPx: this.px, startPy: this.py, rvec: r, uvec: u, pwpp };
+    const members = state.selectedObjects().map((o) => ({
+      o, at: o.at.slice() as Tuple3, rot: placeRot(o).slice() as Tuple3, scale: placeScale(o).slice() as Tuple3,
+    }));
+    this.drag = { handle: h, pivot, members, unit, wpp, cx: c.x, cy: c.y, startAngle: Math.atan2(this.py - c.y, this.px - c.x), startPx: this.px, startPy: this.py, rvec: r, uvec: u, pwpp };
     this.dragging = true; this.dragKind = "transform";
     this.canvas.style.cursor = "grabbing";
   }
@@ -645,10 +677,10 @@ export class Viewport {
   /** hover-highlight the handle under the cursor when idle */
   private updateHover(e: PointerEvent, rc: DOMRect): void {
     const inside = e.clientX >= rc.left && e.clientX <= rc.right && e.clientY >= rc.top && e.clientY <= rc.bottom;
-    const o = inside && state.selIndex >= 0 ? state.map!.objects[state.selIndex] : null;
-    if (!o) { if (this.hover) { this.hover = null; this.canvas.style.cursor = ""; } return; }
+    const pivot = inside ? this.selPivot() : null;
+    if (!pivot) { if (this.hover) { this.hover = null; this.canvas.style.cursor = ""; } return; }
     this.px = e.clientX - rc.left; this.py = e.clientY - rc.top;
-    const h = this.pickHandle(this.px, this.py, o);
+    const h = this.pickHandle(this.px, this.py, pivot);
     if (h !== this.hover) { this.hover = h; this.canvas.style.cursor = h ? "grab" : ""; }
   }
 
@@ -674,33 +706,52 @@ export class Viewport {
     return idx;
   }
 
-  /** axis-constrained edit driven by the snapshot captured in beginTransform */
+  /** axis-constrained edit driven by the snapshot captured in beginTransform.
+   *  Every selected object transforms about the shared pivot, so a group moves/
+   *  scales/rotates as one; for a single object it reduces to the classic behaviour
+   *  (pivot = the object, so scale/rotate don't shift its position). */
   private applyTransformDrag(): void {
-    const map = state.map; const d = this.drag;
-    if (!map || state.selIndex < 0 || !d) return;
-    const o = map.objects[state.selIndex];
+    const d = this.drag;
+    if (!d || !d.members.length) return;
     const ddx = this.px - d.startPx, ddy = this.py - d.startPy;
+
     if (this.tool === "move") {
-      if (d.handle === "xyz") {   // drag on the screen plane → all axes at once
-        const at = d.startVec.slice() as Tuple3;
-        for (let i = 0; i < 3; i++) at[i] = round(d.startVec[i] + d.rvec[i] * ddx * d.pwpp - d.uvec[i] * ddy * d.pwpp);
-        o.at = at;
+      let disp: Tuple3;
+      if (d.handle === "xyz") {
+        disp = [d.rvec[0] * ddx * d.pwpp - d.uvec[0] * ddy * d.pwpp, d.rvec[1] * ddx * d.pwpp - d.uvec[1] * ddy * d.pwpp, d.rvec[2] * ddx * d.pwpp - d.uvec[2] * ddy * d.pwpp];
       } else {
         const along = (ddx * d.unit[0] + ddy * d.unit[1]) * d.wpp;
-        const idx = AXIS_IDX[d.handle];
-        const at = d.startVec.slice() as Tuple3; at[idx] = round(d.startVec[idx] + along); o.at = at;
+        const dir = AXIS_DIR[d.handle];
+        disp = [dir[0] * along, dir[1] * along, dir[2] * along];
       }
+      for (const m of d.members) m.o.at = [round(m.at[0] + disp[0]), round(m.at[1] + disp[1]), round(m.at[2] + disp[2])];
     } else if (this.tool === "scale") {
-      const sc = d.startVec.slice() as Tuple3;
-      if (d.handle === "xyz") { const f = Math.max(0.02, 1 - ddy / 140); for (let i = 0; i < 3; i++) sc[i] = round2(Math.max(0.02, d.startVec[i] * f)); }
-      else { const idx = AXIS_IDX[d.handle]; const f = 1 + (ddx * d.unit[0] + ddy * d.unit[1]) / 70; sc[idx] = round2(Math.max(0.02, d.startVec[idx] * f)); }
-      o.scale = sc;
+      if (d.handle === "xyz") {
+        const f = Math.max(0.02, 1 - ddy / 140);
+        for (const m of d.members) {
+          m.o.scale = [round2(Math.max(0.02, m.scale[0] * f)), round2(Math.max(0.02, m.scale[1] * f)), round2(Math.max(0.02, m.scale[2] * f))];
+          m.o.at = [round(d.pivot[0] + (m.at[0] - d.pivot[0]) * f), round(d.pivot[1] + (m.at[1] - d.pivot[1]) * f), round(d.pivot[2] + (m.at[2] - d.pivot[2]) * f)];
+        }
+      } else {
+        const idx = AXIS_IDX[d.handle];
+        const f = 1 + (ddx * d.unit[0] + ddy * d.unit[1]) / 70;
+        for (const m of d.members) {
+          const sc = m.scale.slice() as Tuple3; sc[idx] = round2(Math.max(0.02, m.scale[idx] * f)); m.o.scale = sc;
+          const at = m.at.slice() as Tuple3; at[idx] = round(d.pivot[idx] + (m.at[idx] - d.pivot[idx]) * f); m.o.at = at;
+        }
+      }
     } else {   // rotate
       const ang = Math.atan2(this.py - d.cy, this.px - d.cx);
       const deg = ((ang - d.startAngle) * 180) / Math.PI;
       const idx = AXIS_IDX[d.handle];
       const sign = d.handle === "y" ? -1 : 1;
-      const rot = d.startVec.slice() as Tuple3; rot[idx] = round(d.startVec[idx] + deg * sign); o.rot = rot;
+      const sdeg = deg * sign, rad = sdeg * DEG;
+      for (const m of d.members) {
+        const rel: Tuple3 = [m.at[0] - d.pivot[0], m.at[1] - d.pivot[1], m.at[2] - d.pivot[2]];
+        const rr = rotateAxis(rel, idx, rad);
+        m.o.at = [round(d.pivot[0] + rr[0]), round(d.pivot[1] + rr[1]), round(d.pivot[2] + rr[2])];
+        const rot = m.rot.slice() as Tuple3; rot[idx] = round(m.rot[idx] + sdeg); m.o.rot = rot;
+      }
     }
     state.touch();
     this.liveDirty = true;   // rebuild on the next frame so the change is visible live
@@ -760,6 +811,13 @@ export class Viewport {
 function dot(a: number[], b: number[]): number { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
 function cross(a: number[], b: number[]): number[] { return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]; }
 function norm(a: number[]): number[] { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; }
+/** rotate a vector about world axis `idx` (0=x,1=y,2=z) by `rad` (right-handed) */
+function rotateAxis(v: Tuple3, idx: number, rad: number): Tuple3 {
+  const c = Math.cos(rad), s = Math.sin(rad);
+  if (idx === 0) return [v[0], v[1] * c - v[2] * s, v[1] * s + v[2] * c];
+  if (idx === 1) return [v[0] * c + v[2] * s, v[1], -v[0] * s + v[2] * c];
+  return [v[0] * c - v[1] * s, v[0] * s + v[1] * c, v[2]];
+}
 function clamp(v: number, a: number, b: number): number { return v < a ? a : v > b ? b : v; }
 function round(n: number): number { return Math.round(n * 100) / 100; }
 function round2(n: number): number { return Math.round(n * 1000) / 1000; }

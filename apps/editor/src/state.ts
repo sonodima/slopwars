@@ -1,15 +1,15 @@
-// ─── Editor state: the map being edited + current selection + undo history ───
+// ─── Editor state: the map being edited + selection + groups + undo history ──
 // Everything in a map is an object placement. Selection is held by *reference*
-// to the placement (not a raw index) so it survives reordering, insertion and
-// deletion — the index is derived on demand. A snapshot-based history records
-// one entry per committed action (add/remove/transform/field edit) so Ctrl/Cmd
-// +Z / +Y step cleanly through them. Live drags call touch() (redraw only); the
-// finalizing commit() is what records history.
-import type { MapDef, Placement } from "@slopwars/shared";
+// (not raw indices) so it survives reordering/insertion/deletion, and supports
+// multi-select (for group operations). Objects can belong to a nestable GroupDef
+// (organizational only — the game ignores groups); the editor moves/scales/rotates
+// a group's members together. A snapshot-based history records one entry per
+// committed action so Ctrl/Cmd+Z / +Y step cleanly through them.
+import type { GroupDef, MapDef, Placement } from "@slopwars/shared";
 
 type Listener = () => void;
 
-interface Snapshot { map: MapDef; sel: number }
+interface Snapshot { map: MapDef; sel: number[] }
 const HISTORY_CAP = 200;
 
 class EditorState {
@@ -17,10 +17,12 @@ class EditorState {
   /** the map's file id (maps/<id>.json); may differ from meta.id until saved */
   fileId = "";
   dirty = false;
-  /** the selected placement, by reference (null = nothing selected) */
+  /** primary selection (drives the inspector); last item added to the set */
   selObj: Placement | null = null;
-  /** where the last selection came from — lets the viewport decide to reframe
-   *  (outliner clicks) and the outliner decide to scroll (viewport clicks). */
+  /** full selection set (references; includes selObj). Empty = nothing selected. */
+  selection: Placement[] = [];
+  /** where the last selection came from — lets the viewport reframe (outliner
+   *  clicks) and the outliner scroll (viewport clicks). */
   selectSource: "outliner" | "viewport" | "" = "";
 
   private history: Snapshot[] = [];
@@ -32,7 +34,7 @@ class EditorState {
   onChange(fn: Listener): void { this.changeListeners.add(fn); }
   onSelect(fn: Listener): void { this.selListeners.add(fn); }
 
-  /** index of the selected placement in the current map (-1 if none/stale) */
+  /** index of the primary selected placement in the current map (-1 if none) */
   get selIndex(): number {
     return this.map && this.selObj ? this.map.objects.indexOf(this.selObj) : -1;
   }
@@ -42,38 +44,155 @@ class EditorState {
     this.fileId = fileId;
     this.dirty = false;
     this.selObj = null;
+    this.selection = [];
     this.history = [this.snapshot()];
     this.hi = 0;
     this.emitChange();
     this.emitSelect();
   }
 
-  select(index: number, source: "outliner" | "viewport" | "" = ""): void {
-    this.selObj = this.map?.objects[index] ?? null;
+  // ── selection ──────────────────────────────────────────────────────────────
+  /** select by index. `additive` toggles membership in a multi-selection. */
+  select(index: number, source: "outliner" | "viewport" | "" = "", additive = false): void {
+    const o = this.map?.objects[index] ?? null;
+    if (!o) { this.selection = []; this.selObj = null; }
+    else if (additive) {
+      const i = this.selection.indexOf(o);
+      if (i >= 0) { this.selection.splice(i, 1); this.selObj = this.selection[this.selection.length - 1] ?? null; }
+      else { this.selection.push(o); this.selObj = o; }
+    } else { this.selection = [o]; this.selObj = o; }
     this.selectSource = source;
     this.emitSelect();
+  }
+
+  /** replace the selection with an explicit set (primary = last) */
+  selectSet(objs: Placement[], source: "outliner" | "viewport" | "" = ""): void {
+    this.selection = objs.slice();
+    this.selObj = objs[objs.length - 1] ?? null;
+    this.selectSource = source;
+    this.emitSelect();
+  }
+
+  /** select every object (recursively) in a group */
+  selectGroup(groupId: string, source: "outliner" | "viewport" | "" = ""): void {
+    this.selectSet(this.membersOf(groupId, true), source);
   }
 
   selected(): Placement | null {
     return this.selIndex >= 0 ? this.selObj : null;
   }
+  /** current selection, filtered to objects still present in the map */
+  selectedObjects(): Placement[] {
+    const objs = this.map?.objects ?? [];
+    return this.selection.filter((o) => objs.includes(o));
+  }
+  isSelected(o: Placement): boolean { return this.selection.includes(o); }
 
+  // ── groups ───────────────────────────────────────────────────────────────
+  groups(): GroupDef[] { return this.map?.groups ?? []; }
+  private ensureGroups(): GroupDef[] { if (!this.map) return []; return (this.map.groups ??= []); }
+  groupById(id: string | undefined): GroupDef | undefined { return id ? this.groups().find((g) => g.id === id) : undefined; }
+  /** child groups of a parent (undefined parent = top level) */
+  childGroups(parent: string | undefined): GroupDef[] { return this.groups().filter((g) => (g.parent ?? undefined) === (parent ?? undefined)); }
+  /** objects directly in a group */
+  membersDirect(groupId: string): Placement[] { return (this.map?.objects ?? []).filter((o) => o.group === groupId); }
+  /** objects in a group and all its descendant groups */
+  membersOf(groupId: string, recursive: boolean): Placement[] {
+    const out = this.membersDirect(groupId);
+    if (recursive) for (const g of this.childGroups(groupId)) out.push(...this.membersOf(g.id, true));
+    return out;
+  }
+
+  /** create a group from the current selection; nests under a shared parent group
+   *  if every selected object already belongs to the same one. Returns its id. */
+  createGroup(name?: string): string | null {
+    if (!this.map) return null;
+    const sel = this.selectedObjects();
+    if (!sel.length) return null;
+    const parents = new Set(sel.map((o) => o.group ?? ""));
+    const parent = parents.size === 1 ? ([...parents][0] || undefined) : undefined;
+    const id = `grp-${Math.random().toString(36).slice(2, 8)}`;
+    this.ensureGroups().push({ id, name: name || `Group ${this.groups().length + 1}`, parent });
+    for (const o of sel) o.group = id;
+    this.commit(true);
+    return id;
+  }
+
+  /** dissolve a group: its objects and child groups move up to its parent */
+  ungroup(groupId: string): void {
+    if (!this.map) return;
+    const g = this.groupById(groupId);
+    if (!g) return;
+    const parent = g.parent;
+    for (const o of this.membersDirect(groupId)) o.group = parent;
+    for (const child of this.childGroups(groupId)) child.parent = parent;
+    this.map.groups = this.groups().filter((x) => x.id !== groupId);
+    this.commit(true);
+  }
+
+  /** move an object into a group (or to top level with undefined) */
+  setObjectGroup(o: Placement, groupId: string | undefined): void {
+    o.group = groupId;
+    this.commit(true);
+  }
+  /** reparent a group (guards against cycles); undefined = top level */
+  setGroupParent(groupId: string, parent: string | undefined): void {
+    const g = this.groupById(groupId);
+    if (!g || groupId === parent) return;
+    // reject if `parent` is a descendant of groupId (would create a cycle)
+    let p = parent;
+    while (p) { if (p === groupId) return; p = this.groupById(p)?.parent; }
+    g.parent = parent;
+    this.commit(true);
+  }
+  renameGroup(groupId: string, name: string): void {
+    const g = this.groupById(groupId); if (!g) return;
+    g.name = name; this.commit(true);
+  }
+  toggleGroupCollapsed(groupId: string): void {
+    const g = this.groupById(groupId); if (!g) return;
+    g.collapsed = !g.collapsed; this.emitChange();
+  }
+
+  // ── object CRUD ────────────────────────────────────────────────────────────
   /** append a placement and select it */
   add(o: Placement): number {
     if (!this.map) return -1;
     this.map.objects.push(o);
     const i = this.map.objects.length - 1;
+    this.selection = [o];
     this.selObj = o;
     this.commit(true);
     return i;
   }
 
-  /** remove a placement by index (clears selection if it was the target) */
+  /** append several placements at once and select them all (one history entry) */
+  addMany(objs: Placement[]): void {
+    if (!this.map || !objs.length) return;
+    for (const o of objs) this.map.objects.push(o);
+    this.selection = objs.slice();
+    this.selObj = objs[objs.length - 1] ?? null;
+    this.commit(true);
+  }
+
+  /** remove a set of placements (and drop them from the selection) */
+  removeObjects(objs: Placement[]): void {
+    if (!this.map || !objs.length) return;
+    const set = new Set(objs);
+    this.map.objects = this.map.objects.filter((o) => !set.has(o));
+    this.selection = this.selection.filter((o) => !set.has(o));
+    this.selObj = this.selection[this.selection.length - 1] ?? null;
+    this.commit(true);
+  }
+
+  /** remove a placement by index (clears it from the selection) */
   remove(index: number): void {
     if (!this.map) return;
     const removed = this.map.objects[index];
     this.map.objects.splice(index, 1);
-    if (this.selObj === removed) this.selObj = null;
+    const si = this.selection.indexOf(removed);
+    if (si >= 0) this.selection.splice(si, 1);
+    if (this.selObj === removed) this.selObj = this.selection[this.selection.length - 1] ?? null;
     this.commit(true);
   }
 
@@ -114,7 +233,9 @@ class EditorState {
 
   private restore(snap: Snapshot): void {
     this.map = this.clone(snap.map);
-    this.selObj = this.map.objects[snap.sel] ?? null;
+    const objs = this.map.objects;
+    this.selection = snap.sel.map((i) => objs[i]).filter((o): o is Placement => !!o);
+    this.selObj = this.selection[this.selection.length - 1] ?? null;
     this.dirty = true;
     this.emitChange();
     this.emitSelect();
@@ -128,7 +249,8 @@ class EditorState {
   }
 
   private snapshot(): Snapshot {
-    return { map: this.clone(this.map!), sel: this.selIndex };
+    const objs = this.map?.objects ?? [];
+    return { map: this.clone(this.map!), sel: this.selection.map((o) => objs.indexOf(o)).filter((i) => i >= 0) };
   }
   private clone(m: MapDef): MapDef { return JSON.parse(JSON.stringify(m)); }
 

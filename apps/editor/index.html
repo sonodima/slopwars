@@ -59,17 +59,24 @@
 
   /* scene outliner */
   .sg-search-bar{padding:6px 8px;position:sticky;top:0;background:var(--panel);border-bottom:1px solid var(--line);z-index:1}
-  .sg-search{width:100%;background:var(--panel2);color:var(--text);border:1px solid var(--line2);border-radius:4px;padding:4px 8px;font-family:var(--font);font-size:12px}
+  .sg-search{flex:1;min-width:0;background:var(--panel2);color:var(--text);border:1px solid var(--line2);border-radius:4px;padding:4px 8px;font-family:var(--font);font-size:12px}
   .sg-search:focus{outline:none;border-color:var(--accent)}
   .sg-list{padding:4px 0}
   .sg-row{display:flex;align-items:center;gap:6px;padding:3px 8px 3px 12px;cursor:pointer;border-left:2px solid transparent}
   .sg-row:hover{background:var(--panel2)}
   .sg-row.sel{background:#123;border-left-color:var(--accent)}
+  .sg-row.sel.primary{background:#1a3350}
+  .sg-row.drop{background:#12233a;border-left-color:var(--accent2);outline:1px dashed var(--accent2);outline-offset:-2px}
   .sg-label{color:var(--text);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-transform:capitalize}
   .sg-row .btn.mini{opacity:0}
   .sg-row:hover .btn.mini{opacity:1}
   .sg-world{border-bottom:1px solid var(--line2)}
   .sg-ico{margin-right:4px}
+  .sg-group .sg-label{font-weight:600;color:#e6c98a;text-transform:none}
+  .sg-caret{width:12px;display:inline-block;text-align:center;color:var(--dim);cursor:pointer;flex:0 0 auto}
+  .sg-search-bar{display:flex;gap:6px;align-items:center}
+  .sg-groupbtn{flex:0 0 auto;color:var(--accent2);border-color:var(--line2);background:var(--panel2)}
+  .sg-groupbtn:hover{color:#fff;background:var(--accent)}
   .rename-input{flex:1;min-width:0;background:var(--panel3);color:#fff;border:1px solid var(--accent);border-radius:3px;padding:2px 6px;font-family:var(--font);font-size:12px}
   .rename-input:focus{outline:none}
   .insp-title .rename-input,h3.rename-input{font-size:14px}
@@ -165,7 +172,7 @@
     <div id="viewport">
       <canvas id="editor-canvas"></canvas>
       <div class="vp-perf" id="perf"></div>
-      <div class="vp-hint">RMB + WASD/QE fly · W/E/R move·rotate·scale · grab an axis to edit · Ctrl+Z/Y undo · drag assets in · F frame</div>
+      <div class="vp-hint">RMB+WASD/QE fly · W/E/R move·rotate·scale · centre handle = all axes · Shift/Ctrl-click multi-select · Ctrl+G group · Ctrl+C/V/X · Del · F frame</div>
     </div>
     <div class="col" id="inspector"></div>
   </div>
