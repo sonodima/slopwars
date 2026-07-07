@@ -39,10 +39,13 @@ export interface HdriAsset {
   file: string;            // path under assets/
 }
 
+import type { MaterialAsset } from "./materials";
+
 /** the complete discovered inventory */
 export interface AssetCatalog {
   models: ModelAsset[];
   textures: TextureAsset[];
+  materials: MaterialAsset[];
   audio: AudioAsset[];
   hdri: HdriAsset[];
 }

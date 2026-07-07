@@ -21,6 +21,7 @@ import type {
   AssetCatalog, AudioAsset, HdriAsset, MapCatalogEntry,
   ModelAsset, TextureAsset, TextureMaps,
 } from "./catalog";
+import type { MaterialAsset, MaterialDef } from "./materials";
 
 interface Options {
   /** repo root that contains `public/` and `maps/` (defaults to cwd) */
@@ -82,6 +83,21 @@ function scanTextures(assets: string): TextureAsset[] {
   }).sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/** materials are JSON files under public/assets/materials/ — the parsed def is
+ *  inlined into the catalog (they're tiny) so no runtime fetch is needed. */
+function scanMaterials(assets: string): MaterialAsset[] {
+  const base = path.join(assets, "materials");
+  const out: MaterialAsset[] = [];
+  for (const f of readFilesFlat(base)) {
+    if (!f.endsWith(".json")) continue;
+    try {
+      const def = JSON.parse(fs.readFileSync(path.join(base, f), "utf8")) as MaterialDef;
+      out.push({ name: f.replace(/\.json$/, ""), def });
+    } catch { /* skip malformed */ }
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name));
+}
+
 function scanAudio(assets: string): AudioAsset[] {
   const base = path.join(assets, "audio");
   const out: AudioAsset[] = [];
@@ -107,6 +123,7 @@ export function scanAssets(root: string): AssetCatalog {
   return {
     models: scanModels(assets),
     textures: scanTextures(assets),
+    materials: scanMaterials(assets),
     audio: scanAudio(assets),
     hdri: scanHdri(assets),
   };

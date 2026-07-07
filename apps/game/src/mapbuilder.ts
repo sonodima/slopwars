@@ -1,19 +1,21 @@
 // ─── MapBuilder: low-level primitives shared by the loader + object types ─────
-// Owns the material cache and writes geometry/collision straight into a GameMap.
+// Writes geometry/collision straight into a GameMap, shading every surface through
+// the MaterialLibrary (materials.ts) — geometry names a *material*, never a texture.
 // Both brush interpretation (loader) and named object types (objects.ts) build
 // exclusively through this, so there is one place that knows how to make a wall.
 import {
-  BoundingBox, Color, Engine, Entity, MeshRenderer, PBRMaterial, PrimitiveMesh, Vector4,
+  BoundingBox, Engine, Entity, MeshRenderer, PrimitiveMesh,
 } from "@galacean/engine";
 import { GameModels, instantiate } from "./models";
 import { MapTextures, PbrSet, DEFAULT_FOLDER } from "./textures";
+import { MaterialLibrary } from "./materials";
 import type { AABB, GameMap } from "./map";
 
 type Vec3T = readonly [number, number, number];
 
 export class MapBuilder {
-  private mats = new Map<string, PBRMaterial>();
-  private colorMats = new Map<string, PBRMaterial>();
+  /** the shared material factory (built from the map's resolved textures) */
+  readonly lib: MaterialLibrary;
   /** index of the placement currently being built (for editor entity tagging) */
   buildIndex = -1;
 
@@ -33,55 +35,14 @@ export class MapBuilder {
     public tex: MapTextures,
     public models: GameModels,
     public map: GameMap,
-  ) {}
-
-  /** cached PBR material for a texture set at a given tiling */
-  mat(set: PbrSet, tu: number, tv: number): PBRMaterial {
-    const key = `${set.color.instanceId}:${tu}:${tv}`;
-    let m = this.mats.get(key);
-    if (!m) {
-      m = new PBRMaterial(this.engine);
-      m.baseTexture = set.color;
-      m.normalTexture = set.normal;
-      m.roughnessMetallicTexture = set.arm; // G=roughness, B=metallic
-      m.occlusionTexture = set.arm;         // R=ambient occlusion
-      m.tilingOffset = new Vector4(tu, tv, 0, 0);
-      this.mats.set(key, m);
-    }
-    return m;
+  ) {
+    this.lib = new MaterialLibrary(engine, tex);
   }
 
   pushSolid(a: AABB): void { this.map.solids.push(a); }
 
-  /** cached plain-colour PBR material (no texture) — for untextured primitives
-   *  like the default gray floor or a solid-colour cube. */
-  colorMat(r: number, g: number, b: number): PBRMaterial {
-    const key = `${r.toFixed(3)}:${g.toFixed(3)}:${b.toFixed(3)}`;
-    let m = this.colorMats.get(key);
-    if (!m) {
-      m = new PBRMaterial(this.engine);
-      m.baseColor = new Color(r, g, b, 1);
-      m.roughness = 0.9; m.metallic = 0.02;
-      this.colorMats.set(key, m);
-    }
-    return m;
-  }
-
-  /** untextured coloured cuboid (visual only) */
-  meshColor(x: number, y: number, z: number, w: number, h: number, d: number, r: number, g: number, b: number): Entity {
-    const e = this.root.createChild("bc");
-    e.transform.setPosition(x, y, z);
-    e.transform.setScale(w, h, d);
-    const rend = e.addComponent(MeshRenderer);
-    rend.mesh = this.unitCube();
-    rend.setMaterial(this.colorMat(r, g, b));
-    rend.castShadows = true;
-    rend.receiveShadows = true;
-    this.map.tris += 12;
-    return this.track(e);
-  }
-
-  /** the PBR set for a texture folder, falling back to the default folder */
+  /** raw PBR texture set for a folder (falls back to the default) — for sprite
+   *  consumers like the particle emitter that need an image, not a material. */
   texOf(folder?: string): PbrSet {
     return (folder && this.tex.get(folder)) || this.tex.get(DEFAULT_FOLDER) || this.tex.values().next().value!;
   }
@@ -92,14 +53,14 @@ export class MapBuilder {
    *  register them for editor picking/highlighting the same way. */
   track(e: Entity): Entity { this.map.onBuildEntity?.(this.buildIndex, e); return e; }
 
-  /** textured cuboid mesh (visual only) */
-  mesh(x: number, y: number, z: number, w: number, h: number, d: number, set: PbrSet, tu: number, tv: number): Entity {
+  /** cuboid mesh shaded by a named material (visual only) */
+  mesh(x: number, y: number, z: number, w: number, h: number, d: number, mat: string, tu = 1, tv = 1): Entity {
     const e = this.root.createChild("b");
     e.transform.setPosition(x, y, z);
     e.transform.setScale(w, h, d);
     const r = e.addComponent(MeshRenderer);
     r.mesh = this.unitCube();
-    r.setMaterial(this.mat(set, tu, tv));
+    r.setMaterial(this.lib.build(mat, tu, tv));
     r.castShadows = true;
     r.receiveShadows = true;
     this.map.tris += 12;
@@ -107,17 +68,17 @@ export class MapBuilder {
   }
 
   /** cuboid + (optional) AABB collision — the structural workhorse */
-  box(x: number, y: number, z: number, w: number, h: number, d: number, set: PbrSet, tu = 1, tv = 1, solid = true): void {
-    this.mesh(x, y, z, w, h, d, set, tu, tv);
+  box(x: number, y: number, z: number, w: number, h: number, d: number, mat: string, tu = 1, tv = 1, solid = true): void {
+    this.mesh(x, y, z, w, h, d, mat, tu, tv);
     if (solid) this.pushSolid({ min: { x: x - w / 2, y: y - h / 2, z: z - d / 2 }, max: { x: x + w / 2, y: y + h / 2, z: z + d / 2 } });
   }
 
-  cylinder(x: number, y: number, z: number, rTop: number, rBot: number, h: number, set: PbrSet, tu: number, tv: number, seg = 10): Entity {
+  cylinder(x: number, y: number, z: number, rTop: number, rBot: number, h: number, mat: string, tu: number, tv: number, seg = 10): Entity {
     const e = this.root.createChild("cyl");
     e.transform.setPosition(x, y, z);
     const r = e.addComponent(MeshRenderer);
     r.mesh = PrimitiveMesh.createCylinder(this.engine, rTop, rBot, h, seg);
-    r.setMaterial(this.mat(set, tu, tv));
+    r.setMaterial(this.lib.build(mat, tu, tv));
     r.castShadows = true; r.receiveShadows = true;
     this.map.tris += seg * 6;
     return this.track(e);

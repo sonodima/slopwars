@@ -7,7 +7,7 @@ import type { AssetCatalog } from "@slopwars/shared";
 import type { ThumbRenderer } from "./preview";
 import { clear, el, modal } from "./ui";
 
-export type AssetKind = "model" | "audio" | "texture" | "hdri";
+export type AssetKind = "model" | "audio" | "texture" | "material" | "hdri";
 
 export interface AssetFieldOpts {
   label: string;
@@ -24,12 +24,13 @@ function names(cat: AssetCatalog, kind: AssetKind): string[] {
   if (kind === "model") return cat.models.map((m) => m.name);
   if (kind === "audio") return cat.audio.map((a) => a.name);
   if (kind === "hdri") return cat.hdri.map((h) => h.name);
+  if (kind === "material") return cat.materials.map((m) => m.name);
   return cat.textures.map((t) => t.name);
 }
 
 /** placeholder glyph for an empty / loading slot of a given kind */
 function kindIcon(kind: AssetKind): string {
-  return kind === "audio" ? "♪" : kind === "texture" ? "▦" : kind === "hdri" ? "🌅" : "▣";
+  return kind === "audio" ? "♪" : kind === "texture" ? "▦" : kind === "material" ? "◆" : kind === "hdri" ? "🌅" : "▣";
 }
 
 /** kick off the inline preview render for `name`, filling `slot` when ready */
@@ -41,6 +42,7 @@ function preview(slot: HTMLElement, o: AssetFieldOpts, name: string): void {
   let p: Promise<string | null> | null = null;
   if (o.kind === "model") { const m = o.catalog.models.find((x) => x.name === name); if (m) p = t.modelThumb(m.gltf); }
   else if (o.kind === "texture") { const tx = o.catalog.textures.find((x) => x.name === name); if (tx) p = t.textureThumb(tx.name, tx.maps); }
+  else if (o.kind === "material") { const mt = o.catalog.materials.find((x) => x.name === name); if (mt) p = t.materialThumb(mt.name, mt.def, o.catalog); }
   else if (o.kind === "hdri") { const h = o.catalog.hdri.find((x) => x.name === name); if (h) p = t.hdriThumb(h.file); }
   if (!p) return;
   void p.then((url) => { if (!url) return; clear(slot); const img = el("img", "af-prev"); img.src = url; slot.append(img); });

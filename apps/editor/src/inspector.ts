@@ -13,7 +13,7 @@ import { clear, el, numField, vecField, selectField, checkField, textField, colo
 
 const AXES = ["x+", "x-", "z+", "z-"];
 
-let catalog: AssetCatalog = { models: [], textures: [], audio: [], hdri: [] };
+let catalog: AssetCatalog = { models: [], textures: [], materials: [], audio: [], hdri: [] };
 let thumbs: ThumbRenderer | null = null;
 export function setInspectorCatalog(c: AssetCatalog): void { catalog = c; }
 export function setInspectorThumbs(t: ThumbRenderer): void { thumbs = t; }
@@ -85,12 +85,13 @@ function objectInspector(host: HTMLElement, o: Placement, touch: () => void): vo
 function paramField(key: string, dflt: unknown, params: Record<string, unknown>, touch: () => void): HTMLElement {
   const get = (): unknown => (key in params ? params[key] : dflt);
   const set = (v: unknown): void => { params[key] = v; };
-  const asset = (kind: "model" | "audio" | "texture"): HTMLElement =>
+  const asset = (kind: "model" | "audio" | "texture" | "material"): HTMLElement =>
     assetField({ label: key, kind, catalog, thumbs, get: () => String(get() ?? ""), set: (v) => set(v), onChange: touch });
   // drag-droppable asset references with an inline preview
   if (key === "model") return asset("model");
   if (key === "clip") return asset("audio");
-  if (key === "tex") return asset("texture");
+  if (key === "mat") return asset("material");   // surface material (box, structures…)
+  if (key === "tex") return asset("texture");    // particle sprite (raw texture)
   if (key === "axis") return selectField(key, AXES, () => String(get()), (v) => set(v), touch);
   // rgb-triple params (color, tint, depthColor, …) get a colour swatch
   if (isColorKey(key) && Array.isArray(dflt) && dflt.length === 3) { const arr = (get() as number[]).slice(); params[key] = arr; return colorField(key, arr, touch); }

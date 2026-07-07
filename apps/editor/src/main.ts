@@ -22,7 +22,7 @@ const $ = (id: string): HTMLElement => document.getElementById(id) as HTMLElemen
 
 const viewport = new Viewport();
 const thumbs = new ThumbRenderer();
-let catalog: AssetCatalog = { models: [], textures: [], audio: [], hdri: [] };
+let catalog: AssetCatalog = { models: [], textures: [], materials: [], audio: [], hdri: [] };
 let rebuildTimer = 0;
 
 const TOOLS: { t: Tool; label: string }[] = [

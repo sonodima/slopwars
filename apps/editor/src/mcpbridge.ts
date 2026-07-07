@@ -77,7 +77,7 @@ async function run(ctx: McpBridgeCtx, cmd: Cmd): Promise<unknown> {
       return { types: objectCatalog().map((o) => ({ name: o.name, category: o.category, defaults: o.defaults })) };
     case "listAssets": {
       const c = ctx.getCatalog();
-      return { models: c.models.map((m) => m.name), textures: c.textures.map((t) => t.name), audio: c.audio.map((a) => a.name), hdri: c.hdri.map((h) => h.name), objectTypes: objectTypeNames() };
+      return { models: c.models.map((m) => m.name), textures: c.textures.map((t) => t.name), materials: c.materials.map((m) => m.name), audio: c.audio.map((a) => a.name), hdri: c.hdri.map((h) => h.name), objectTypes: objectTypeNames() };
     }
     case "getMap":
       return requireMap();

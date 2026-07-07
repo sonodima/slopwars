@@ -78,6 +78,17 @@ export function renderBrowser(host: HTMLElement, ctx: PanelCtx): void {
     }
     appendSection(body, models, models.grid.childElementCount);
 
+    // Materials: drop onto an object's `mat` slot. This is the primary way to skin
+    // geometry now — textures below are the raw image inputs materials consume.
+    const materials = section("Materials", "texture");
+    for (const mt of ctx.catalog.materials) {
+      if (!match(mt.name)) continue;
+      const c = card(mt.name, "◆", () => ({ kind: "material", name: mt.name }));
+      fillThumb(c, ctx.thumbs.materialThumb(mt.name, mt.def, ctx.catalog));
+      materials.grid.append(c);
+    }
+    appendSection(body, materials, materials.grid.childElementCount);
+
     const textures = section("Textures", "texture");
     for (const t of ctx.catalog.textures) {
       if (!match(t.name)) continue;
@@ -157,4 +168,4 @@ function fillThumb(c: HTMLElement, p: Promise<string | null>): void {
   });
 }
 
-export interface Payload { kind: "object" | "model" | "audio" | "texture" | "hdri"; name: string }
+export interface Payload { kind: "object" | "model" | "audio" | "texture" | "material" | "hdri"; name: string }
