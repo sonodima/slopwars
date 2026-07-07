@@ -64,7 +64,9 @@ export function emptyMap(id: string, name: string): MapDef {
       sun: { rot: [-50, -35, 0], color: [1.2, 1.15, 1.0], strength: 0.8 },
     },
     objects: [
-      { type: "box", at: [0, -0.5, 0], scale: [40, 1, 40], params: { tex: "floor", tile: [10, 10] } },
+      // plain untextured gray floor by default (assign a texture in the inspector
+      // to change it — a box with no `tex` renders its solid `color`)
+      { type: "box", at: [0, -0.5, 0], scale: [40, 1, 40] },
       { type: "spawn", at: [0, 0, 0] },
     ],
   };

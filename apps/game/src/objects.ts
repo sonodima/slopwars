@@ -10,7 +10,6 @@ import catalog from "virtual:asset-catalog";
 import type { MapBuilder } from "./mapbuilder";
 import { AABB } from "./map";
 import { assetUrl } from "./assets";
-import { DEFAULT_FOLDER } from "./textures";
 import type { MapDef, Placement } from "./maps/schema";
 
 export const BARREL_HP = 120;
@@ -39,6 +38,12 @@ const REGISTRY = new Map<string, ObjectType<any>>();
 export function defineObject<P extends object>(name: string, type: ObjectType<P>): void {
   REGISTRY.set(name, type);
 }
+
+// editor default transform scale for a dropped object type (model props carry a
+// tuned native size; everything else drops at 1). Objects honour the regular
+// Scale tool via their transform — there is no per-object "scale" param anymore.
+const DROP_SCALE = new Map<string, number>();
+export function objectDropScale(name: string): number { return DROP_SCALE.get(name) ?? 1; }
 
 /** build a placed object, merging overrides over its defaults and resolving the
  *  transform (rot/scale default to identity). */
@@ -76,21 +81,25 @@ export function mapTextureFolders(def: MapDef): string[] {
     const t = REGISTRY.get(o.type);
     if (!t) continue;
     const merged = { ...t.defaults, ...(o.params ?? {}) } as Record<string, unknown>;
-    if (typeof merged.tex === "string") set.add(merged.tex);
+    if (typeof merged.tex === "string" && merged.tex) set.add(merged.tex);
   }
   return [...set];
 }
 
 // ─── geometry ─────────────────────────────────────────────────────────────────
 
-/** textured cuboid — the structural workhorse. scale IS its w/h/d (scale gizmo
- *  resizes it). `tex` is a texture folder name. solid=false → decoration. */
-defineObject<{ tex: string; tile: [number, number]; solid: boolean }>("box", {
-  defaults: { tex: DEFAULT_FOLDER, tile: [1, 1], solid: true },
+/** textured (or plain-colour) cuboid — the structural workhorse. scale IS its
+ *  w/h/d (scale gizmo resizes it). `tex` is a texture folder name; leave it empty
+ *  to render an untextured solid `color` (gray by default — a plain cube you can
+ *  give any texture, exactly like a prop). solid=false → decoration. */
+defineObject<{ tex: string; color: [number, number, number]; tile: [number, number]; solid: boolean }>("box", {
+  defaults: { tex: "", color: [0.6, 0.6, 0.62], tile: [1, 1], solid: true },
   category: "geometry",
   build(b, t, p) {
-    const [x, y, z] = t.at; const [w, h, d] = t.scale; const [tu, tv] = p.tile;
-    const e = b.mesh(x, y, z, w, h, d, b.texOf(p.tex), tu, tv);
+    const [x, y, z] = t.at; const [w, h, d] = t.scale;
+    const e = p.tex
+      ? b.mesh(x, y, z, w, h, d, b.texOf(p.tex), p.tile[0], p.tile[1])
+      : b.meshColor(x, y, z, w, h, d, p.color[0], p.color[1], p.color[2]);
     const [rx, ry, rz] = t.rot;
     if (rx || ry || rz) e.transform.setRotation(rx, ry, rz);   // visual only (collision stays AABB)
     if (p.solid !== false) b.pushSolid({ min: { x: x - w / 2, y: y - h / 2, z: z - d / 2 }, max: { x: x + w / 2, y: y + h / 2, z: z + d / 2 } });
@@ -151,12 +160,15 @@ defineObject<{ model: string; solid: boolean }>("prop", {
 // ─── gameplay entities ────────────────────────────────────────────────────────
 
 /** explosive barrel — host tracks hp, explodes at 0 */
-defineObject<{ hp: number; scale: number; radius: number; height: number }>("barrel", {
-  defaults: { hp: BARREL_HP, scale: 1.15, radius: 0.45, height: 1.1 },
+DROP_SCALE.set("barrel", 1.15);
+defineObject<{ hp: number; scale?: number; radius: number; height: number }>("barrel", {
+  defaults: { hp: BARREL_HP, radius: 0.45, height: 1.1 },
   category: "entity",
   build(b, t, p) {
     const [x, , z] = t.at;
-    const e = b.placeModel("barrel", x, 0, z, p.scale, t.rot[1]);
+    const m = p.scale ?? 1;   // legacy multiplier; drop scale is 1.15 (transform)
+    const e = b.placeModelTf("barrel", [x, 0, z], [0, t.rot[1], 0], [t.scale[0] * m, t.scale[1] * m, t.scale[2] * m]);
+    // collision stays authored radius/height (as before) — barrels aren't resized
     const solid: AABB = { min: { x: x - p.radius, y: 0, z: z - p.radius }, max: { x: x + p.radius, y: p.height, z: z + p.radius } };
     b.pushSolid(solid);
     b.map.barrels.push({ pos: { x, y: p.height / 2, z }, entity: e, solid, hp: p.hp, dead: false });
@@ -164,12 +176,13 @@ defineObject<{ hp: number; scale: number; radius: number; height: number }>("bar
 });
 
 /** hanging/standing lantern that also casts a warm point light */
-defineObject<{ color: number; distance: number; scale: number }>("lantern", {
-  defaults: { color: 0xe69e52, distance: 8, scale: 1.0 },
+defineObject<{ color: number; distance: number; scale?: number }>("lantern", {
+  defaults: { color: 0xe69e52, distance: 8 },
   category: "light",
   build(b, t, p) {
     const [x, y, z] = t.at;
-    const e = b.placeModel("lantern", x, y, z, p.scale, t.rot[1]) ?? b.root.createChild("lamp");
+    const m = p.scale ?? 1;
+    const e = b.placeModelTf("lantern", [x, y, z], [0, t.rot[1], 0], [t.scale[0] * m, t.scale[1] * m, t.scale[2] * m]) ?? b.root.createChild("lamp");
     e.transform.setPosition(x, y, z);
     const l = e.addComponent(PointLight);
     l.color = new Color(((p.color >> 16) & 255) / 255, ((p.color >> 8) & 255) / 255, (p.color & 255) / 255, 1);
@@ -178,24 +191,27 @@ defineObject<{ color: number; distance: number; scale: number }>("lantern", {
 });
 
 /** planter box with a plant on top + collision */
-defineObject<{ scale: number; top: number; radius: number; plant: "succulent" | "shrub" }>("planter", {
-  defaults: { scale: 1.0, top: 0.5, radius: 0.8, plant: "succulent" },
+defineObject<{ scale?: number; top: number; radius: number; plant: "succulent" | "shrub" }>("planter", {
+  defaults: { top: 0.5, radius: 0.8, plant: "succulent" },
   category: "prop",
   build(b, t, p) {
     const [x, , z] = t.at;
-    b.placeModel("planter", x, 0, z, p.scale);
-    b.placeModel(p.plant, x, p.top, z, 1.0, t.rot[1]);
+    const m = p.scale ?? 1;
+    const sv: [number, number, number] = [t.scale[0] * m, t.scale[1] * m, t.scale[2] * m];
+    b.placeModelTf("planter", [x, 0, z], [0, 0, 0], sv);
+    b.placeModelTf(p.plant, [x, p.top, z], [0, t.rot[1], 0], [t.scale[0], t.scale[1], t.scale[2]]);
     b.pushSolid({ min: { x: x - p.radius, y: 0, z: z - p.radius }, max: { x: x + p.radius, y: 0.7, z: z + p.radius } });
   },
 });
 
 /** ground vegetation (visual only) — rests on the floor */
-function vegType(model: "succulent" | "shrub"): ObjectType<{ scale: number }> {
+function vegType(model: "succulent" | "shrub"): ObjectType<{ scale?: number }> {
   return {
-    defaults: { scale: 1.0 }, category: "prop",
+    defaults: {}, category: "prop",
     build(b, t, p) {
       const [x, , z] = t.at;
-      b.placeModel(model, x, b.map.floorY(x, z), z, p.scale, t.rot[1]);
+      const m = p.scale ?? 1;
+      b.placeModelTf(model, [x, b.map.floorY(x, z), z], [0, t.rot[1], 0], [t.scale[0] * m, t.scale[1] * m, t.scale[2] * m]);
     },
   };
 }
@@ -203,56 +219,62 @@ defineObject("shrub", vegType("shrub"));
 defineObject("succulent", vegType("succulent"));
 
 // ─── modeled props (glTF) with footprint collision ──────────────────────────
-// A prop places a loaded model and derives an axis-aligned solid from the model's
-// native bounding box × scale. `nw/nh/nd` are the native metres (see models.ts).
-// solid=false → decoration only (vegetation the player walks through). These
-// tuned types are kept for the existing maps; new placements use "prop".
-function modelProp(model: string, nw: number, nh: number, nd: number, defScale: number, solid = true): ObjectType<{ scale: number }> {
-  return {
-    defaults: { scale: defScale }, category: "prop",
+// A prop places a loaded model at the object transform and derives its collision
+// from the model's actual world bounds (rotation/scale aware). The regular Scale
+// tool resizes it — there is no separate `scale` param anymore. A legacy numeric
+// `scale` still in older maps is honoured as a multiplier over the transform
+// scale, so existing maps look identical; the editor drops new ones at a sensible
+// default size (see DROP_SCALE). `nw/nh/nd` are the native metres, used only for
+// the fallback cube when a model fails to load.
+function defModelProp(name: string, model: string, nw: number, nh: number, nd: number, defScale: number, solid = true): void {
+  DROP_SCALE.set(name, defScale);
+  defineObject<{ scale?: number }>(name, {
+    defaults: {}, category: "prop",
     build(b, t, p) {
       const [x, baseY, z] = t.at;
-      const yaw = t.rot[1];
-      const e = b.placeModel(model, x, baseY, z, p.scale, yaw);
+      const m = p.scale ?? 1;   // legacy multiplier (absent on new placements)
+      const sv: [number, number, number] = [t.scale[0] * m, t.scale[1] * m, t.scale[2] * m];
+      const e = b.placeModelTf(model, [x, baseY, z], t.rot, sv);
       if (!solid) return;
+      if (e) { const aabb = b.modelAABB(e); if (aabb) b.pushSolid(aabb); return; }
+      // fallback cube if the model failed to load
+      const yaw = t.rot[1];
       const near90 = Math.abs(((yaw % 180) + 180) % 180 - 90) < 45;
-      const hw = (near90 ? nd : nw) * p.scale / 2;
-      const hd = (near90 ? nw : nd) * p.scale / 2;
-      const h = nh * p.scale;
-      const solidAABB: AABB = { min: { x: x - hw, y: baseY, z: z - hd }, max: { x: x + hw, y: baseY + h, z: z + hd } };
-      if (e) b.pushSolid(solidAABB);
-      else b.box(x, baseY + h / 2, z, hw * 2, h, hd * 2, b.texOf("crate"), 1, 1); // fallback cube if model missing
+      const hw = (near90 ? nd * sv[2] : nw * sv[0]) / 2;
+      const hd = (near90 ? nw * sv[0] : nd * sv[2]) / 2;
+      const h = nh * sv[1];
+      b.box(x, baseY + h / 2, z, hw * 2, h, hd * 2, b.texOf("crate"), 1, 1);
     },
-  };
+  });
 }
 
-defineObject("crate", modelProp("crate", 0.93, 0.36, 0.68, 1.8));
-defineObject("crate2", modelProp("crate2", 0.30, 0.26, 0.41, 2.6));
-defineObject("rockset", modelProp("rockset", 2.66, 1.77, 3.37, 0.7));
-defineObject("boulder", modelProp("boulder", 2.52, 1.9, 2.5, 0.75));
-defineObject("fern", modelProp("fern", 0.99, 0.43, 0.89, 1.3, false));
-defineObject("stump", modelProp("stump", 1.43, 0.57, 1.59, 1.0));
-defineObject("dtree", modelProp("dtree", 0.5, 2.72, 0.5, 1.1));
-defineObject("deadtree", modelProp("deadtree", 3.05, 0.32, 0.32, 1.0));
-defineObject("toolbox", modelProp("toolbox", 0.40, 0.17, 0.32, 1.6));
-defineObject("desk", modelProp("desk", 2.0, 0.79, 0.95, 1.0));
-defineObject("chair", modelProp("chair", 0.57, 1.0, 0.68, 1.0, false));
-defineObject("pplant", modelProp("pplant", 0.59, 1.34, 0.63, 1.0));
-defineObject("cabinet", modelProp("cabinet", 1.14, 1.88, 0.49, 1.0));
-defineObject("sofa", modelProp("sofa", 1.57, 0.80, 0.66, 1.0));
-defineObject("bookshelf", modelProp("bookshelf", 1.37, 2.06, 0.58, 1.0));
-defineObject("trashcan", modelProp("trashcan", 0.61, 0.98, 0.56, 0.75));
-defineObject("extinguisher", modelProp("extinguisher", 0.28, 0.66, 0.37, 1.0, false));
-defineObject("cofftable", modelProp("cofftable", 0.60, 0.39, 1.20, 1.0));
-defineObject("cardbox", modelProp("cardbox", 0.39, 0.34, 0.52, 1.4));
-defineObject("pplant2", modelProp("pplant2", 0.73, 0.63, 0.76, 1.2));
-defineObject("clock", modelProp("clock", 0.32, 0.32, 0.05, 1.4, false));
-defineObject("tree", modelProp("treebig", 0.8, 5.0, 0.8, 1.0));
-defineObject("tree2", modelProp("treemed", 0.7, 3.4, 0.7, 1.0));
-defineObject("cliff", modelProp("cliff", 86.8, 11, 24.3, 0.5, false));
-defineObject("rockset2", modelProp("rockset2", 2.49, 1.71, 2.02, 0.85));
-defineObject("tropplant", modelProp("tropplant", 0.6, 1.9, 0.6, 1.0));
-defineObject("leafplant", modelProp("leafplant", 0.6, 0.42, 0.56, 1.6, false));
+defModelProp("crate", "crate", 0.93, 0.36, 0.68, 1.8);
+defModelProp("crate2", "crate2", 0.30, 0.26, 0.41, 2.6);
+defModelProp("rockset", "rockset", 2.66, 1.77, 3.37, 0.7);
+defModelProp("boulder", "boulder", 2.52, 1.9, 2.5, 0.75);
+defModelProp("fern", "fern", 0.99, 0.43, 0.89, 1.3, false);
+defModelProp("stump", "stump", 1.43, 0.57, 1.59, 1.0);
+defModelProp("dtree", "dtree", 0.5, 2.72, 0.5, 1.1);
+defModelProp("deadtree", "deadtree", 3.05, 0.32, 0.32, 1.0);
+defModelProp("toolbox", "toolbox", 0.40, 0.17, 0.32, 1.6);
+defModelProp("desk", "desk", 2.0, 0.79, 0.95, 1.0);
+defModelProp("chair", "chair", 0.57, 1.0, 0.68, 1.0, false);
+defModelProp("pplant", "pplant", 0.59, 1.34, 0.63, 1.0);
+defModelProp("cabinet", "cabinet", 1.14, 1.88, 0.49, 1.0);
+defModelProp("sofa", "sofa", 1.57, 0.80, 0.66, 1.0);
+defModelProp("bookshelf", "bookshelf", 1.37, 2.06, 0.58, 1.0);
+defModelProp("trashcan", "trashcan", 0.61, 0.98, 0.56, 0.75);
+defModelProp("extinguisher", "extinguisher", 0.28, 0.66, 0.37, 1.0, false);
+defModelProp("cofftable", "cofftable", 0.60, 0.39, 1.20, 1.0);
+defModelProp("cardbox", "cardbox", 0.39, 0.34, 0.52, 1.4);
+defModelProp("pplant2", "pplant2", 0.73, 0.63, 0.76, 1.2);
+defModelProp("clock", "clock", 0.32, 0.32, 0.05, 1.4, false);
+defModelProp("tree", "treebig", 0.8, 5.0, 0.8, 1.0);
+defModelProp("tree2", "treemed", 0.7, 3.4, 0.7, 1.0);
+defModelProp("cliff", "cliff", 86.8, 11, 24.3, 0.5, false);
+defModelProp("rockset2", "rockset2", 2.49, 1.71, 2.02, 0.85);
+defModelProp("tropplant", "tropplant", 0.6, 1.9, 0.6, 1.0);
+defModelProp("leafplant", "leafplant", 0.6, 0.42, 0.56, 1.6, false);
 
 // ─── code-built structures (no model) ─────────────────────────────────────────
 

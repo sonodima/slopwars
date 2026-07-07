@@ -13,6 +13,7 @@ type Vec3T = readonly [number, number, number];
 
 export class MapBuilder {
   private mats = new Map<string, PBRMaterial>();
+  private colorMats = new Map<string, PBRMaterial>();
   /** index of the placement currently being built (for editor entity tagging) */
   buildIndex = -1;
 
@@ -41,6 +42,33 @@ export class MapBuilder {
   }
 
   pushSolid(a: AABB): void { this.map.solids.push(a); }
+
+  /** cached plain-colour PBR material (no texture) — for untextured primitives
+   *  like the default gray floor or a solid-colour cube. */
+  colorMat(r: number, g: number, b: number): PBRMaterial {
+    const key = `${r.toFixed(3)}:${g.toFixed(3)}:${b.toFixed(3)}`;
+    let m = this.colorMats.get(key);
+    if (!m) {
+      m = new PBRMaterial(this.engine);
+      m.baseColor = new Color(r, g, b, 1);
+      m.roughness = 0.9; m.metallic = 0.02;
+      this.colorMats.set(key, m);
+    }
+    return m;
+  }
+
+  /** untextured coloured cuboid (visual only) */
+  meshColor(x: number, y: number, z: number, w: number, h: number, d: number, r: number, g: number, b: number): Entity {
+    const e = this.root.createChild("bc");
+    e.transform.setPosition(x, y, z);
+    const rend = e.addComponent(MeshRenderer);
+    rend.mesh = PrimitiveMesh.createCuboid(this.engine, w, h, d);
+    rend.setMaterial(this.colorMat(r, g, b));
+    rend.castShadows = true;
+    rend.receiveShadows = true;
+    this.map.tris += 12;
+    return this.track(e);
+  }
 
   /** the PBR set for a texture folder, falling back to the default folder */
   texOf(folder?: string): PbrSet {

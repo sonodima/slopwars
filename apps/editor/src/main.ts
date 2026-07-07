@@ -13,6 +13,7 @@ import { mountSceneGraph } from "./scenegraph";
 import { renderInspector, setInspectorCatalog, setInspectorThumbs } from "./inspector";
 import { renderBrowser, Payload } from "./panels";
 import { mountResizers } from "./layout";
+import { objectDropScale } from "@game/objects";
 import { api } from "./api";
 import { el, button, toast, modal } from "./ui";
 
@@ -186,6 +187,10 @@ function objectPlacement(type: string, at: Tuple3): Placement {
   if (type === "water") return { type, at: [at[0], at[1] + 0.3, at[2]], scale: [6, 1, 6] };
   if (type === "pickup" || type === "powerup") return { type, at: [at[0], at[1] + 1, at[2]] };
   if (type === "sound") return { type, at: [at[0], at[1] + 2, at[2]] };
+  // model props carry a tuned native size — drop them at it so the regular Scale
+  // tool then resizes from a correct baseline (no per-object scale param).
+  const s = objectDropScale(type);
+  if (s !== 1) return { type, at, scale: [s, s, s] };
   return { type, at };
 }
 

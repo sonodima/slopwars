@@ -78,6 +78,28 @@ export function checkField(label: string, get: () => boolean, set: (v: boolean) 
   return row;
 }
 
+/** colour swatch bound to a linear [r,g,b] (0..1) tuple via an <input type=color> */
+export function colorField(label: string, tuple: number[], onChange: () => void): HTMLElement {
+  const row = el("label", "field");
+  row.append(el("span", "field-label", label));
+  const inp = el("input", "field-color") as HTMLInputElement;
+  inp.type = "color";
+  inp.value = rgbToHex(tuple);
+  inp.addEventListener("input", () => { const [r, g, b] = hexToRgb(inp.value); tuple[0] = r; tuple[1] = g; tuple[2] = b; onChange(); });
+  row.append(inp);
+  return row;
+}
+function clamp01(n: number): number { return n < 0 ? 0 : n > 1 ? 1 : n; }
+function rgbToHex(t: number[]): string {
+  const h = (n: number): string => Math.round(clamp01(n) * 255).toString(16).padStart(2, "0");
+  return `#${h(t[0] ?? 0)}${h(t[1] ?? 0)}${h(t[2] ?? 0)}`;
+}
+function hexToRgb(hex: string): [number, number, number] {
+  const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
+  if (!m) return [0.6, 0.6, 0.62];
+  return [parseInt(m[1], 16) / 255, parseInt(m[2], 16) / 255, parseInt(m[3], 16) / 255];
+}
+
 export function textField(label: string, get: () => string, set: (v: string) => void, onChange: () => void): HTMLElement {
   const row = el("label", "field");
   row.append(el("span", "field-label", label));

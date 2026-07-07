@@ -9,7 +9,7 @@ import { objectDefaults } from "@game/objects";
 import type { ThumbRenderer } from "./preview";
 import { state } from "./state";
 import { assetField } from "./assetfield";
-import { clear, el, numField, vecField, selectField, checkField, textField, renamable } from "./ui";
+import { clear, el, numField, vecField, selectField, checkField, textField, colorField, renamable } from "./ui";
 
 const AXES = ["x+", "x-", "z+", "z-"];
 
@@ -69,6 +69,7 @@ function paramField(key: string, dflt: unknown, params: Record<string, unknown>,
   if (key === "clip") return asset("audio");
   if (key === "tex") return asset("texture");
   if (key === "axis") return selectField(key, AXES, () => String(get()), (v) => set(v), touch);
+  if (key === "color") { const arr = (get() as number[]).slice(); params[key] = arr; return colorField(key, arr, touch); }
   if (Array.isArray(dflt)) { const arr = (get() as number[]).slice(); params[key] = arr; return vecField(key, arr, touch, 0.1); }
   if (typeof dflt === "number") return numField(key, () => get() as number, (v) => set(v), touch, 0.05);
   if (typeof dflt === "boolean") return checkField(key, () => get() as boolean, (v) => set(v), touch);
