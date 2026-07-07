@@ -7,7 +7,12 @@
   },
   "env": {
     "sky": {
-      "hdri": "hdri/sky.hdr"
+      "hdri": "hdri/sky.hdr",
+      "solid": [
+        0.05,
+        0.06,
+        0.08
+      ]
     },
     "fog": {
       "color": [
@@ -65,8 +70,18 @@
           12
         ],
         "solid": true,
-        "tex": "koi_floor"
-      }
+        "tex": "koi_floor",
+        "color": [
+          0.6,
+          0.6,
+          0.62
+        ]
+      },
+      "rot": [
+        0,
+        0,
+        0
+      ]
     },
     {
       "type": "box",
@@ -107,8 +122,18 @@
           1.2
         ],
         "solid": true,
-        "tex": "koi_wall"
-      }
+        "tex": "koi_wall",
+        "color": [
+          0.6,
+          0.6,
+          0.62
+        ]
+      },
+      "rot": [
+        0,
+        0,
+        0
+      ]
     },
     {
       "type": "box",
@@ -128,8 +153,18 @@
           1.2
         ],
         "solid": true,
-        "tex": "koi_wall"
-      }
+        "tex": "koi_wall",
+        "color": [
+          0.6,
+          0.6,
+          0.62
+        ]
+      },
+      "rot": [
+        0,
+        0,
+        0
+      ]
     },
     {
       "type": "box",
@@ -443,8 +478,18 @@
           0.25
         ],
         "solid": true,
-        "tex": "koi_stone"
-      }
+        "tex": "koi_stone",
+        "color": [
+          0.6,
+          0.6,
+          0.62
+        ]
+      },
+      "rot": [
+        0,
+        0,
+        0
+      ]
     },
     {
       "type": "box",
@@ -485,8 +530,18 @@
           0.8
         ],
         "solid": true,
-        "tex": "koi_wall"
-      }
+        "tex": "koi_wall",
+        "color": [
+          0.6,
+          0.6,
+          0.62
+        ]
+      },
+      "rot": [
+        0,
+        0,
+        0
+      ]
     },
     {
       "type": "box",
@@ -664,7 +719,7 @@
         -1.95
       ],
       "scale": [
-        4.2,
+        4.44,
         0.6,
         0.5
       ],
@@ -674,8 +729,19 @@
           0.25
         ],
         "solid": true,
-        "tex": "koi_stone"
-      }
+        "tex": "koi_stone",
+        "color": [
+          0.6,
+          0.6,
+          0.62
+        ]
+      },
+      "rot": [
+        0,
+        0,
+        0
+      ],
+      "group": "grp-wzmmri"
     },
     {
       "type": "box",
@@ -685,7 +751,7 @@
         1.95
       ],
       "scale": [
-        4.2,
+        4.42,
         0.6,
         0.5
       ],
@@ -695,8 +761,19 @@
           0.25
         ],
         "solid": true,
-        "tex": "koi_stone"
-      }
+        "tex": "koi_stone",
+        "color": [
+          0.6,
+          0.6,
+          0.62
+        ]
+      },
+      "rot": [
+        0,
+        0,
+        0
+      ],
+      "group": "grp-wzmmri"
     },
     {
       "type": "box",
@@ -716,8 +793,19 @@
           1.2
         ],
         "solid": true,
-        "tex": "koi_stone"
-      }
+        "tex": "koi_stone",
+        "color": [
+          0.6,
+          0.6,
+          0.62
+        ]
+      },
+      "rot": [
+        0,
+        0,
+        0
+      ],
+      "group": "grp-wzmmri"
     },
     {
       "type": "box",
@@ -737,8 +825,19 @@
           1.2
         ],
         "solid": true,
-        "tex": "koi_stone"
-      }
+        "tex": "koi_stone",
+        "color": [
+          0.6,
+          0.6,
+          0.62
+        ]
+      },
+      "rot": [
+        0,
+        0,
+        0
+      ],
+      "group": "grp-wzmmri"
     },
     {
       "type": "water",
@@ -751,28 +850,25 @@
         3.3,
         1,
         3.3
-      ]
-    },
-    {
-      "type": "box",
-      "at": [
+      ],
+      "rot": [
         0,
-        0.7,
+        0,
         0
       ],
-      "scale": [
-        0.9,
-        1.4,
-        0.9
-      ],
       "params": {
-        "tile": [
-          0.4,
-          0.6
+        "color": [
+          0.05,
+          0.16,
+          0.2
         ],
-        "solid": true,
-        "tex": "koi_stone"
-      }
+        "depthColor": [
+          0.16,
+          0.46,
+          0.5
+        ]
+      },
+      "group": "grp-wzmmri"
     },
     {
       "type": "box",
@@ -792,8 +888,18 @@
           0.9
         ],
         "solid": true,
-        "tex": "koi_wall"
-      }
+        "tex": "koi_wall",
+        "color": [
+          0.6,
+          0.6,
+          0.62
+        ]
+      },
+      "rot": [
+        0,
+        0,
+        0
+      ]
     },
     {
       "type": "box",
@@ -918,8 +1024,18 @@
           7
         ],
         "solid": true,
-        "tex": "dark"
-      }
+        "tex": "dark",
+        "color": [
+          0.6,
+          0.6,
+          0.62
+        ]
+      },
+      "rot": [
+        0,
+        0,
+        0
+      ]
     },
     {
       "type": "box",
@@ -960,8 +1076,19 @@
           0.5,
           0.5
         ],
-        "solid": true
-      }
+        "solid": true,
+        "color": [
+          0.6,
+          0.6,
+          0.62
+        ]
+      },
+      "rot": [
+        0,
+        0,
+        0
+      ],
+      "group": "grp-nnpr2l"
     },
     {
       "type": "box",
@@ -981,8 +1108,19 @@
           0.5,
           0.5
         ],
-        "solid": true
-      }
+        "solid": true,
+        "color": [
+          0.6,
+          0.6,
+          0.62
+        ]
+      },
+      "rot": [
+        0,
+        0,
+        0
+      ],
+      "group": "grp-nnpr2l"
     },
     {
       "type": "box",
@@ -1002,8 +1140,19 @@
           0.5,
           0.5
         ],
-        "solid": true
-      }
+        "solid": true,
+        "color": [
+          0.6,
+          0.6,
+          0.62
+        ]
+      },
+      "rot": [
+        0,
+        0,
+        0
+      ],
+      "group": "grp-nnpr2l"
     },
     {
       "type": "box",
@@ -1023,8 +1172,19 @@
           0.5,
           0.5
         ],
-        "solid": true
-      }
+        "solid": true,
+        "color": [
+          0.6,
+          0.6,
+          0.62
+        ]
+      },
+      "rot": [
+        0,
+        0,
+        0
+      ],
+      "group": "grp-nnpr2l"
     },
     {
       "type": "box",
@@ -1044,8 +1204,19 @@
           0.5,
           0.5
         ],
-        "solid": true
-      }
+        "solid": true,
+        "color": [
+          0.6,
+          0.6,
+          0.62
+        ]
+      },
+      "rot": [
+        0,
+        0,
+        0
+      ],
+      "group": "grp-nnpr2l"
     },
     {
       "type": "box",
@@ -1065,8 +1236,19 @@
           0.5,
           0.5
         ],
-        "solid": true
-      }
+        "solid": true,
+        "color": [
+          0.6,
+          0.6,
+          0.62
+        ]
+      },
+      "rot": [
+        0,
+        0,
+        0
+      ],
+      "group": "grp-nnpr2l"
     },
     {
       "type": "box",
@@ -1086,8 +1268,19 @@
           0.5,
           0.5
         ],
-        "solid": true
-      }
+        "solid": true,
+        "color": [
+          0.6,
+          0.6,
+          0.62
+        ]
+      },
+      "rot": [
+        0,
+        0,
+        0
+      ],
+      "group": "grp-nnpr2l"
     },
     {
       "type": "box",
@@ -1107,8 +1300,19 @@
           0.5,
           0.5
         ],
-        "solid": true
-      }
+        "solid": true,
+        "color": [
+          0.6,
+          0.6,
+          0.62
+        ]
+      },
+      "rot": [
+        0,
+        0,
+        0
+      ],
+      "group": "grp-nnpr2l"
     },
     {
       "type": "box",
@@ -1359,8 +1563,18 @@
           3
         ],
         "solid": true,
-        "tex": "koi_stone"
-      }
+        "tex": "koi_stone",
+        "color": [
+          0.6,
+          0.6,
+          0.62
+        ]
+      },
+      "rot": [
+        0,
+        0,
+        0
+      ]
     },
     {
       "type": "box",
@@ -1386,35 +1600,14 @@
     {
       "type": "box",
       "at": [
-        18,
-        0.45,
-        -8.5
-      ],
-      "scale": [
-        2.6,
-        0.9,
-        1.2
-      ],
-      "params": {
-        "tile": [
-          0.9,
-          0.4
-        ],
-        "solid": true,
-        "tex": "crate"
-      }
-    },
-    {
-      "type": "box",
-      "at": [
         24.3,
         1.5,
-        4.35
+        5.09
       ],
       "scale": [
         0.9,
         3,
-        6.1
+        7.849
       ],
       "params": {
         "tile": [
@@ -1422,29 +1615,18 @@
           0.8
         ],
         "solid": true,
-        "tex": "koi_wall"
-      }
-    },
-    {
-      "type": "box",
-      "at": [
-        24.3,
-        1.5,
-        11.25
-      ],
-      "scale": [
-        0.9,
-        3,
-        2.9
-      ],
-      "params": {
-        "tile": [
-          0.9,
-          0.8
-        ],
-        "solid": true,
-        "tex": "koi_wall"
-      }
+        "tex": "koi_wall",
+        "color": [
+          0.6,
+          0.6,
+          0.62
+        ]
+      },
+      "rot": [
+        0,
+        0,
+        0
+      ]
     },
     {
       "type": "box",
@@ -1470,51 +1652,9 @@
     {
       "type": "box",
       "at": [
-        24.3,
-        3.85,
-        2.7
-      ],
-      "scale": [
-        0.4,
-        0.9,
-        9.4
-      ],
-      "params": {
-        "tile": [
-          0.12,
-          3
-        ],
-        "solid": true,
-        "tex": "koi_stone"
-      }
-    },
-    {
-      "type": "box",
-      "at": [
-        27.35,
-        3.85,
-        9.2
-      ],
-      "scale": [
-        6.9,
-        0.9,
-        0.4
-      ],
-      "params": {
-        "tile": [
-          2,
-          0.12
-        ],
-        "solid": true,
-        "tex": "koi_stone"
-      }
-    },
-    {
-      "type": "box",
-      "at": [
         18,
-        0.213,
-        8.6
+        0.21,
+        7.8
       ],
       "scale": [
         0.8,
@@ -1527,15 +1667,26 @@
           0.5,
           0.5
         ],
-        "solid": true
-      }
+        "solid": true,
+        "color": [
+          0.6,
+          0.6,
+          0.62
+        ]
+      },
+      "rot": [
+        0,
+        0,
+        0
+      ],
+      "group": "grp-plpx4r"
     },
     {
       "type": "box",
       "at": [
         18.8,
-        0.425,
-        8.6
+        0.43,
+        7.8
       ],
       "scale": [
         0.8,
@@ -1548,15 +1699,26 @@
           0.5,
           0.5
         ],
-        "solid": true
-      }
+        "solid": true,
+        "color": [
+          0.6,
+          0.6,
+          0.62
+        ]
+      },
+      "rot": [
+        0,
+        0,
+        0
+      ],
+      "group": "grp-plpx4r"
     },
     {
       "type": "box",
       "at": [
         19.6,
-        0.638,
-        8.6
+        0.64,
+        7.8
       ],
       "scale": [
         0.8,
@@ -1569,15 +1731,26 @@
           0.5,
           0.5
         ],
-        "solid": true
-      }
+        "solid": true,
+        "color": [
+          0.6,
+          0.6,
+          0.62
+        ]
+      },
+      "rot": [
+        0,
+        0,
+        0
+      ],
+      "group": "grp-plpx4r"
     },
     {
       "type": "box",
       "at": [
         20.4,
         0.85,
-        8.6
+        7.8
       ],
       "scale": [
         0.8,
@@ -1590,15 +1763,26 @@
           0.5,
           0.5
         ],
-        "solid": true
-      }
+        "solid": true,
+        "color": [
+          0.6,
+          0.6,
+          0.62
+        ]
+      },
+      "rot": [
+        0,
+        0,
+        0
+      ],
+      "group": "grp-plpx4r"
     },
     {
       "type": "box",
       "at": [
         21.2,
-        1.063,
-        8.6
+        1.06,
+        7.8
       ],
       "scale": [
         0.8,
@@ -1611,15 +1795,26 @@
           0.5,
           0.5
         ],
-        "solid": true
-      }
+        "solid": true,
+        "color": [
+          0.6,
+          0.6,
+          0.62
+        ]
+      },
+      "rot": [
+        0,
+        0,
+        0
+      ],
+      "group": "grp-plpx4r"
     },
     {
       "type": "box",
       "at": [
         22,
-        1.275,
-        8.6
+        1.27,
+        7.8
       ],
       "scale": [
         0.8,
@@ -1632,15 +1827,26 @@
           0.5,
           0.5
         ],
-        "solid": true
-      }
+        "solid": true,
+        "color": [
+          0.6,
+          0.6,
+          0.62
+        ]
+      },
+      "rot": [
+        0,
+        0,
+        0
+      ],
+      "group": "grp-plpx4r"
     },
     {
       "type": "box",
       "at": [
         22.8,
-        1.488,
-        8.6
+        1.49,
+        7.8
       ],
       "scale": [
         0.8,
@@ -1653,15 +1859,26 @@
           0.5,
           0.5
         ],
-        "solid": true
-      }
+        "solid": true,
+        "color": [
+          0.6,
+          0.6,
+          0.62
+        ]
+      },
+      "rot": [
+        0,
+        0,
+        0
+      ],
+      "group": "grp-plpx4r"
     },
     {
       "type": "box",
       "at": [
         23.6,
         1.7,
-        8.6
+        7.8
       ],
       "scale": [
         0.8,
@@ -1674,8 +1891,19 @@
           0.5,
           0.5
         ],
-        "solid": true
-      }
+        "solid": true,
+        "color": [
+          0.6,
+          0.6,
+          0.62
+        ]
+      },
+      "rot": [
+        0,
+        0,
+        0
+      ],
+      "group": "grp-plpx4r"
     },
     {
       "type": "window",
@@ -1816,41 +2044,11 @@
       }
     },
     {
-      "type": "pallet",
-      "at": [
-        21.5,
-        0,
-        -2
-      ],
-      "params": {
-        "tex": "crate"
-      }
-    },
-    {
-      "type": "pallet",
-      "at": [
-        15.5,
-        0,
-        -9.5
-      ],
-      "params": {
-        "tex": "crate"
-      }
-    },
-    {
       "type": "lantern",
       "at": [
         18.5,
         2.9,
         -5
-      ]
-    },
-    {
-      "type": "lantern",
-      "at": [
-        27.3,
-        2.5,
-        -6
       ]
     },
     {
@@ -1862,18 +2060,17 @@
       ],
       "params": {
         "tex": "crate"
-      }
-    },
-    {
-      "type": "stall",
-      "at": [
-        8.5,
+      },
+      "rot": [
         0,
-        5.5
+        0,
+        0
       ],
-      "params": {
-        "tex": "crate"
-      }
+      "scale": [
+        1,
+        1,
+        1
+      ]
     },
     {
       "type": "sandbags",
@@ -1897,7 +2094,17 @@
       "params": {
         "rot": 1,
         "tex": "koi_wall"
-      }
+      },
+      "rot": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ]
     },
     {
       "type": "sandbags",
@@ -1914,14 +2121,24 @@
     {
       "type": "sandbags",
       "at": [
-        -6.2,
+        -6.13,
         0,
-        -0.8
+        -0.99
       ],
       "params": {
         "rot": 1,
         "tex": "koi_wall"
-      }
+      },
+      "rot": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ]
     },
     {
       "type": "prop",
@@ -2031,9 +2248,9 @@
     {
       "type": "prop",
       "at": [
-        26.5,
+        27.14,
         0,
-        -17
+        -18.04
       ],
       "rot": [
         0,
@@ -2052,9 +2269,9 @@
     {
       "type": "prop",
       "at": [
-        -26.5,
+        -26.87,
         0,
-        17
+        19.82
       ],
       "rot": [
         0,
@@ -2115,54 +2332,6 @@
     {
       "type": "prop",
       "at": [
-        -27,
-        0,
-        18.5
-      ],
-      "scale": [
-        1.2,
-        1.2,
-        1.2
-      ],
-      "params": {
-        "model": "quiver_tree_01"
-      }
-    },
-    {
-      "type": "prop",
-      "at": [
-        27,
-        0,
-        -18.5
-      ],
-      "scale": [
-        1,
-        1,
-        1
-      ],
-      "params": {
-        "model": "quiver_tree_01"
-      }
-    },
-    {
-      "type": "prop",
-      "at": [
-        -4,
-        0,
-        -19
-      ],
-      "scale": [
-        0.9,
-        0.9,
-        0.9
-      ],
-      "params": {
-        "model": "quiver_tree_01"
-      }
-    },
-    {
-      "type": "prop",
-      "at": [
         26,
         0,
         -19.5
@@ -2177,64 +2346,66 @@
       }
     },
     {
-      "type": "prop",
-      "at": [
-        -25.5,
-        0,
-        19.5
-      ],
-      "scale": [
-        0.5,
-        0.5,
-        0.5
-      ],
-      "params": {
-        "model": "namaqualand_boulder_04"
-      }
-    },
-    {
       "type": "barrel",
       "at": [
-        -27.5,
+        -27.05,
         0,
-        -15
+        -18.53
       ],
       "scale": [
         1.15,
         1.15,
         1.15
-      ]
+      ],
+      "rot": [
+        0,
+        0,
+        0
+      ],
+      "params": {}
     },
     {
       "type": "barrel",
       "at": [
-        -26.3,
+        -25.98,
         0,
-        -15.4
+        -19.1
       ],
       "scale": [
         1.15,
         1.15,
         1.15
-      ]
+      ],
+      "rot": [
+        0,
+        0,
+        0
+      ],
+      "params": {}
     },
     {
       "type": "barrel",
       "at": [
-        27.6,
+        29.11,
         0,
-        15.2
+        20.32
       ],
       "scale": [
         1.15,
         1.15,
         1.15
-      ]
+      ],
+      "rot": [
+        0,
+        0,
+        0
+      ],
+      "params": {}
     },
     {
       "type": "barrel",
       "at": [
-        11.8,
+        12.29,
         0,
         -1
       ],
@@ -2242,90 +2413,32 @@
         1.15,
         1.15,
         1.15
-      ]
+      ],
+      "rot": [
+        0,
+        0,
+        0
+      ],
+      "params": {}
     },
     {
       "type": "barrel",
       "at": [
-        11.8,
+        12.29,
         0,
-        0.4
+        0.01
       ],
       "scale": [
         1.15,
         1.15,
         1.15
-      ]
-    },
-    {
-      "type": "planter",
-      "at": [
-        -26,
-        0,
-        -20
-      ]
-    },
-    {
-      "type": "planter",
-      "at": [
-        26,
-        0,
-        20
-      ]
-    },
-    {
-      "type": "planter",
-      "at": [
-        -3.5,
-        0,
-        10.5
-      ]
-    },
-    {
-      "type": "planter",
-      "at": [
-        3.5,
-        0,
-        -10.5
-      ]
-    },
-    {
-      "type": "pallet",
-      "at": [
-        -15,
-        0,
-        -16
       ],
-      "params": {
-        "tex": "crate"
-      }
-    },
-    {
-      "type": "pallet",
-      "at": [
-        14,
+      "rot": [
         0,
-        18.5
+        0,
+        0
       ],
-      "params": {
-        "tex": "crate"
-      }
-    },
-    {
-      "type": "shrub",
-      "at": [
-        -8.6,
-        0,
-        -2.2
-      ]
-    },
-    {
-      "type": "succulent",
-      "at": [
-        -6.4,
-        0,
-        2.1
-      ]
+      "params": {}
     },
     {
       "type": "succulent",
@@ -2338,74 +2451,40 @@
     {
       "type": "shrub",
       "at": [
-        9.4,
-        0,
-        9.1
-      ]
-    },
-    {
-      "type": "shrub",
-      "at": [
         -27.2,
         0,
-        -19
-      ]
+        -21.22
+      ],
+      "rot": [
+        0,
+        111.73,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "params": {}
     },
     {
       "type": "shrub",
       "at": [
-        27.2,
+        28.74,
         0,
-        19
-      ]
-    },
-    {
-      "type": "succulent",
-      "at": [
-        -3.6,
-        0,
-        10.6
-      ]
-    },
-    {
-      "type": "succulent",
-      "at": [
-        3.6,
-        0,
-        -10.6
-      ]
-    },
-    {
-      "type": "shrub",
-      "at": [
-        11.6,
-        0,
-        1.1
-      ]
-    },
-    {
-      "type": "succulent",
-      "at": [
-        -24.2,
-        0,
-        15.3
-      ]
-    },
-    {
-      "type": "succulent",
-      "at": [
-        26.6,
-        0,
-        -17.4
-      ]
-    },
-    {
-      "type": "shrub",
-      "at": [
-        -15.4,
-        0,
-        -15.8
-      ]
+        19.24
+      ],
+      "rot": [
+        -0.62,
+        181.09,
+        0
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "params": {}
     },
     {
       "type": "spawn",
@@ -2626,6 +2705,62 @@
         4.1,
         -8
       ]
+    },
+    {
+      "type": "prop",
+      "at": [
+        -27.4,
+        0,
+        -19.62
+      ],
+      "params": {
+        "model": "island_tree_01"
+      },
+      "rot": [
+        0,
+        213.82,
+        0
+      ],
+      "scale": [
+        1.25,
+        1.25,
+        1.25
+      ]
+    },
+    {
+      "type": "prop",
+      "at": [
+        -28.19,
+        0.01,
+        20.95
+      ],
+      "params": {
+        "model": "metal_trash_can"
+      },
+      "rot": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        1.407,
+        1.407,
+        1.407
+      ]
+    }
+  ],
+  "groups": [
+    {
+      "id": "grp-plpx4r",
+      "name": "Group 1"
+    },
+    {
+      "id": "grp-wzmmri",
+      "name": "Group 2"
+    },
+    {
+      "id": "grp-nnpr2l",
+      "name": "Group 3"
     }
   ]
 }
