@@ -24,9 +24,32 @@ export function renderInspector(host: HTMLElement): void {
   if (!map) { host.append(el("div", "empty", "No map loaded")); return; }
   // each inspector edit is a discrete, undoable action → commit (records history)
   const touch = (): void => state.commit();
+  if (state.selGroup) {
+    const g = state.groupById(state.selGroup);
+    if (g) return groupInspector(host, g);
+  }
   const o = state.selected();
   if (!o) return worldInspector(host, map, touch);
   objectInspector(host, o, touch);
+}
+
+// ── group ───────────────────────────────────────────────────────────────────
+function groupInspector(host: HTMLElement, g: { id: string; name: string }): void {
+  const title = el("h3", "insp-title", g.name || "Group");
+  renamable(title, () => g.name, (v) => { g.name = v || g.name; }, () => state.commit(true));
+  host.append(title);
+  const members = state.membersOf(g.id, true);
+  host.append(el("div", "insp-sub", `group · ${members.length} object${members.length === 1 ? "" : "s"}`));
+
+  group(host, "Transform");
+  // Location edits the group's centroid; changing it translates every member by
+  // the delta (rotate/scale a group with the viewport gizmo). Purely a convenience
+  // — groups store no transform of their own, members keep absolute transforms.
+  const loc = (state.groupCentroid(g.id) ?? [0, 0, 0]).slice() as Tuple3;
+  host.append(vecField("Location", loc, () => {
+    const c = state.groupCentroid(g.id) ?? [0, 0, 0];
+    state.moveGroup(g.id, loc[0] - c[0], loc[1] - c[1], loc[2] - c[2]);
+  }, 0.1));
 }
 
 function head(host: HTMLElement, title: string, sub?: string): void {

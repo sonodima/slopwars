@@ -5,8 +5,8 @@
 // transform gizmo; all projection/picking math is done manually from the camera
 // basis so it doesn't depend on engine screen-space conventions.
 import {
-  AmbientLight, BackgroundMode, BloomEffect, BoundingBox, Camera, Color, CompareFunction, DirectLight, Entity,
-  FogMode, MeshRenderer, MSAASamples, PostProcess, PrimitiveMesh, RenderFace, RenderQueueType,
+  AmbientLight, BackgroundMode, BloomEffect, BoundingBox, Camera, Color, DirectLight, Entity,
+  FogMode, MeshRenderer, MSAASamples, PostProcess, PrimitiveMesh, RenderFace,
   SkyBoxMaterial, TextureCube, TonemappingEffect, TonemappingMode, UnlitMaterial, Vector3, WebGLEngine,
 } from "@galacean/engine";
 import type { MapDef, Placement, ShadowQuality, Tuple3 } from "@slopwars/shared";
@@ -67,7 +67,6 @@ export class Viewport {
   // meshes (see refreshHighlight). Rebuilt whenever the selection or scene changes.
   private outlineEntities: Entity[] = [];
   private outlineCore: UnlitMaterial | null = null;
-  private outlineGlow: UnlitMaterial | null = null;
   // cached resolved textures so a live drag can rebuild synchronously each frame
   private texCache: MapTextures | null = null;
   private texKey = "";
@@ -248,30 +247,43 @@ export class Viewport {
     return this.groundPoint(px, py, 0);
   }
 
-  /** frame the camera on a world point; `dist` sizes the pull-back */
+  /** frame the camera on a world point; `dist` is the true camera distance from
+   *  it (kept along a fixed 3/4 view direction for a natural angle). */
   focus(x: number, y: number, z: number, dist = 14): void {
     if (!this.ready) return;
-    this.pos.set(x + dist, y + dist * 0.85, z + dist);
+    // unit-length 3/4 view offset (|d| ≈ 1), so `dist` is the real distance
+    const dir = [0.62, 0.53, 0.62];
+    this.pos.set(x + dir[0] * dist, y + dir[1] * dist, z + dir[2] * dist);
     const dx = x - this.pos.x, dy = y - this.pos.y, dz = z - this.pos.z;
     this.yaw = Math.atan2(dx, -dz);
     this.pitch = Math.atan2(dy, Math.hypot(dx, dz));
     this.applyCamera();
   }
 
-  /** centre the camera on the current selection (used when picking in the
-   *  outliner) — frames the object's bounds so it fills a comfortable view. */
+  /** frame the camera on the current selection so it fills a comfortable portion
+   *  of the view (close, ~2/3 of the height — not way out). Fits the union bounds
+   *  of the whole selection, so a group frames as one. */
   focusSelected(): void {
     const map = state.map;
-    if (!map || state.selIndex < 0) return;
-    const o = map.objects[state.selIndex];
-    const b = this.objBox(state.selIndex);
-    if (b) {
-      const cx = (b.min[0] + b.max[0]) / 2, cy = (b.min[1] + b.max[1]) / 2, cz = (b.min[2] + b.max[2]) / 2;
-      const radius = 0.5 * Math.hypot(b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]);
-      this.focus(cx, cy, cz, Math.max(6, radius * 2.4));
-    } else {
-      this.focus(o.at[0], o.at[1], o.at[2], 10);
+    if (!this.ready || !map) return;
+    const sel = state.selectedObjects();
+    if (!sel.length) return;
+    // union AABB over every selected object (fall back to a small box at its
+    // position for objects with no rendered mesh, e.g. lights/markers)
+    let mn: Tuple3 | null = null, mx: Tuple3 | null = null;
+    for (const o of sel) {
+      const b = this.objBox(map.objects.indexOf(o));
+      const box = b ?? { min: [o.at[0] - 0.5, o.at[1] - 0.5, o.at[2] - 0.5] as Tuple3, max: [o.at[0] + 0.5, o.at[1] + 0.5, o.at[2] + 0.5] as Tuple3 };
+      if (!mn || !mx) { mn = box.min.slice() as Tuple3; mx = box.max.slice() as Tuple3; }
+      else for (let i = 0; i < 3; i++) { mn[i] = Math.min(mn[i], box.min[i]); mx[i] = Math.max(mx[i], box.max[i]); }
     }
+    if (!mn || !mx) return;
+    const cx = (mn[0] + mx[0]) / 2, cy = (mn[1] + mx[1]) / 2, cz = (mn[2] + mx[2]) / 2;
+    const radius = 0.5 * Math.hypot(mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2]) || 0.5;
+    // distance so the bounding sphere fills ~70% of the viewport height:
+    // d = R / (fill · tan(fov/2)). Closer than the old radius·2.4 pull-back.
+    const tanF = Math.tan((this.camera.fieldOfView * DEG) / 2);
+    this.focus(cx, cy, cz, Math.max(3, radius / (0.7 * tanF)));
   }
 
   // ── programmatic camera + capture (used by the MCP bridge) ─────────────────
@@ -479,33 +491,21 @@ export class Viewport {
 
   // ── selection highlight: 3D inverted-hull outline ──────────────────────────
   // A selected mesh gets a cloned "shell": the same geometry, slightly enlarged,
-  // rendered back-faces-only in an unlit amber. The crisp core shell is depth-
-  // tested, so where it pokes past the real object's silhouette it reads as an
-  // outline hugging the mesh. The larger translucent glow shell instead ignores
-  // depth entirely (compareFunction Always) and draws last, so the selection stays
-  // visible as a soft amber halo even when the object is behind walls or other
-  // objects — you never lose track of what's selected.
+  // rendered back-faces-only in an unlit amber and depth-tested, so it only shows
+  // where it pokes past the real object's silhouette — a crisp border hugging the
+  // mesh. Deliberately border-only: an earlier see-through halo tinted the whole
+  // object, hiding the very texture/colour/material changes you were making to it.
   private static SHELL = "__sel_outline";
 
-  /** the two shared outline materials (created lazily on first selection) */
-  private outlineMaterials(): [UnlitMaterial, UnlitMaterial] {
+  /** the shared outline material (created lazily on first selection) */
+  private outlineMaterial(): UnlitMaterial {
     if (!this.outlineCore) {
       const core = new UnlitMaterial(this.engine);
       core.baseColor = new Color(1.0, 0.6, 0.12, 1);
       core.renderFace = RenderFace.Back;
       this.outlineCore = core;
-      const glow = new UnlitMaterial(this.engine);
-      glow.baseColor = new Color(1.0, 0.66, 0.2, 0.32);
-      glow.renderFace = RenderFace.Back;
-      glow.isTransparent = true;
-      // see-through: always pass depth (draw through occluders) and don't write
-      // depth; forced into the transparent queue so it draws after opaque scene.
-      glow.renderState.depthState.compareFunction = CompareFunction.Always;
-      glow.renderState.depthState.writeEnabled = false;
-      glow.renderState.renderQueueType = RenderQueueType.Transparent;
-      this.outlineGlow = glow;
     }
-    return [this.outlineCore, this.outlineGlow!];
+    return this.outlineCore;
   }
 
   /** rebuild the outline shells for the current selection */
@@ -517,7 +517,7 @@ export class Viewport {
     const sel = state.selectedObjects();
     if (!sel.length) return;
 
-    const [core, glow] = this.outlineMaterials();
+    const core = this.outlineMaterial();
     for (const o of sel) {
       const ents = this.objEntities[map.objects.indexOf(o)];
       if (!ents) continue;
@@ -525,8 +525,7 @@ export class Viewport {
         if (e.destroyed) continue;
         for (const r of e.getComponentsIncludeChildren(MeshRenderer, [])) {
           if (!r.mesh || r.entity.name === Viewport.SHELL) continue;
-          this.addShell(r, 1.03, core, 0);
-          this.addShell(r, 1.09, glow, 1000);   // high priority → drawn on top / through
+          this.addShell(r, 1.035, core, 0);   // thin silhouette border only
         }
       }
     }
@@ -682,7 +681,8 @@ export class Viewport {
       else if (e.code === "Digit1") this.emitTool("move");
       else if (e.code === "Digit2") this.emitTool("rotate");
       else if (e.code === "Digit3") this.emitTool("scale");
-      else if (e.code === "KeyF" && state.selIndex >= 0) { const o = state.map!.objects[state.selIndex]; this.focus(o.at[0], o.at[1], o.at[2]); }
+      // F or Space → frame (fit) the current selection close in view
+      else if ((e.code === "KeyF" || e.code === "Space") && state.selectedObjects().length) { e.preventDefault(); this.focusSelected(); }
     });
     window.addEventListener("keyup", (e) => this.keys.delete(e.code));
   }
@@ -835,7 +835,10 @@ export class Viewport {
       const deg = ((ang - d.startAngle) * 180) / Math.PI;
       const idx = AXIS_IDX[d.handle];
       const sign = d.handle === "y" ? -1 : 1;
-      const sdeg = deg * sign, rad = sdeg * DEG;
+      let sdeg = deg * sign;
+      // hold Shift → snap the rotation to 30° increments (from the grab angle)
+      if (this.keys.has("ShiftLeft") || this.keys.has("ShiftRight")) sdeg = Math.round(sdeg / 30) * 30;
+      const rad = sdeg * DEG;
       for (const m of d.members) {
         const rel: Tuple3 = [m.at[0] - d.pivot[0], m.at[1] - d.pivot[1], m.at[2] - d.pivot[2]];
         const rr = rotateAxis(rel, idx, rad);

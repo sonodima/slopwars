@@ -45,8 +45,16 @@ async function main(): Promise<void> {
 
   state.onChange(() => { scheduleRebuild(); refreshMapName(); });
   state.onSelect(() => renderInspector($("inspector")));
-  // selecting in the outliner reframes the camera on the object (centres it)
-  state.onSelect(() => { if (state.selectSource === "outliner" && state.selIndex >= 0) viewport.focusSelected(); });
+  // selecting in the outliner reframes the camera on the object (centres it).
+  // Consume the source afterwards so the *same* selection being re-emitted by a
+  // later commit (e.g. finishing a gizmo move, an inspector edit) doesn't fly the
+  // camera back onto the object — you'd lose your framing every time you nudge it.
+  state.onSelect(() => {
+    if (state.selectSource === "outliner" && (state.selIndex >= 0 || state.selectedObjects().length)) {
+      viewport.focusSelected();
+      state.selectSource = "";
+    }
+  });
   viewport.onToolChange(highlightTool);
   viewport.onEditCommit = () => state.commit(true);
   viewport.onPerf = showPerf;

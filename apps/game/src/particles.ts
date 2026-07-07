@@ -19,6 +19,7 @@ export interface ParticleLook {
   size: number;                      // initial particle size (metres)
   growth: number;                    // size multiplier at end of life (1 = constant)
   spread: number;                    // cone half-angle in degrees (0 = a tight jet)
+  emitRadius?: number;               // radius of the emission disc (spread the source over an area, e.g. a fire puddle)
   gravity: number;                   // gravity pull (negative = rises, like heat/smoke)
   color: [number, number, number];   // particle tint
   opacity: number;                   // starting alpha (fades to 0 over life)
@@ -68,7 +69,14 @@ export function buildParticles(
   const e = root.createChild("particles");
   e.transform.setPosition(x, y, z);
 
-  const r = e.addComponent(ParticleRenderer);
+  // Galacean's ConeShape emits along local −Z; a fresh emitter would therefore
+  // spray sideways. The renderer lives on a child pitched +90° about X so the
+  // cone points up the *outer* entity's local +Y — the object's own rotation
+  // (from the editor's Rotate tool) then aims the emitter as documented.
+  const emit = e.createChild("emit");
+  emit.transform.setRotation(90, 0, 0);
+
+  const r = emit.addComponent(ParticleRenderer);
   const mat = new ParticleMaterial(engine);
   mat.baseColor = new Color(1, 1, 1, 1);           // tint comes from startColor
   mat.baseTexture = sprite ?? puffSprite(engine);
@@ -90,7 +98,7 @@ export function buildParticles(
   g.emission.rateOverTime = new ParticleCompositeCurve(Math.max(0, L.rate));
   const cone = new ConeShape();
   cone.angle = L.spread;
-  cone.radius = 0.05;
+  cone.radius = Math.max(0.02, L.emitRadius ?? 0.05);
   g.emission.shape = cone;
 
   // grow (or shrink) each particle over its life

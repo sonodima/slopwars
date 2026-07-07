@@ -251,13 +251,13 @@ defineObject<{ hp: number; scale?: number; radius: number; height: number }>("ba
   defaults: { hp: BARREL_HP, radius: 0.45, height: 1.1 },
   category: "entity",
   build(b, t, p) {
-    const [x, , z] = t.at;
+    const [x, y, z] = t.at;
     const m = p.scale ?? 1;   // legacy multiplier; drop scale is 1.15 (transform)
-    const e = b.placeModelTf("Barrel_01", [x, 0, z], [0, t.rot[1], 0], [t.scale[0] * m, t.scale[1] * m, t.scale[2] * m]);
+    const e = b.placeModelTf("Barrel_01", [x, y, z], [0, t.rot[1], 0], [t.scale[0] * m, t.scale[1] * m, t.scale[2] * m]);
     // collision stays authored radius/height (as before) — barrels aren't resized
-    const solid: AABB = { min: { x: x - p.radius, y: 0, z: z - p.radius }, max: { x: x + p.radius, y: p.height, z: z + p.radius } };
+    const solid: AABB = { min: { x: x - p.radius, y, z: z - p.radius }, max: { x: x + p.radius, y: y + p.height, z: z + p.radius } };
     b.pushSolid(solid);
-    b.map.barrels.push({ pos: { x, y: p.height / 2, z }, entity: e, solid, hp: p.hp, dead: false });
+    b.map.barrels.push({ pos: { x, y: y + p.height / 2, z }, entity: e, solid, hp: p.hp, dead: false });
   },
 });
 
@@ -306,12 +306,12 @@ defineObject<{ scale?: number; top: number; radius: number; plant: string }>("pl
   defaults: { top: 0.5, radius: 0.8, plant: "cheiridopsis_succulent" },
   category: "prop",
   build(b, t, p) {
-    const [x, , z] = t.at;
+    const [x, y, z] = t.at;
     const m = p.scale ?? 1;
     const sv: [number, number, number] = [t.scale[0] * m, t.scale[1] * m, t.scale[2] * m];
-    b.placeModelTf("planter_box_01", [x, 0, z], [0, 0, 0], sv);
-    b.placeModelTf(p.plant, [x, p.top, z], [0, t.rot[1], 0], [t.scale[0], t.scale[1], t.scale[2]]);
-    b.pushSolid({ min: { x: x - p.radius, y: 0, z: z - p.radius }, max: { x: x + p.radius, y: 0.7, z: z + p.radius } });
+    b.placeModelTf("planter_box_01", [x, y, z], [0, 0, 0], sv);
+    b.placeModelTf(p.plant, [x, y + p.top, z], [0, t.rot[1], 0], [t.scale[0], t.scale[1], t.scale[2]]);
+    b.pushSolid({ min: { x: x - p.radius, y, z: z - p.radius }, max: { x: x + p.radius, y: y + 0.7, z: z + p.radius } });
   },
 });
 
@@ -334,17 +334,17 @@ definePreset<{ scale?: number; model: string }>("succulent", "veg", { model: "ch
 /** low wooden pallet (visual+solid, short) */
 defineObject<{ tex: string }>("pallet", {
   defaults: { tex: "crate" }, category: "structure",
-  build(b, t, p) { const [x, , z] = t.at; b.box(x, 0.08, z, 1.3, 0.16, 1.1, b.texOf(p.tex), 0.8, 0.7); },
+  build(b, t, p) { const [x, y, z] = t.at; b.box(x, y + 0.08, z, 1.3, 0.16, 1.1, b.texOf(p.tex), 0.8, 0.7); },
 });
 
 /** stack of sandbags; rot 1 = rotate footprint 90° */
 defineObject<{ rot: 0 | 1; tex: string }>("sandbags", {
   defaults: { rot: 0, tex: "wall" }, category: "structure",
   build(b, t, p) {
-    const [x, , z] = t.at;
+    const [x, y, z] = t.at;
     const w = p.rot ? 0.65 : 1.5, d = p.rot ? 1.5 : 0.65;
-    b.box(x, 0.28, z, w, 0.56, d, b.texOf(p.tex), 0.6, 0.3);
-    b.box(x + (p.rot ? 0 : 0.1), 0.72, z + (p.rot ? 0.1 : 0), w * 0.8, 0.34, d * 0.8, b.texOf(p.tex), 0.5, 0.2);
+    b.box(x, y + 0.28, z, w, 0.56, d, b.texOf(p.tex), 0.6, 0.3);
+    b.box(x + (p.rot ? 0 : 0.1), y + 0.72, z + (p.rot ? 0.1 : 0), w * 0.8, 0.34, d * 0.8, b.texOf(p.tex), 0.5, 0.2);
   },
 });
 
@@ -352,13 +352,13 @@ defineObject<{ rot: 0 | 1; tex: string }>("sandbags", {
 defineObject<{ tex: string }>("stall", {
   defaults: { tex: "crate" }, category: "structure",
   build(b, t, p) {
-    const [x, , z] = t.at;
-    b.box(x, 0.5, z, 2.6, 1.0, 1.1, b.texOf(p.tex), 1.4, 0.6);
+    const [x, y, z] = t.at;
+    b.box(x, y + 0.5, z, 2.6, 1.0, 1.1, b.texOf(p.tex), 1.4, 0.6);
     for (const [dx, dz] of [[-1.2, -0.9], [1.2, -0.9], [-1.2, 0.9], [1.2, 0.9]]) {
-      b.box(x + dx, 1.2, z + dz, 0.14, 2.4, 0.14, b.texOf(p.tex), 0.1, 1.4);
+      b.box(x + dx, y + 1.2, z + dz, 0.14, 2.4, 0.14, b.texOf(p.tex), 0.1, 1.4);
     }
-    b.box(x, 2.45, z, 3.1, 0.14, 2.4, b.texOf("metal"), 1.4, 1);
-    b.box(x - 0.5, 0.08, z + 1.7, 1.3, 0.16, 1.1, b.texOf(p.tex), 0.8, 0.7); // pallet beside
+    b.box(x, y + 2.45, z, 3.1, 0.14, 2.4, b.texOf("metal"), 1.4, 1);
+    b.box(x - 0.5, y + 0.08, z + 1.7, 1.3, 0.16, 1.1, b.texOf(p.tex), 0.8, 0.7); // pallet beside
   },
 });
 
@@ -366,11 +366,11 @@ defineObject<{ tex: string }>("stall", {
 defineObject<{ height: number; radius: number; tex: string }>("column", {
   defaults: { height: 2.9, radius: 0.32, tex: "stone" }, category: "structure",
   build(b, t, p) {
-    const [x, , z] = t.at;
-    b.cylinder(x, 1.45, z, p.radius, p.radius, p.height, b.texOf(p.tex), 0.6, 1.4, 10);
-    b.box(x, 3.05, z, 0.85, 0.3, 0.85, b.texOf(p.tex), 0.3, 0.15); // capital
-    b.box(x, 0.15, z, 0.85, 0.3, 0.85, b.texOf(p.tex), 0.3, 0.15); // base
-    b.pushSolid({ min: { x: x - p.radius, y: 0, z: z - p.radius }, max: { x: x + p.radius, y: p.height, z: z + p.radius } });
+    const [x, y, z] = t.at;
+    b.cylinder(x, y + 1.45, z, p.radius, p.radius, p.height, b.texOf(p.tex), 0.6, 1.4, 10);
+    b.box(x, y + 3.05, z, 0.85, 0.3, 0.85, b.texOf(p.tex), 0.3, 0.15); // capital
+    b.box(x, y + 0.15, z, 0.85, 0.3, 0.85, b.texOf(p.tex), 0.3, 0.15); // base
+    b.pushSolid({ min: { x: x - p.radius, y, z: z - p.radius }, max: { x: x + p.radius, y: y + p.height, z: z + p.radius } });
   },
 });
 
@@ -378,10 +378,10 @@ defineObject<{ height: number; radius: number; tex: string }>("column", {
 defineObject<{ ledge: boolean; tex: string }>("window", {
   defaults: { ledge: true, tex: "wall" }, category: "structure",
   build(b, t, p) {
-    const [x, , z] = t.at;
-    b.box(x, 0.55, z, 0.9, 1.1, 1.6, b.texOf(p.tex), 0.5, 0.4);   // sill fill
-    b.box(x, 2.85, z, 0.9, 1.1, 1.6, b.texOf(p.tex), 0.5, 0.4);   // header fill
-    if (p.ledge) b.box(x, 1.12, z, 1.1, 0.14, 1.9, b.texOf("stone"), 0.6, 0.08); // sill ledge
+    const [x, y, z] = t.at;
+    b.box(x, y + 0.55, z, 0.9, 1.1, 1.6, b.texOf(p.tex), 0.5, 0.4);   // sill fill
+    b.box(x, y + 2.85, z, 0.9, 1.1, 1.6, b.texOf(p.tex), 0.5, 0.4);   // header fill
+    if (p.ledge) b.box(x, y + 1.12, z, 1.1, 0.14, 1.9, b.texOf("stone"), 0.6, 0.08); // sill ledge
   },
 });
 
