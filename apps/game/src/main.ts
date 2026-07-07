@@ -12,7 +12,8 @@ import { GameMap } from "./map";
 import { resolveTextures } from "./textures";
 import { mapTextureFolders } from "./objects";
 import { GameModels } from "./models";
-import { MapEnv } from "./maps/schema";
+import { MapEnv, ShadowQuality, envSunColor } from "./maps/schema";
+import { applyFogFalloff, applyPost, applyShadows } from "./rendersettings";
 import {
   DEFAULT_MAP, loadMapPool, mapById, mapMetas, pickVotedMap, randomMapId, tallyVotes,
 } from "./maps";
@@ -62,6 +63,8 @@ class Game {
   sunE!: Entity;
   sun!: DirectLight;
   amb!: AmbientLight;
+  bloom!: BloomEffect;
+  tone!: TonemappingEffect;
 
   // map rotation + voting
   currentMapId = DEFAULT_MAP;
@@ -203,14 +206,12 @@ class Game {
 
     const ppE = root.createChild("post");
     const pp = ppE.addComponent(PostProcess);
-    const bloom = pp.addEffect(BloomEffect);
-    bloom.enabled = true;
-    bloom.threshold.value = 1.0;
-    bloom.intensity.value = 0.55;
-    bloom.scatter.value = 0.6;
-    const tone = pp.addEffect(TonemappingEffect);
-    tone.enabled = true;
-    tone.mode.value = TonemappingMode.ACES;
+    // effect defaults are (re)applied per-map from env.post in applyEnv()
+    this.bloom = pp.addEffect(BloomEffect);
+    this.bloom.enabled = true;
+    this.tone = pp.addEffect(TonemappingEffect);
+    this.tone.enabled = true;
+    this.tone.mode.value = TonemappingMode.ACES;
 
     // ── load models with progress (textures + HDRI load lazily, per map) ──
     this.hud.show("loading");
@@ -616,34 +617,24 @@ class Game {
     document.getElementById("stats")!.classList.toggle("hidden", !this.settings.state.showStats);
   }
 
-  /** map the quality preset onto concrete camera/scene/render knobs */
+  /** the device quality preset as a ceiling on the map's authored shadow tier
+   *  (so a low-end device never pays for a map's ultra shadows) */
+  private shadowCap(): ShadowQuality {
+    const q = this.settings.state.quality;
+    return q === "low" ? "off" : q === "medium" ? "medium" : "ultra";
+  }
+
+  /** map the device quality preset onto camera knobs (MSAA / HDR / post / render
+   *  scale), then re-apply the current map's shadows clamped to that preset. The
+   *  map's env owns the *look*; this preset only trades quality for framerate. */
   applyGraphics(): void {
     const scene = this.engine.sceneManager.activeScene;
     const cam = this.camera;
-    switch (this.settings.state.quality) {
-      case "low":
-        cam.msaaSamples = MSAASamples.None;
-        cam.enableHDR = false;
-        cam.enablePostProcess = false;
-        this.sun.shadowType = ShadowType.None;
-        break;
-      case "medium":
-        cam.msaaSamples = MSAASamples.TwoX;
-        cam.enableHDR = true;
-        cam.enablePostProcess = true;
-        this.sun.shadowType = ShadowType.SoftLow;
-        scene.shadowResolution = ShadowResolution.Medium;
-        scene.shadowDistance = 45;
-        break;
-      default: // high
-        cam.msaaSamples = MSAASamples.FourX;
-        cam.enableHDR = true;
-        cam.enablePostProcess = true;
-        this.sun.shadowType = ShadowType.SoftHigh;
-        scene.shadowResolution = ShadowResolution.High;
-        scene.shadowDistance = 70;
-        break;
-    }
+    const q = this.settings.state.quality;
+    cam.msaaSamples = q === "low" ? MSAASamples.None : q === "medium" ? MSAASamples.TwoX : MSAASamples.FourX;
+    cam.enableHDR = q !== "low";
+    cam.enablePostProcess = q !== "low";
+    if (this.map?.env) applyShadows(scene, this.sun, this.map.env, this.shadowCap());
     this.applyResolution();
   }
 
@@ -1342,19 +1333,15 @@ class Game {
   async applyEnv(env: MapEnv): Promise<void> {
     const scene = this.engine.sceneManager.activeScene;
     this.sunE.transform.setRotation(env.sun.rot[0], env.sun.rot[1], env.sun.rot[2]);
-    this.sun.color = new Color(env.sun.color[0], env.sun.color[1], env.sun.color[2], 1);
-    this.sun.shadowStrength = env.sun.strength;
+    const sc = envSunColor(env);
+    this.sun.color = new Color(sc[0], sc[1], sc[2], 1);
     this.amb.diffuseSolidColor = new Color(env.ambient.color[0], env.ambient.color[1], env.ambient.color[2], 1);
     this.amb.diffuseIntensity = env.ambient.intensity;
     this.amb.specularIntensity = env.ambient.specular ?? 0.85;
-    if (env.fog) {
-      scene.fogMode = FogMode.Linear;
-      scene.fogColor = new Color(env.fog.color[0], env.fog.color[1], env.fog.color[2], 1);
-      scene.fogStart = env.fog.start;
-      scene.fogEnd = env.fog.end;
-    } else {
-      scene.fogMode = FogMode.None;
-    }
+    applyShadows(scene, this.sun, env, this.shadowCap());   // clamped to device preset
+    applyPost(env, this.bloom, this.tone);                  // tonemapping + bloom from env
+    if (env.fog) applyFogFalloff(scene, env.fog);
+    else scene.fogMode = FogMode.None;
     if (env.sky.hdri) {
       const cube = await this.loadHdri(env.sky.hdri);
       this.skyMat.texture = cube;

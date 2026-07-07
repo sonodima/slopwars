@@ -3,8 +3,8 @@
 // smart widgets for well-known keys: model/clip/tex become drag-droppable asset
 // fields with an inline preview. The "World" row edits the map's sky / lighting
 // / effects.
-import type { AssetCatalog, MapDef, Placement, Tuple3 } from "@slopwars/shared";
-import { placeRot, placeScale } from "@slopwars/shared";
+import type { AssetCatalog, FogFalloff, MapDef, Placement, ShadowQuality, ToneMode, Tuple3 } from "@slopwars/shared";
+import { envPost, envShadows, placeRot, placeScale } from "@slopwars/shared";
 import { objectDefaults } from "@game/objects";
 import type { ThumbRenderer } from "./preview";
 import { state } from "./state";
@@ -95,7 +95,7 @@ function hdriPath(name: string): string {
 }
 
 function worldInspector(host: HTMLElement, map: MapDef, touch: () => void): void {
-  head(host, "World", "Sky · lighting · effects");
+  head(host, "World", "Sky · lighting · shadows · fog · post");
   const e = map.env;
 
   group(host, "Map");
@@ -115,23 +115,55 @@ function worldInspector(host: HTMLElement, map: MapDef, touch: () => void): void
   if (!e.sky.solid) e.sky.solid = [0.05, 0.06, 0.08];
   host.append(vecField("solid rgb", e.sky.solid, touch, 0.02));
 
+  group(host, "Sun");
+  host.append(vecField("direction", e.sun.rot, touch, 1));
+  host.append(vecField("color", e.sun.color, touch, 0.02));
+  host.append(numField("brightness", () => e.sun.intensity ?? 1, (v) => (e.sun.intensity = Math.max(0, v)), touch, 0.05));
+
   group(host, "Ambient");
   host.append(vecField("color", e.ambient.color, touch, 0.02));
-  host.append(numField("intensity", () => e.ambient.intensity, (v) => (e.ambient.intensity = v), touch, 0.05));
+  host.append(numField("intensity", () => e.ambient.intensity, (v) => (e.ambient.intensity = Math.max(0, v)), touch, 0.05));
+  host.append(numField("reflections", () => e.ambient.specular ?? 0.85, (v) => (e.ambient.specular = Math.max(0, v)), touch, 0.05));
 
-  group(host, "Sun");
-  host.append(vecField("rotation", e.sun.rot, touch, 1));
-  host.append(vecField("color", e.sun.color, touch, 0.02));
-  host.append(numField("strength", () => e.sun.strength, (v) => (e.sun.strength = v), touch, 0.05));
+  group(host, "Shadows");
+  const sh = envShadows(e);
+  host.append(selectField("quality", ["off", "low", "medium", "high", "ultra"],
+    () => sh.quality, (v) => { (e.shadows ??= {}).quality = v as ShadowQuality; }, () => state.commit(true)));
+  if (sh.quality !== "off") {
+    host.append(numField("strength", () => envShadows(e).strength, (v) => { (e.shadows ??= {}).strength = clamp01(v); }, touch, 0.02));
+    host.append(numField("distance", () => envShadows(e).distance, (v) => { (e.shadows ??= {}).distance = Math.max(1, v); }, touch, 5));
+  }
 
-  group(host, "Effects");
-  host.append(checkField("fog", () => !!e.fog, (v) => {
+  group(host, "Fog");
+  host.append(checkField("enabled", () => !!e.fog, (v) => {
     if (v && !e.fog) e.fog = { color: [0.7, 0.72, 0.75], start: 40, end: 150 };
     else if (!v) e.fog = null;
   }, () => state.commit(true)));
   if (e.fog) {
-    host.append(vecField("fog color", e.fog.color, touch, 0.02));
-    host.append(numField("fog start", () => e.fog!.start, (v) => (e.fog!.start = v), touch, 1));
-    host.append(numField("fog end", () => e.fog!.end, (v) => (e.fog!.end = v), touch, 1));
+    const fog = e.fog;
+    host.append(selectField("falloff", ["linear", "exp", "exp2"], () => fog.falloff ?? "linear",
+      (v) => (fog.falloff = v as FogFalloff), () => state.commit(true)));
+    host.append(vecField("color", fog.color, touch, 0.02));
+    if ((fog.falloff ?? "linear") === "linear") {
+      host.append(numField("start", () => fog.start, (v) => (fog.start = v), touch, 1));
+      host.append(numField("end", () => fog.end, (v) => (fog.end = v), touch, 1));
+    } else {
+      host.append(numField("density", () => fog.density ?? 0.015, (v) => (fog.density = Math.max(0, v)), touch, 0.002));
+    }
+  }
+
+  group(host, "Post");
+  const post = envPost(e);
+  host.append(selectField("tonemapping", ["aces", "neutral", "none"], () => post.tonemapping,
+    (v) => { (e.post ??= {}).tonemapping = v as ToneMode; }, touch));
+  host.append(checkField("bloom", () => envPost(e).bloom.enabled,
+    (v) => { ((e.post ??= {}).bloom ??= {}).enabled = v; }, () => state.commit(true)));
+  if (post.bloom.enabled) {
+    host.append(numField("bloom intensity", () => envPost(e).bloom.intensity,
+      (v) => { ((e.post ??= {}).bloom ??= {}).intensity = Math.max(0, v); }, touch, 0.05));
+    host.append(numField("bloom threshold", () => envPost(e).bloom.threshold,
+      (v) => { ((e.post ??= {}).bloom ??= {}).threshold = Math.max(0, v); }, touch, 0.05));
   }
 }
+
+function clamp01(v: number): number { return v < 0 ? 0 : v > 1 ? 1 : v; }

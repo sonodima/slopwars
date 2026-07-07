@@ -5,12 +5,13 @@
 // transform gizmo; all projection/picking math is done manually from the camera
 // basis so it doesn't depend on engine screen-space conventions.
 import {
-  AmbientLight, BackgroundMode, BoundingBox, Camera, Color, DirectLight, Entity,
-  FogMode, MeshRenderer, PrimitiveMesh, RenderFace, ShadowResolution, ShadowType,
-  SkyBoxMaterial, TextureCube, UnlitMaterial, Vector3, WebGLEngine,
+  AmbientLight, BackgroundMode, BloomEffect, BoundingBox, Camera, Color, DirectLight, Entity,
+  FogMode, MeshRenderer, MSAASamples, PostProcess, PrimitiveMesh, RenderFace,
+  SkyBoxMaterial, TextureCube, TonemappingEffect, TonemappingMode, UnlitMaterial, Vector3, WebGLEngine,
 } from "@galacean/engine";
-import type { MapDef, Placement, Tuple3 } from "@slopwars/shared";
-import { placeRot, placeScale } from "@slopwars/shared";
+import type { MapDef, Placement, ShadowQuality, Tuple3 } from "@slopwars/shared";
+import { envSunColor, placeRot, placeScale } from "@slopwars/shared";
+import { applyFogFalloff, applyPost, applyShadows } from "@game/rendersettings";
 import { GameMap } from "@game/map";
 import { GameModels, loadModels } from "@game/models";
 import { resolveTextures, type MapTextures } from "@game/textures";
@@ -48,6 +49,10 @@ export class Viewport {
   private sun!: DirectLight;
   private amb!: AmbientLight;
   private skyMat!: SkyBoxMaterial;
+  private bloom!: BloomEffect;
+  private tone!: TonemappingEffect;
+  // viewport quality ceiling (from the Graphics dropdown); caps the map's shadows
+  private cap: ShadowQuality = "ultra";
   private hdriCache = new Map<string, Promise<TextureCube>>();
   private models!: GameModels;
   private map = new GameMap();
@@ -140,6 +145,17 @@ export class Viewport {
     this.camera.nearClipPlane = 0.05;
     this.camera.farClipPlane = 600;
     this.camera.opaqueTextureEnabled = true;   // transmissive water refracts the scene
+    this.camera.enableHDR = true;
+    this.camera.enablePostProcess = true;      // bloom + tonemapping, like the game
+    this.camera.msaaSamples = MSAASamples.FourX;
+
+    // post stack — its bloom/tonemapping params are set per-map from env.post
+    const pp = this.root.createChild("post").addComponent(PostProcess);
+    this.bloom = pp.addEffect(BloomEffect);
+    this.bloom.enabled = true;
+    this.tone = pp.addEffect(TonemappingEffect);
+    this.tone.enabled = true;
+    this.tone.mode.value = TonemappingMode.ACES;
 
     this.setupOverlay();
     this.models = await loadModels(engine);
@@ -193,22 +209,16 @@ export class Viewport {
 
   setTool(t: Tool): void { this.tool = t; }
 
-  /** editor-only graphics preset (shadows + shadow resolution). Not persisted
-   *  and independent of the game's own quality settings. */
+  /** editor-only viewport-quality preset. Not persisted and independent of the
+   *  map: it's a *ceiling* on the map's authored shadow tier (+ toggles the pricey
+   *  camera features), so you can preview a heavy map cheaply. The map's env still
+   *  owns the actual look. */
   setGraphics(preset: "low" | "medium" | "high"): void {
     if (!this.sun) return;
-    const scene = this.engine.sceneManager.activeScene;
-    if (preset === "low") {
-      this.sun.shadowType = ShadowType.None;
-    } else if (preset === "medium") {
-      this.sun.shadowType = ShadowType.SoftLow;
-      this.sun.shadowStrength = 0.85;
-      scene.shadowResolution = ShadowResolution.Medium;
-    } else {
-      this.sun.shadowType = ShadowType.SoftHigh;
-      this.sun.shadowStrength = 0.9;
-      scene.shadowResolution = ShadowResolution.High;
-    }
+    this.cap = preset === "low" ? "off" : preset === "medium" ? "medium" : "ultra";
+    this.camera.enableHDR = preset !== "low";
+    this.camera.enablePostProcess = preset !== "low";
+    if (state.map) applyShadows(this.engine.sceneManager.activeScene, this.sun, state.map.env, this.cap);
   }
 
   /** ground point (y=0) under a client pixel — for drag-drop placement */
@@ -293,17 +303,17 @@ export class Viewport {
   private applyEnv(def: MapDef): void {
     const scene = this.engine.sceneManager.activeScene;
     const e = def.env;
-    this.sun.color = new Color(e.sun.color[0], e.sun.color[1], e.sun.color[2], 1);
+    const sc = envSunColor(e);
+    this.sun.color = new Color(sc[0], sc[1], sc[2], 1);
     this.sun.entity.transform.setRotation(e.sun.rot[0], e.sun.rot[1], e.sun.rot[2]);
     this.amb.diffuseSolidColor = new Color(e.ambient.color[0], e.ambient.color[1], e.ambient.color[2], 1);
     this.amb.diffuseIntensity = Math.max(0.05, e.ambient.intensity);
     this.amb.specularIntensity = e.ambient.specular ?? 0.85;
 
-    if (e.fog) {
-      scene.fogMode = FogMode.Linear;
-      scene.fogColor = new Color(e.fog.color[0], e.fog.color[1], e.fog.color[2], 1);
-      scene.fogStart = e.fog.start; scene.fogEnd = e.fog.end;
-    } else { scene.fogMode = FogMode.None; }
+    applyShadows(scene, this.sun, e, this.cap);   // quality clamped to the viewport preset
+    applyPost(e, this.bloom, this.tone);          // tonemapping + bloom
+    if (e.fog) applyFogFalloff(scene, e.fog);
+    else scene.fogMode = FogMode.None;
 
     const token = ++this.envToken;
     if (e.sky.hdri) {

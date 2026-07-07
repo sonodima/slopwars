@@ -35,13 +35,68 @@ export interface GroupDef {
   collapsed?: boolean; // outliner fold state
 }
 
-/** skybox + lighting + fog identity for the map */
+/** shadow-map quality tier (drives resolution + softness); "off" disables shadows */
+export type ShadowQuality = "off" | "low" | "medium" | "high" | "ultra";
+/** camera tonemapping operator */
+export type ToneMode = "none" | "neutral" | "aces";
+/** fog falloff curve: linear (start→end) or exponential (density) */
+export type FogFalloff = "linear" | "exp" | "exp2";
+
+/** skybox + lighting + fog + render quality identity for the map. Newer fields
+ *  (sun.intensity, fog.falloff/density, shadows, post) are all optional and fall
+ *  back — via the resolve helpers below — to values that match the engine's
+ *  original built-in look, so existing maps render identically. */
 export interface MapEnv {
   sky: { hdri?: string; solid?: Tuple3 };  // hdri path OR solid rgb (0..1) background
-  fog?: { color: Tuple3; start: number; end: number } | null;
+  fog?: { color: Tuple3; start: number; end: number; falloff?: FogFalloff; density?: number } | null;
   ambient: { color: Tuple3; intensity: number; specular?: number };
-  sun: { rot: Tuple3; color: Tuple3; strength: number };
+  /** directional "sun". `intensity` scales the color (brightness); `strength` is
+   *  the shadow darkness (kept for back-compat; see shadows.strength). */
+  sun: { rot: Tuple3; color: Tuple3; strength: number; intensity?: number };
   water?: Tuple3;                          // ambient water-loop source (optional)
+  /** shadow quality + behaviour (defaults ≈ the old built-in "high") */
+  shadows?: { quality?: ShadowQuality; distance?: number; strength?: number };
+  /** post-processing: tonemapping + bloom (defaults ≈ the old built-in stack) */
+  post?: { tonemapping?: ToneMode; bloom?: { enabled?: boolean; intensity?: number; threshold?: number; scatter?: number } };
+}
+
+// ── resolved render settings (defaults centralised so game + editor agree) ────
+
+export interface EnvShadows { quality: ShadowQuality; distance: number; strength: number }
+export interface EnvBloom { enabled: boolean; intensity: number; threshold: number; scatter: number }
+export interface EnvPost { tonemapping: ToneMode; bloom: EnvBloom }
+
+/** shadow settings with defaults filled in (strength falls back to sun.strength) */
+export function envShadows(env: MapEnv): EnvShadows {
+  const s = env.shadows ?? {};
+  return {
+    quality: s.quality ?? "high",
+    distance: s.distance ?? 70,
+    strength: s.strength ?? env.sun.strength ?? 0.82,
+  };
+}
+
+/** post-processing settings with defaults filled in */
+export function envPost(env: MapEnv): EnvPost {
+  const p = env.post ?? {};
+  const b = p.bloom ?? {};
+  return {
+    tonemapping: p.tonemapping ?? "aces",
+    bloom: { enabled: b.enabled ?? true, intensity: b.intensity ?? 0.55, threshold: b.threshold ?? 1.0, scatter: b.scatter ?? 0.6 },
+  };
+}
+
+/** sun light colour scaled by its intensity (brightness), since engine lights
+ *  carry brightness in the colour magnitude */
+export function envSunColor(env: MapEnv): Tuple3 {
+  const k = env.sun.intensity ?? 1;
+  const c = env.sun.color;
+  return [c[0] * k, c[1] * k, c[2] * k];
+}
+
+/** fog falloff + density with defaults (linear, matching start/end behaviour) */
+export function envFogFalloff(fog: NonNullable<MapEnv["fog"]>): { falloff: FogFalloff; density: number } {
+  return { falloff: fog.falloff ?? "linear", density: fog.density ?? 0.015 };
 }
 
 export interface MapMeta {
