@@ -14,11 +14,11 @@
 // re-triggered the draw).
 import {
   AmbientLight, BackgroundMode, BoundingBox, Camera, Color, DirectLight, Entity,
-  MeshRenderer, PBRMaterial, PrimitiveMesh, Vector3, Vector4, WebGLEngine,
+  MeshRenderer, PBRMaterial, PrimitiveMesh, SkyBoxMaterial, Vector3, Vector4, WebGLEngine,
 } from "@galacean/engine";
 import type { MapDef, TextureMaps } from "@slopwars/shared";
 import catalog from "virtual:asset-catalog";
-import { loadGLTF, loadTexture2D } from "@game/assets";
+import { loadGLTF, loadHDRCube, loadTexture2D } from "@game/assets";
 import { GameMap } from "@game/map";
 import { loadModels, type GameModels } from "@game/models";
 import { mapTextureFolders } from "@game/objects";
@@ -58,6 +58,9 @@ export class ThumbRenderer {
   private modelsP: Promise<GameModels> | null = null;
   private texByName = new Map(catalog.textures.map((t) => [t.name, t]));
   private setCache = new Map<string, Promise<PbrSet>>();
+  // lazily-built sky material + cube mesh, reused by every HDRI preview
+  private skyMat: SkyBoxMaterial | null = null;
+  private skyMesh: ReturnType<typeof PrimitiveMesh.createCuboid> | null = null;
   ok = false;
 
   constructor() {
@@ -130,6 +133,30 @@ export class ThumbRenderer {
       // sphere radius 1 → fit its full diameter with margin so it never clips
       this.camPose(this.fitDist(1, 1.35), 0.5, 0.32);
       return this.snapshot();
+    });
+  }
+
+  /** a "window into the sky": renders the HDRI as the actual skybox so the card
+   *  shows the real environment. Temporarily swaps the shared scene to Sky mode
+   *  and a wide FOV, then restores the solid background the other thumbs use. */
+  hdriThumb(file: string): Promise<string | null> {
+    return this.enqueue(`hdri:${file}`, async () => {
+      const cube = await loadHDRCube(this.engine!, file);
+      const scene = this.engine!.sceneManager.activeScene;
+      if (!this.skyMat) { this.skyMat = new SkyBoxMaterial(this.engine!); this.skyMat.textureDecodeRGBM = true; }
+      this.skyMesh ??= PrimitiveMesh.createCuboid(this.engine!, 2, 2, 2);
+      this.skyMat.texture = cube;
+      const sky = scene.background.sky;
+      const prevMat = sky.material, prevMesh = sky.mesh, prevMode = scene.background.mode, prevFov = this.camera.fieldOfView;
+      sky.material = this.skyMat; sky.mesh = this.skyMesh;
+      scene.background.mode = BackgroundMode.Sky;
+      this.camera.fieldOfView = 72;
+      this.camE.transform.setPosition(0, 0, 0);
+      this.camE.transform.setRotation(-6, 25, 0);   // look at the horizon, slight yaw
+      const url = await this.snapshot();
+      scene.background.mode = prevMode; sky.material = prevMat; sky.mesh = prevMesh;
+      this.camera.fieldOfView = prevFov;
+      return url;
     });
   }
 

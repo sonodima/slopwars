@@ -1,7 +1,8 @@
 // ─── Asset browser (bottom dock) — sectioned + importable ────────────────────
 // Everything the pipeline discovered, grouped into collapsible sections: placeable
-// Objects, Models (drag → "prop"), Textures, and Audio (drag → "sound"). Models
-// and textures render an inline 3D thumbnail right inside their card. Each asset
+// Objects, Models (drag → "prop"), Textures, Skyboxes (HDRIs, drag → World sky),
+// and Audio (drag → "sound"). Models, textures and skyboxes render an inline 3D
+// thumbnail right inside their card. Each asset
 // section has an Import button that brings new files into the project (written
 // under public/assets/ by the dev server) and reloads the catalog. Cards are
 // draggable onto the viewport. Payloads: {kind:"object"|"model"|"audio"|"texture", name}.
@@ -86,6 +87,16 @@ export function renderBrowser(host: HTMLElement, ctx: PanelCtx): void {
     }
     appendSection(body, textures, textures.grid.childElementCount);
 
+    // Skyboxes: HDRIs (drag → World › Sky › hdri). Cards preview the real sky.
+    const skyboxes = section("Skyboxes", "hdri");
+    for (const h of ctx.catalog.hdri) {
+      if (!match(h.name)) continue;
+      const c = card(h.name, "🌅", () => ({ kind: "hdri", name: h.name }));
+      fillThumb(c, ctx.thumbs.hdriThumb(h.file));
+      skyboxes.grid.append(c);
+    }
+    appendSection(body, skyboxes, skyboxes.grid.childElementCount);
+
     const audio = section("Audio", "audio");
     for (const a of ctx.catalog.audio) {
       if (!match(a.name)) continue;
@@ -146,4 +157,4 @@ function fillThumb(c: HTMLElement, p: Promise<string | null>): void {
   });
 }
 
-export interface Payload { kind: "object" | "model" | "audio" | "texture"; name: string }
+export interface Payload { kind: "object" | "model" | "audio" | "texture" | "hdri"; name: string }

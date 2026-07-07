@@ -226,7 +226,9 @@ function setupDrop(): void {
     const at = viewport.dropSurface(e.clientX, e.clientY) ?? [0, 0, 0] as Tuple3;
     if (p.kind === "model") add({ type: "prop", at, params: { model: p.name } });
     else if (p.kind === "audio") add({ type: "sound", at: [at[0], at[1] + 1.5, at[2]], params: { clip: p.name } });
-    else add(objectPlacement(p.name, at));
+    else if (p.kind === "object") add(objectPlacement(p.name, at));
+    // textures / HDRIs aren't placeable here — a texture goes on a box's `tex`,
+    // an HDRI onto the World sky (both via the inspector's asset slots).
   });
 }
 

@@ -7,7 +7,7 @@ import type { AssetCatalog } from "@slopwars/shared";
 import type { ThumbRenderer } from "./preview";
 import { clear, el, modal } from "./ui";
 
-export type AssetKind = "model" | "audio" | "texture";
+export type AssetKind = "model" | "audio" | "texture" | "hdri";
 
 export interface AssetFieldOpts {
   label: string;
@@ -23,18 +23,25 @@ export interface AssetFieldOpts {
 function names(cat: AssetCatalog, kind: AssetKind): string[] {
   if (kind === "model") return cat.models.map((m) => m.name);
   if (kind === "audio") return cat.audio.map((a) => a.name);
+  if (kind === "hdri") return cat.hdri.map((h) => h.name);
   return cat.textures.map((t) => t.name);
+}
+
+/** placeholder glyph for an empty / loading slot of a given kind */
+function kindIcon(kind: AssetKind): string {
+  return kind === "audio" ? "♪" : kind === "texture" ? "▦" : kind === "hdri" ? "🌅" : "▣";
 }
 
 /** kick off the inline preview render for `name`, filling `slot` when ready */
 function preview(slot: HTMLElement, o: AssetFieldOpts, name: string): void {
   clear(slot);
-  if (!name) { slot.append(el("span", "af-ico", o.kind === "audio" ? "♪" : o.kind === "texture" ? "▦" : "▣")); return; }
+  if (!name) { slot.append(el("span", "af-ico", kindIcon(o.kind))); return; }
   slot.append(el("span", "af-ico", o.kind === "audio" ? "♪" : "…"));
   const t = o.thumbs; if (!t) return;
   let p: Promise<string | null> | null = null;
   if (o.kind === "model") { const m = o.catalog.models.find((x) => x.name === name); if (m) p = t.modelThumb(m.gltf); }
   else if (o.kind === "texture") { const tx = o.catalog.textures.find((x) => x.name === name); if (tx) p = t.textureThumb(tx.name, tx.maps); }
+  else if (o.kind === "hdri") { const h = o.catalog.hdri.find((x) => x.name === name); if (h) p = t.hdriThumb(h.file); }
   if (!p) return;
   void p.then((url) => { if (!url) return; clear(slot); const img = el("img", "af-prev"); img.src = url; slot.append(img); });
 }
@@ -63,8 +70,7 @@ export function assetField(o: AssetFieldOpts): HTMLElement {
     const raw = e.dataTransfer?.getData("application/x-slop"); if (!raw) return;
     try {
       const p = JSON.parse(raw) as { kind: string; name: string };
-      const ok = p.kind === o.kind || (o.kind === "audio" && p.kind === "audio") || (o.kind === "model" && p.kind === "model") || (o.kind === "texture" && p.kind === "texture");
-      if (ok && p.name) apply(p.name);
+      if (p.kind === o.kind && p.name) apply(p.name);
     } catch { /* ignore malformed */ }
   });
 

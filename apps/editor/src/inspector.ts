@@ -83,6 +83,17 @@ function subLabel(o: Placement): string {
 }
 
 // ── world / environment ─────────────────────────────────────────────────────
+/** map a stored sky path ("hdri/sky.hdr") to its catalog asset name ("sky") */
+function hdriName(path: string | undefined): string {
+  if (!path) return "";
+  const h = catalog.hdri.find((x) => x.file === path);
+  return h ? h.name : path.replace(/^.*\//, "").replace(/\.(hdr|exr)$/i, "");
+}
+/** map a catalog asset name back to the path stored on the map's env */
+function hdriPath(name: string): string {
+  return catalog.hdri.find((x) => x.name === name)?.file ?? `hdri/${name}.hdr`;
+}
+
 function worldInspector(host: HTMLElement, map: MapDef, touch: () => void): void {
   head(host, "World", "Sky · lighting · effects");
   const e = map.env;
@@ -93,8 +104,14 @@ function worldInspector(host: HTMLElement, map: MapDef, touch: () => void): void
   host.append(checkField("in rotation", () => map.meta.rotate !== false, (v) => (map.meta.rotate = v), touch));
 
   group(host, "Sky");
-  host.append(selectField("hdri", ["", ...catalog.hdri.map((h) => `hdri/${h.name}.hdr`)],
-    () => e.sky.hdri ?? "", (v) => (e.sky.hdri = v || undefined), () => state.commit(true)));
+  // HDRI is a drag-droppable asset slot (drop from the Skyboxes browser, or click
+  // to pick) with a live preview of the sky. Stored as a path; shown by name.
+  host.append(assetField({
+    label: "hdri", kind: "hdri", catalog, thumbs,
+    get: () => hdriName(e.sky.hdri),
+    set: (v) => { e.sky.hdri = v ? hdriPath(v) : undefined; },
+    onChange: () => state.commit(true),
+  }));
   if (!e.sky.solid) e.sky.solid = [0.05, 0.06, 0.08];
   host.append(vecField("solid rgb", e.sky.solid, touch, 0.02));
 
