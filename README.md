@@ -26,7 +26,7 @@ This is a **pnpm workspace** monorepo:
 | Workspace | Path | Purpose |
 |---|---|---|
 | **game** | `apps/game/` | The runtime client that players use — this is what gets deployed. |
-| **editor** | `apps/editor/` | Desktop/browser map editor (local dev tool only, not deployed). |
+| **editor** | `apps/editor/` | **Tauri** desktop map editor (local dev tool, not deployed). Rust backend in `apps/editor/src-tauri/`. |
 | **mcp** | `apps/mcp/` | MCP server exposing editor actions to AI tools (Claude Code, Codex, …). See `apps/mcp/README.md`. |
 | **shared** | `packages/shared/` | Map schema, asset-catalog types, and the asset-scanner Vite plugin used by both. |
 
@@ -50,10 +50,17 @@ takes to make it available to the client and the editor.
 ```bash
 pnpm install          # install all workspaces
 pnpm dev              # run the game client (apps/game)
-pnpm dev:editor       # run the map editor (apps/editor)
+pnpm dev:editor       # run the map editor — Tauri desktop app (apps/editor)
 pnpm build            # build the deployable game client
+pnpm build:editor     # build/package the editor desktop app
 pnpm typecheck        # typecheck every workspace
 ```
+
+The editor is a [Tauri](https://tauri.app) desktop app, so `pnpm dev:editor`
+needs the [Rust toolchain](https://www.rust-lang.org/tools/install) and Tauri's
+[system prerequisites](https://tauri.app/start/prerequisites/) (WebKitGTK etc. on
+Linux). File operations (scan / load / save maps, import assets) and the MCP
+bridge run in the Rust backend (`apps/editor/src-tauri/`) — no dev server needed.
 
 ### Map format & editor
 

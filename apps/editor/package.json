@@ -1,19 +1,24 @@
 {
   "name": "@slopwars/editor",
   "version": "1.0.0",
-  "description": "SlopWars map editor (local dev tool)",
+  "description": "SlopWars map editor (Tauri desktop app)",
   "type": "module",
   "private": true,
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
+    "dev": "tauri dev",
+    "dev:web": "vite",
+    "build": "tauri build",
+    "build:web": "vite build",
+    "tauri": "tauri",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@galacean/engine": "^1.6.13",
-    "@slopwars/shared": "workspace:*"
+    "@slopwars/shared": "workspace:*",
+    "@tauri-apps/api": "^2.0.0"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0",
     "typescript": "^6.0.3",
     "vite": "^7.0.0"
   }

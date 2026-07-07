@@ -1,9 +1,13 @@
 // ─── MCP bridge (editor side) ────────────────────────────────────────────────
-// Long-polls the dev server for commands enqueued by an external MCP server and
+// Polls the Tauri backend for commands enqueued by the external MCP server and
 // executes them against the live editor: reading/adding/moving/deleting objects,
 // editing params, importing assets, driving the viewport camera, and grabbing
 // screenshots. Results are posted back so the MCP tool call resolves. This is how
-// Claude Code / Codex / other agents "act in the editor" while it's open.
+// Claude Code / Codex / other agents "act in the editor" while it's open. The
+// command queue lives in the Rust backend (src-tauri/src/mcp.rs), which also runs
+// the local HTTP endpoint the stdio MCP server talks to — so the app is fully
+// self-contained, no Vite dev server required.
+import { invoke } from "@tauri-apps/api/core";
 import type { AssetCatalog, Placement, Tuple3 } from "@slopwars/shared";
 import { objectCatalog, objectTypeNames } from "@game/objects";
 import { state } from "./state";
@@ -22,23 +26,20 @@ export interface McpBridgeCtx {
 
 interface Cmd { op: string; [k: string]: unknown }
 
-/** start the poll loop; safe no-op if the dev endpoints aren't reachable */
+/** start the poll loop; safe no-op if the backend bridge isn't reachable */
 export function startMcpBridge(ctx: McpBridgeCtx): void {
   let announced = false;
   const loop = async (): Promise<void> => {
     try {
-      const res = await fetch("/__editor/mcp/poll");
-      if (res.ok) {
-        const cmds = (await res.json()) as { id: string; cmd: Cmd }[];
-        for (const { id, cmd } of cmds) {
-          if (!announced) { announced = true; toast("MCP connected"); }
-          let result: unknown;
-          try { result = await run(ctx, cmd); }
-          catch (e) { result = { error: String(e) }; }
-          await fetch("/__editor/mcp/result", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, result }) });
-        }
+      const cmds = await invoke<{ id: string; cmd: Cmd }[]>("mcp_poll");
+      for (const { id, cmd } of cmds) {
+        if (!announced) { announced = true; toast("MCP connected"); }
+        let result: unknown;
+        try { result = await run(ctx, cmd); }
+        catch (e) { result = { error: String(e) }; }
+        await invoke("mcp_result", { id, result });
       }
-    } catch { /* dev server not ready / offline — retry */ }
+    } catch { /* backend not ready — retry */ }
     setTimeout(loop, 200);
   };
   void loop();
