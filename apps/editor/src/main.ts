@@ -43,6 +43,8 @@ async function main(): Promise<void> {
 
   state.onChange(() => { scheduleRebuild(); refreshMapName(); });
   state.onSelect(() => renderInspector($("inspector")));
+  // selecting in the outliner reframes the camera on the object (centres it)
+  state.onSelect(() => { if (state.selectSource === "outliner" && state.selIndex >= 0) viewport.focusSelected(); });
   viewport.onToolChange(highlightTool);
   viewport.onEditCommit = () => state.commit(true);
   viewport.onPerf = showPerf;
@@ -171,7 +173,7 @@ function setupDrop(): void {
     e.preventDefault();
     const raw = e.dataTransfer?.getData("application/x-slop"); if (!raw) return;
     const p = JSON.parse(raw) as Payload;
-    const at = viewport.dropGround(e.clientX, e.clientY) ?? [0, 0, 0] as Tuple3;
+    const at = viewport.dropSurface(e.clientX, e.clientY) ?? [0, 0, 0] as Tuple3;
     if (p.kind === "model") add({ type: "prop", at, params: { model: p.name } });
     else if (p.kind === "audio") add({ type: "sound", at: [at[0], at[1] + 1.5, at[2]], params: { clip: p.name } });
     else add(objectPlacement(p.name, at));

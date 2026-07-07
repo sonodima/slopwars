@@ -19,6 +19,9 @@ class EditorState {
   dirty = false;
   /** the selected placement, by reference (null = nothing selected) */
   selObj: Placement | null = null;
+  /** where the last selection came from — lets the viewport decide to reframe
+   *  (outliner clicks) and the outliner decide to scroll (viewport clicks). */
+  selectSource: "outliner" | "viewport" | "" = "";
 
   private history: Snapshot[] = [];
   private hi = -1;
@@ -45,8 +48,9 @@ class EditorState {
     this.emitSelect();
   }
 
-  select(index: number): void {
+  select(index: number, source: "outliner" | "viewport" | "" = ""): void {
     this.selObj = this.map?.objects[index] ?? null;
+    this.selectSource = source;
     this.emitSelect();
   }
 

@@ -44,22 +44,31 @@ function renderList(): void {
 
   const selIdx = state.selIndex;
   let shown = 0;
+  let selRow: HTMLElement | null = null;
   map.objects.forEach((o, i) => {
     const text = label(o);
     if (query && !text.toLowerCase().includes(query)) return;
-    host.append(row(o, i, text, i === selIdx));
+    const r = row(o, i, text, i === selIdx);
+    if (i === selIdx) selRow = r;
+    host.append(r);
     shown++;
   });
   if (shown === 0) host.append(el("div", "empty", query ? "No matches" : "No objects"));
+
+  // a viewport click should bring the selected row into view (it may be scrolled
+  // far down); an outliner click is already visible so needs no scroll.
+  if (selRow && state.selectSource === "viewport") {
+    (selRow as HTMLElement).scrollIntoView({ block: "nearest" });
+  }
 }
 
 function row(o: Placement, i: number, text: string, selected: boolean): HTMLElement {
   const r = el("div", "sg-row");
   if (selected) r.classList.add("sel");
   const lbl = el("span", "sg-label", text);
-  renamable(lbl, () => o.name ?? "", (v) => { o.name = v || undefined; }, () => { state.select(i); state.commit(true); });
+  renamable(lbl, () => o.name ?? "", (v) => { o.name = v || undefined; }, () => { state.select(i, "outliner"); state.commit(true); });
   r.append(lbl);
-  r.addEventListener("click", () => state.select(i));
+  r.addEventListener("click", () => state.select(i, "outliner"));
 
   const dup = el("button", "btn mini", "⧉");
   dup.title = "duplicate";

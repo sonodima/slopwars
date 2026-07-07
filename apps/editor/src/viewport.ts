@@ -6,7 +6,7 @@
 // basis so it doesn't depend on engine screen-space conventions.
 import {
   AmbientLight, BackgroundMode, BoundingBox, Camera, Color, DirectLight, Entity,
-  FogMode, MeshRenderer, ShadowResolution, ShadowType, SkyBoxMaterial, TextureCube, Vector3, WebGLEngine,
+  FogMode, MeshRenderer, PrimitiveMesh, ShadowResolution, ShadowType, SkyBoxMaterial, TextureCube, Vector3, WebGLEngine,
 } from "@galacean/engine";
 import type { MapDef, Placement, Tuple3 } from "@slopwars/shared";
 import { placeRot, placeScale } from "@slopwars/shared";
@@ -82,6 +82,7 @@ export class Viewport {
     cx: number; cy: number;    // gizmo centre in screen px
     startAngle: number;        // pointer angle around centre (rotate)
     startPx: number; startPy: number;
+    rvec: number[]; uvec: number[]; pwpp: number;   // camera right/up + world/px, for screen-plane (xyz) moves
   } | null = null;
 
   // perf stats (rolling fps)
@@ -115,7 +116,12 @@ export class Viewport {
     this.amb = scene.ambientLight;
     this.amb.diffuseSolidColor = new Color(0.5, 0.55, 0.66, 1);
     this.amb.diffuseIntensity = 0.75;
+    // HDRI skybox shell — the sky needs BOTH a material and a mesh to render;
+    // without the cube mesh the sky is simply never drawn (why it looked absent).
     this.skyMat = new SkyBoxMaterial(engine);
+    this.skyMat.textureDecodeRGBM = true;
+    scene.background.sky.material = this.skyMat;
+    scene.background.sky.mesh = PrimitiveMesh.createCuboid(engine, 2, 2, 2);
 
     this.camE = this.root.createChild("camera");
     this.camera = this.camE.addComponent(Camera);
@@ -194,14 +200,51 @@ export class Viewport {
     return this.groundPoint(clientX - rc.left, clientY - rc.top, 0);
   }
 
-  /** frame the camera on a world point */
-  focus(x: number, y: number, z: number): void {
+  /** best drop point under a client pixel: the nearest surface the ray hits
+   *  (so objects land on top of desks/crates/etc.), falling back to the ground
+   *  plane when the ray misses all geometry. */
+  dropSurface(clientX: number, clientY: number): Tuple3 | null {
+    const rc = this.rect();
+    const px = clientX - rc.left, py = clientY - rc.top;
+    const map = state.map;
+    if (map) {
+      const { o, d } = this.pixelRay(px, py);
+      let best = Infinity, hit: Tuple3 | null = null;
+      for (let i = 0; i < map.objects.length; i++) {
+        const b = this.objBox(i);
+        if (!b) continue;
+        const t = rayBox(o, d, b);
+        if (t !== null && t < best) { best = t; hit = [o[0] + d[0] * t, o[1] + d[1] * t, o[2] + d[2] * t]; }
+      }
+      if (hit) return [round(hit[0]), round(hit[1]), round(hit[2])];
+    }
+    return this.groundPoint(px, py, 0);
+  }
+
+  /** frame the camera on a world point; `dist` sizes the pull-back */
+  focus(x: number, y: number, z: number, dist = 14): void {
     if (!this.ready) return;
-    this.pos.set(x + 14, y + 12, z + 14);
+    this.pos.set(x + dist, y + dist * 0.85, z + dist);
     const dx = x - this.pos.x, dy = y - this.pos.y, dz = z - this.pos.z;
     this.yaw = Math.atan2(dx, -dz);
     this.pitch = Math.atan2(dy, Math.hypot(dx, dz));
     this.applyCamera();
+  }
+
+  /** centre the camera on the current selection (used when picking in the
+   *  outliner) — frames the object's bounds so it fills a comfortable view. */
+  focusSelected(): void {
+    const map = state.map;
+    if (!map || state.selIndex < 0) return;
+    const o = map.objects[state.selIndex];
+    const b = this.objBox(state.selIndex);
+    if (b) {
+      const cx = (b.min[0] + b.max[0]) / 2, cy = (b.min[1] + b.max[1]) / 2, cz = (b.min[2] + b.max[2]) / 2;
+      const radius = 0.5 * Math.hypot(b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]);
+      this.focus(cx, cy, cz, Math.max(6, radius * 2.4));
+    } else {
+      this.focus(o.at[0], o.at[1], o.at[2], 10);
+    }
   }
 
   // ── env (mirrors the game's applyEnv so the preview is faithful) ───────────
@@ -465,6 +508,10 @@ export class Viewport {
         const on = this.hover === "xyz" || this.drag?.handle === "xyz";
         ctx.fillStyle = on ? "#ffd257" : AXIS_COL.xyz;
         ctx.fillRect(c.x - 5, c.y - 5, 10, 10);
+      } else if (this.tool === "move") {   // centre = screen-plane move (all axes)
+        const on = this.hover === "xyz" || this.drag?.handle === "xyz";
+        ctx.beginPath(); ctx.arc(c.x, c.y, 6, 0, Math.PI * 2);
+        ctx.strokeStyle = on ? "#ffd257" : AXIS_COL.xyz; ctx.lineWidth = on ? 3 : 2; ctx.stroke();
       }
     }
     ctx.beginPath(); ctx.arc(c.x, c.y, 3, 0, Math.PI * 2); ctx.fillStyle = "#f5a623"; ctx.fill();
@@ -492,7 +539,8 @@ export class Viewport {
       const d = distToSeg(px, py, c.x, c.y, tip.x, tip.y);
       if (d < best) { best = d; hit = h; }
     }
-    if (this.tool === "scale" && Math.hypot(c.x - px, c.y - py) < 9) hit = "xyz";
+    // centre handle → all-axes (screen-plane move / uniform scale)
+    if ((this.tool === "scale" || this.tool === "move") && Math.hypot(c.x - px, c.y - py) < 9) hit = "xyz";
     return hit;
   }
 
@@ -546,7 +594,7 @@ export class Viewport {
     // otherwise click selects: prefer the 3D model, fall back to the marker dot
     let hit = this.pick3D(this.px, this.py);
     if (hit < 0) hit = this.pick(this.px, this.py);
-    state.select(hit);   // -1 → deselect
+    state.select(hit, "viewport");   // -1 → deselect; source lets the outliner scroll to it
   }
 
   /** RMB fly: capture + hide the cursor so it can't leave the viewport */
@@ -567,8 +615,14 @@ export class Viewport {
       const dxp = tip.x - c.x, dyp = tip.y - c.y, len = Math.hypot(dxp, dyp) || 1;
       unit = [dxp / len, dyp / len]; wpp = L / len;
     }
+    // screen-plane basis for the centre (xyz) move handle: camera right/up in
+    // world + world-units-per-screen-pixel at the object's depth
+    const { r, u, f } = this.basis();
+    const fz = Math.max(0.5, dot([o.at[0] - this.pos.x, o.at[1] - this.pos.y, o.at[2] - this.pos.z], f));
+    const tanF = Math.tan((this.camera.fieldOfView * DEG) / 2);
+    const pwpp = (2 * tanF * fz) / this.rect().height;
     const startVec: Tuple3 = (this.tool === "move" ? o.at : this.tool === "scale" ? placeScale(o) : placeRot(o)).slice() as Tuple3;
-    this.drag = { handle: h, startVec, unit, wpp, cx: c.x, cy: c.y, startAngle: Math.atan2(this.py - c.y, this.px - c.x), startPx: this.px, startPy: this.py };
+    this.drag = { handle: h, startVec, unit, wpp, cx: c.x, cy: c.y, startAngle: Math.atan2(this.py - c.y, this.px - c.x), startPx: this.px, startPy: this.py, rvec: r, uvec: u, pwpp };
     this.dragging = true; this.dragKind = "transform";
     this.canvas.style.cursor = "grabbing";
   }
@@ -627,9 +681,15 @@ export class Viewport {
     const o = map.objects[state.selIndex];
     const ddx = this.px - d.startPx, ddy = this.py - d.startPy;
     if (this.tool === "move") {
-      const along = (ddx * d.unit[0] + ddy * d.unit[1]) * d.wpp;
-      const idx = AXIS_IDX[d.handle];
-      const at = d.startVec.slice() as Tuple3; at[idx] = round(d.startVec[idx] + along); o.at = at;
+      if (d.handle === "xyz") {   // drag on the screen plane → all axes at once
+        const at = d.startVec.slice() as Tuple3;
+        for (let i = 0; i < 3; i++) at[i] = round(d.startVec[i] + d.rvec[i] * ddx * d.pwpp - d.uvec[i] * ddy * d.pwpp);
+        o.at = at;
+      } else {
+        const along = (ddx * d.unit[0] + ddy * d.unit[1]) * d.wpp;
+        const idx = AXIS_IDX[d.handle];
+        const at = d.startVec.slice() as Tuple3; at[idx] = round(d.startVec[idx] + along); o.at = at;
+      }
     } else if (this.tool === "scale") {
       const sc = d.startVec.slice() as Tuple3;
       if (d.handle === "xyz") { const f = Math.max(0.02, 1 - ddy / 140); for (let i = 0; i < 3; i++) sc[i] = round2(Math.max(0.02, d.startVec[i] * f)); }
