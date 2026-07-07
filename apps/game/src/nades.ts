@@ -3,6 +3,7 @@ import {
   Color, Engine, Entity, MeshRenderer, PointLight, PrimitiveMesh, UnlitMaterial,
 } from "@galacean/engine";
 import { GameMap } from "./map";
+import { buildParticles } from "./particles";
 import { Vec3, rand } from "./types";
 
 export type NadeKind = "he" | "mol";
@@ -30,20 +31,17 @@ interface Nade {
   spin: number;
 }
 
-interface Flame { e: Entity; base: number; ox: number; oz: number }
-
 interface Fire {
   center: Vec3;
   owner: string;
   local: boolean;
   until: number;
   nextDmg: number;
-  flames: Flame[];
   light: PointLight;
   root: Entity;
 }
 
-interface Fx { e: Entity; ttl: number; max: number; vel?: Vec3; grow: number }
+interface Fx { e: Entity; ttl: number; max: number; vel?: Vec3; grow: number; base: number }
 
 export class Projectiles {
   onExplode: ((center: Vec3, owner: string, local: boolean) => void) | null = null;
@@ -82,11 +80,24 @@ export class Projectiles {
     return m;
   }
 
+  // One shared unit sphere per segment tier. Explosions/impacts used to build a
+  // fresh sphere *mesh* per fragment (~24 for an explosion) — each a new GPU
+  // buffer upload, which is exactly the brief freeze on a barrel/grenade blast.
+  // Reusing a radius-1 mesh (sized via the entity's scale) makes a blast allocate
+  // zero geometry.
+  private sphereMeshes = new Map<number, ReturnType<typeof PrimitiveMesh.createSphere>>();
+  private unitSphere(seg: number): ReturnType<typeof PrimitiveMesh.createSphere> {
+    let m = this.sphereMeshes.get(seg);
+    if (!m) { m = PrimitiveMesh.createSphere(this.engine, 1, seg); this.sphereMeshes.set(seg, m); }
+    return m;
+  }
+
   private sphere(mat: UnlitMaterial, radius: number, seg = 8): Entity {
     const e = this.root.createChild("s");
     const mr = e.addComponent(MeshRenderer);
-    mr.mesh = PrimitiveMesh.createSphere(this.engine, radius, seg);
+    mr.mesh = this.unitSphere(seg);
     mr.setMaterial(mat);
+    e.transform.setScale(radius, radius, radius);   // radius via scale, not geometry
     return e;
   }
 
@@ -198,19 +209,27 @@ export class Projectiles {
     this.onIgnite?.(c, MOL_DURATION);
 
     const root = this.root.createChild("fire");
-    const flames: Flame[] = [];
-    for (let k = 0; k < 12; k++) {
-      const a = rand(0, Math.PI * 2), r = Math.sqrt(Math.random()) * (MOL_RADIUS - 0.4);
-      const e = this.sphere(k % 3 ? this.mFlame : this.mFlame2, rand(0.16, 0.34), 6);
-      flames.push({ e, base: rand(0.6, 1.3), ox: c.x + Math.cos(a) * r, oz: c.z + Math.sin(a) * r });
-    }
+    // fire + smoke via the shared particle emitters (particles.ts) — the same
+    // ones the editor's `fire`/`smoke` objects use. Emission is spread across the
+    // puddle (emitRadius) so it reads as a pool of flames, not a single jet, and
+    // the cone points up by default.
+    buildParticles(this.engine, root, c.x, c.y + 0.05, c.z, {
+      rate: 64, lifetime: 0.85, speed: 1.9, size: 0.5, growth: 0.35, spread: 32,
+      gravity: -0.55, color: [1.0, 0.5, 0.13], opacity: 0.9, additive: true, world: true,
+      emitRadius: Math.max(0.2, MOL_RADIUS - 0.5),
+    });
+    buildParticles(this.engine, root, c.x, c.y + 0.35, c.z, {
+      rate: 11, lifetime: 2.6, speed: 0.7, size: 0.7, growth: 2.4, spread: 26,
+      gravity: -0.15, color: [0.22, 0.2, 0.2], opacity: 0.4, additive: false, world: true,
+      emitRadius: Math.max(0.2, MOL_RADIUS - 0.7),
+    });
     const le = root.createChild("l");
     le.transform.setPosition(c.x, c.y + 0.8, c.z);
     const light = le.addComponent(PointLight);
     light.color = new Color(1.2, 0.55, 0.15, 1);
     light.distance = 12;
 
-    this.fires.push({ center: c, owner: n.owner, local: n.local, until: now + MOL_DURATION, nextDmg: now + 0.3, flames, light, root });
+    this.fires.push({ center: c, owner: n.owner, local: n.local, until: now + MOL_DURATION, nextDmg: now + 0.3, light, root });
   }
 
   private updateFires(now: number): void {
@@ -218,20 +237,12 @@ export class Projectiles {
       const f = this.fires[i];
       const left = f.until - now;
       if (left <= 0) {
-        for (const fl of f.flames) fl.e.destroy();
         f.root.destroy();
         this.fires.splice(i, 1);
         continue;
       }
-      const dampen = Math.min(1, left / 1.5);
-      const t = now * 13;
-      for (let k = 0; k < f.flames.length; k++) {
-        const fl = f.flames[k];
-        const s = fl.base * dampen * (0.65 + 0.4 * Math.abs(Math.sin(t + k * 1.7)));
-        fl.e.transform.setScale(s, s * rand(1.2, 1.7), s);
-        fl.e.transform.setPosition(fl.ox + Math.sin(t * 0.4 + k) * 0.07, f.center.y + 0.25 + s * 0.3, fl.oz + Math.cos(t * 0.5 + k * 2) * 0.07);
-      }
-      f.light.distance = 10 + Math.sin(t) * 2;
+      // flicker the light; the flames themselves are self-animating particles
+      f.light.distance = 10 + Math.sin(now * 13) * 2;
       if (now >= f.nextDmg) {
         f.nextDmg = now + MOL_TICK;
         this.onFireTick?.(f.center, f.owner, f.local);
@@ -240,9 +251,10 @@ export class Projectiles {
   }
 
   private addFx(e: Entity, p: Vec3, ttl: number, grow: number, vel?: Vec3): void {
+    const base = e.transform.scale.x;   // radius baked in by sphere() (unit mesh)
     e.transform.setPosition(p.x, p.y, p.z);
-    e.transform.setScale(0.4, 0.4, 0.4);
-    this.fx.push({ e, ttl, max: ttl, vel, grow });
+    e.transform.setScale(base * 0.4, base * 0.4, base * 0.4);
+    this.fx.push({ e, ttl, max: ttl, vel, grow, base });
   }
 
   private updateFx(dt: number): void {
@@ -251,7 +263,7 @@ export class Projectiles {
       f.ttl -= dt;
       if (f.ttl <= 0) { f.e.destroy(); this.fx.splice(i, 1); continue; }
       const k = 1 - f.ttl / f.max;
-      const s = 0.4 + f.grow * k * (1 - k * 0.4);
+      const s = f.base * (0.4 + f.grow * k * (1 - k * 0.4));
       f.e.transform.setScale(s, s, s);
       if (f.vel) {
         const p = f.e.transform.position;

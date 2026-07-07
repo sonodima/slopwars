@@ -21,6 +21,9 @@ class EditorState {
   selObj: Placement | null = null;
   /** full selection set (references; includes selObj). Empty = nothing selected. */
   selection: Placement[] = [];
+  /** when a group (not a bare object set) is the active selection, its id — drives
+   *  the group inspector. Cleared by any object-level selection change. */
+  selGroup: string | null = null;
   /** where the last selection came from — lets the viewport reframe (outliner
    *  clicks) and the outliner scroll (viewport clicks). */
   selectSource: "outliner" | "viewport" | "" = "";
@@ -45,6 +48,7 @@ class EditorState {
     this.dirty = false;
     this.selObj = null;
     this.selection = [];
+    this.selGroup = null;
     this.history = [this.snapshot()];
     this.hi = 0;
     this.emitChange();
@@ -54,6 +58,7 @@ class EditorState {
   // ── selection ──────────────────────────────────────────────────────────────
   /** select by index. `additive` toggles membership in a multi-selection. */
   select(index: number, source: "outliner" | "viewport" | "" = "", additive = false): void {
+    this.selGroup = null;
     const o = this.map?.objects[index] ?? null;
     if (!o) { this.selection = []; this.selObj = null; }
     else if (additive) {
@@ -67,15 +72,22 @@ class EditorState {
 
   /** replace the selection with an explicit set (primary = last) */
   selectSet(objs: Placement[], source: "outliner" | "viewport" | "" = ""): void {
+    this.selGroup = null;
     this.selection = objs.slice();
     this.selObj = objs[objs.length - 1] ?? null;
     this.selectSource = source;
     this.emitSelect();
   }
 
-  /** select every object (recursively) in a group */
+  /** select every object (recursively) in a group, and mark the group active so
+   *  the inspector shows group properties (name / transform) instead of a member. */
   selectGroup(groupId: string, source: "outliner" | "viewport" | "" = ""): void {
-    this.selectSet(this.membersOf(groupId, true), source);
+    const objs = this.membersOf(groupId, true);
+    this.selection = objs.slice();
+    this.selObj = objs[objs.length - 1] ?? null;
+    this.selGroup = groupId;
+    this.selectSource = source;
+    this.emitSelect();
   }
 
   selected(): Placement | null {
@@ -162,6 +174,10 @@ class EditorState {
     const i = this.map.objects.length - 1;
     this.selection = [o];
     this.selObj = o;
+    this.selGroup = null;
+    // a freshly placed/dropped object is not an outliner pick — don't let the
+    // camera reframe onto it (dropping should place where you dropped, not fly).
+    this.selectSource = "viewport";
     this.commit(true);
     return i;
   }
@@ -172,7 +188,28 @@ class EditorState {
     for (const o of objs) this.map.objects.push(o);
     this.selection = objs.slice();
     this.selObj = objs[objs.length - 1] ?? null;
+    this.selGroup = null;
+    this.selectSource = "viewport";
     this.commit(true);
+  }
+
+  /** translate every member of a group (recursively) by a world delta — the
+   *  group inspector's Location field edits the group's centroid this way. */
+  moveGroup(groupId: string, dx: number, dy: number, dz: number): void {
+    if (!dx && !dy && !dz) return;
+    for (const o of this.membersOf(groupId, true)) {
+      o.at = [o.at[0] + dx, o.at[1] + dy, o.at[2] + dz];
+    }
+    this.commit();
+  }
+
+  /** centroid of a group's members (world) — undefined if the group is empty */
+  groupCentroid(groupId: string): [number, number, number] | undefined {
+    const m = this.membersOf(groupId, true);
+    if (!m.length) return undefined;
+    let x = 0, y = 0, z = 0;
+    for (const o of m) { x += o.at[0]; y += o.at[1]; z += o.at[2]; }
+    return [x / m.length, y / m.length, z / m.length];
   }
 
   /** remove a set of placements (and drop them from the selection) */
@@ -182,6 +219,7 @@ class EditorState {
     this.map.objects = this.map.objects.filter((o) => !set.has(o));
     this.selection = this.selection.filter((o) => !set.has(o));
     this.selObj = this.selection[this.selection.length - 1] ?? null;
+    this.selGroup = null;
     this.commit(true);
   }
 
@@ -234,6 +272,7 @@ class EditorState {
   private restore(snap: Snapshot): void {
     this.map = this.clone(snap.map);
     const objs = this.map.objects;
+    this.selGroup = null;
     this.selection = snap.sel.map((i) => objs[i]).filter((o): o is Placement => !!o);
     this.selObj = this.selection[this.selection.length - 1] ?? null;
     this.dirty = true;

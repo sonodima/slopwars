@@ -150,6 +150,9 @@ class Game {
   pingAcc = 0;
   fpsE = 60;
   statAcc = 0;
+  /** worst frame time (s) seen in the current stats window — surfaces *jank*
+   *  (spikes) that a smoothed average fps hides; reset each overlay refresh */
+  framePeak = 0;
 
   async start(): Promise<void> {
     // register the PWA service worker up-front (offline shell) — must not wait
@@ -638,12 +641,19 @@ class Game {
     this.applyResolution();
   }
 
-  /** render-buffer scale: trade sharpness for framerate on the lower presets */
+  /** render-buffer scale: trade sharpness for framerate on the lower presets.
+   *  The device pixel ratio is capped (DPR_CAP) before the preset scale, because
+   *  a 2× Retina display (e.g. an M1 Pro MacBook) renders 4× the pixels — with
+   *  MSAA 4× + HDR + bloom that saturates fill-rate, which is why the game runs
+   *  fine at half a window but lags at fullscreen. Capping to 1.5× cuts that pixel
+   *  count almost in half while staying crisp; low-DPI screens are unaffected. */
   applyResolution(): void {
+    const DPR_CAP = 1.5;
     const scale = this.settings.state.quality === "low" ? 0.6
       : this.settings.state.quality === "medium" ? 0.85 : 1;
+    const dpr = Math.min(window.devicePixelRatio || 1, DPR_CAP);
     const canvas = this.engine.canvas as unknown as { resizeByClientSize(pixelRatio?: number): void };
-    canvas.resizeByClientSize((window.devicePixelRatio || 1) * scale);
+    canvas.resizeByClientSize(dpr * scale);
   }
 
   // ─── touch controls + device adaptation ───────────────────────────────────────
@@ -831,13 +841,22 @@ class Game {
 
     // stats overlay
     this.fpsE += (1 / Math.max(dt, 1e-4) - this.fpsE) * 0.08;
+    this.framePeak = Math.max(this.framePeak, dt);
     this.statAcc += dt;
     if (this.statAcc >= 0.25 && this.inGame && this.settings.state.showStats) {
       this.statAcc = 0;
       const tris = this.map.tris + this.remotes.size * 48 + 220;
+      // backing-store size + effective pixel ratio: on a Retina display this is
+      // where "high fps but janky, fine at half-size" comes from — the frame is
+      // fill-rate bound at 2× resolution. `peak` is the worst frame in the last
+      // window (ms) — if it's ≫ the average, the hitches are GC/upload spikes.
+      const cv = this.engine.canvas as unknown as { width: number; height: number };
+      const dpr = (window.devicePixelRatio || 1).toFixed(2);
+      const peakMs = this.framePeak * 1000;
+      this.framePeak = 0;
       this.hud.stats(
-        `<b>${this.fpsE.toFixed(0)}</b> fps · ${(1000 / this.fpsE).toFixed(1)} ms<br>` +
-        `${(tris / 1000).toFixed(1)}k tris · ${this.map.solids.length} solids<br>` +
+        `<b>${this.fpsE.toFixed(0)}</b> fps · ${(1000 / this.fpsE).toFixed(1)} ms · peak ${peakMs.toFixed(1)} ms<br>` +
+        `${cv.width}×${cv.height} @${dpr}dpr · ${(tris / 1000).toFixed(1)}k tris · ${this.map.solids.length} solids<br>` +
         `ping ${this.net.isHost ? "host" : this.ping.toFixed(0) + " ms"} · ` +
         `spd ${this.body.horizontalSpeed().toFixed(1)} u/s`
       );
