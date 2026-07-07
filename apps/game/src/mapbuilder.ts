@@ -18,6 +18,16 @@ export class MapBuilder {
   /** index of the placement currently being built (for editor entity tagging) */
   buildIndex = -1;
 
+  /** one shared unit cuboid, reused (scaled per-entity) by every box. A cuboid's
+   *  UVs are 0..1 per face regardless of size and tiling lives in the material, so
+   *  a scaled unit cube is pixel-identical to a bespoke-sized one — but we build
+   *  the geometry once instead of once per box. Big win for the editor, which
+   *  rebuilds the whole map on every edit (and every frame of a live drag). */
+  private unitCubeMesh: ReturnType<typeof PrimitiveMesh.createCuboid> | null = null;
+  private unitCube(): ReturnType<typeof PrimitiveMesh.createCuboid> {
+    return (this.unitCubeMesh ??= PrimitiveMesh.createCuboid(this.engine, 1, 1, 1));
+  }
+
   constructor(
     public engine: Engine,
     public root: Entity,
@@ -62,8 +72,9 @@ export class MapBuilder {
   meshColor(x: number, y: number, z: number, w: number, h: number, d: number, r: number, g: number, b: number): Entity {
     const e = this.root.createChild("bc");
     e.transform.setPosition(x, y, z);
+    e.transform.setScale(w, h, d);
     const rend = e.addComponent(MeshRenderer);
-    rend.mesh = PrimitiveMesh.createCuboid(this.engine, w, h, d);
+    rend.mesh = this.unitCube();
     rend.setMaterial(this.colorMat(r, g, b));
     rend.castShadows = true;
     rend.receiveShadows = true;
@@ -84,8 +95,9 @@ export class MapBuilder {
   mesh(x: number, y: number, z: number, w: number, h: number, d: number, set: PbrSet, tu: number, tv: number): Entity {
     const e = this.root.createChild("b");
     e.transform.setPosition(x, y, z);
+    e.transform.setScale(w, h, d);
     const r = e.addComponent(MeshRenderer);
-    r.mesh = PrimitiveMesh.createCuboid(this.engine, w, h, d);
+    r.mesh = this.unitCube();
     r.setMaterial(this.mat(set, tu, tv));
     r.castShadows = true;
     r.receiveShadows = true;

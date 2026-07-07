@@ -6,7 +6,8 @@
 // basis so it doesn't depend on engine screen-space conventions.
 import {
   AmbientLight, BackgroundMode, BoundingBox, Camera, Color, DirectLight, Entity,
-  FogMode, MeshRenderer, PrimitiveMesh, ShadowResolution, ShadowType, SkyBoxMaterial, TextureCube, Vector3, WebGLEngine,
+  FogMode, MeshRenderer, PrimitiveMesh, RenderFace, ShadowResolution, ShadowType,
+  SkyBoxMaterial, TextureCube, UnlitMaterial, Vector3, WebGLEngine,
 } from "@galacean/engine";
 import type { MapDef, Placement, Tuple3 } from "@slopwars/shared";
 import { placeRot, placeScale } from "@slopwars/shared";
@@ -57,6 +58,11 @@ export class Viewport {
 
   // per-object-index → entities produced for it (for 3D picking + highlighting)
   private objEntities: Entity[][] = [];
+  // selection outline: inverted-hull "shell" entities cloned from the selected
+  // meshes (see refreshHighlight). Rebuilt whenever the selection or scene changes.
+  private outlineEntities: Entity[] = [];
+  private outlineCore: UnlitMaterial | null = null;
+  private outlineGlow: UnlitMaterial | null = null;
   // cached resolved textures so a live drag can rebuild synchronously each frame
   private texCache: MapTextures | null = null;
   private texKey = "";
@@ -139,6 +145,9 @@ export class Viewport {
     this.models = await loadModels(engine);
     this.bindInput();
     this.bindResize();
+    // selection changes (viewport or outliner) restyle the 3D outline without a
+    // full scene rebuild — cheap, since only the selected meshes get a shell.
+    state.onSelect(() => this.refreshHighlight());
     engine.run();
     this.applyCamera();
     this.ready = true;
@@ -169,9 +178,11 @@ export class Viewport {
   /** synchronous rebuild with already-resolved textures (used by live drags) */
   private rebuild(def: MapDef, tex: MapTextures): void {
     this.objEntities = [];
+    this.outlineEntities = [];   // torn down with the old map root; drop stale refs
     this.map.onBuildEntity = (i, e) => { (this.objEntities[i] ??= []).push(e); };
     this.map.load(this.engine, this.root, tex, this.models, def);
     this.applyEnv(def);
+    this.refreshHighlight();     // re-attach the selection outline to fresh entities
   }
 
   /** immediate re-render during a drag (textures already cached from render()) */
@@ -434,11 +445,8 @@ export class Viewport {
       ctx.globalAlpha = 1;
     }
 
-    // highlight every selected object + a single gizmo at the selection pivot
-    for (const o of state.selectedObjects()) {
-      const box = this.objBox(map.objects.indexOf(o));
-      if (box) this.drawHighlight(box);
-    }
+    // (selection is highlighted in 3D by refreshHighlight — see below)
+    // a single transform gizmo at the selection pivot
     const pivot = this.selPivot();
     if (pivot) this.drawGizmo(pivot);
   }
@@ -459,43 +467,65 @@ export class Viewport {
     return top;
   }
 
-  /** highlight a selection by drawing a soft glowing silhouette hugging the
-   *  object's projected bounds — the convex hull of its 8 world corners, filled
-   *  faintly and rimmed with a bloom. Reads as a glow, not a hard wire box. */
-  private drawHighlight(b: Box): void {
-    const [x0, y0, z0] = b.min, [x1, y1, z1] = b.max;
-    const corners: Tuple3[] = [
-      [x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1],
-      [x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1],
-    ];
-    const pts: { x: number; y: number }[] = [];
-    for (const c of corners) { const p = this.project(c); if (p.visible) pts.push({ x: p.x, y: p.y }); }
-    if (pts.length < 3) return;                 // mostly behind the camera → skip
-    const hull = convexHull(pts);
-    if (hull.length < 3) return;
+  // ── selection highlight: 3D inverted-hull outline ──────────────────────────
+  // A selected mesh gets a cloned "shell": the same geometry, slightly enlarged,
+  // rendered back-faces-only in an unlit amber. Where the shell pokes past the
+  // real object's silhouette it shows as a crisp outline that hugs the actual
+  // mesh in 3D (depth-tested, so nearer geometry occludes it); a second larger,
+  // translucent shell adds a soft glow falloff. This reads as the object glowing
+  // rather than a flat box floating on a 2D overlay.
+  private static SHELL = "__sel_outline";
 
-    const ctx = this.octx;
-    ctx.save();
-    ctx.lineJoin = "round";
-    const trace = (): void => {
-      ctx.beginPath();
-      ctx.moveTo(hull[0].x, hull[0].y);
-      for (let i = 1; i < hull.length; i++) ctx.lineTo(hull[i].x, hull[i].y);
-      ctx.closePath();
-    };
-    // faint interior wash so the whole object reads as "lit"
-    trace();
-    ctx.fillStyle = "rgba(245,166,35,0.09)";
-    ctx.fill();
-    // outer bloom + crisp inner rim (two passes = a soft glowing edge)
-    ctx.shadowColor = "rgba(245,166,35,0.95)";
-    ctx.shadowBlur = 16;
-    ctx.strokeStyle = "rgba(245,166,35,0.85)"; ctx.lineWidth = 2.4;
-    trace(); ctx.stroke();
-    ctx.shadowBlur = 4;
-    ctx.strokeStyle = "rgba(255,221,140,0.95)"; ctx.lineWidth = 1.1;
-    trace(); ctx.stroke();
-    ctx.restore();
+  /** the two shared outline materials (created lazily on first selection) */
+  private outlineMaterials(): [UnlitMaterial, UnlitMaterial] {
+    if (!this.outlineCore) {
+      const core = new UnlitMaterial(this.engine);
+      core.baseColor = new Color(1.0, 0.6, 0.12, 1);
+      core.renderFace = RenderFace.Back;
+      this.outlineCore = core;
+      const glow = new UnlitMaterial(this.engine);
+      glow.baseColor = new Color(1.0, 0.66, 0.2, 0.26);
+      glow.renderFace = RenderFace.Back;
+      glow.isTransparent = true;
+      this.outlineGlow = glow;
+    }
+    return [this.outlineCore, this.outlineGlow!];
+  }
+
+  /** rebuild the outline shells for the current selection */
+  private refreshHighlight(): void {
+    if (!this.ready) return;
+    for (const e of this.outlineEntities) if (!e.destroyed) e.destroy();
+    this.outlineEntities = [];
+    const map = state.map; if (!map) return;
+    const sel = state.selectedObjects();
+    if (!sel.length) return;
+
+    const [core, glow] = this.outlineMaterials();
+    for (const o of sel) {
+      const ents = this.objEntities[map.objects.indexOf(o)];
+      if (!ents) continue;
+      for (const e of ents) {
+        if (e.destroyed) continue;
+        for (const r of e.getComponentsIncludeChildren(MeshRenderer, [])) {
+          if (!r.mesh || r.entity.name === Viewport.SHELL) continue;
+          this.addShell(r, 1.03, core);
+          this.addShell(r, 1.09, glow);
+        }
+      }
+    }
+  }
+
+  /** clone a mesh renderer into an enlarged, unlit "shell" child for the outline */
+  private addShell(src: MeshRenderer, factor: number, mat: UnlitMaterial): void {
+    const s = src.entity.createChild(Viewport.SHELL);
+    s.transform.setScale(factor, factor, factor);
+    const r = s.addComponent(MeshRenderer);
+    r.mesh = src.mesh;
+    r.setMaterial(mat);
+    r.castShadows = false;
+    r.receiveShadows = false;
+    this.outlineEntities.push(s);
   }
 
   // ── gizmo geometry ─────────────────────────────────────────────────────────
@@ -824,7 +854,7 @@ export class Viewport {
     for (const e of ents) {
       if (e.destroyed) continue;
       for (const r of e.getComponentsIncludeChildren(MeshRenderer, [])) {
-        if (!r.mesh) continue;
+        if (!r.mesh || r.entity.name === Viewport.SHELL) continue;   // ignore outline shells
         if (!has) { box.copyFrom(r.bounds); has = true; } else BoundingBox.merge(box, r.bounds, box);
       }
     }
@@ -891,28 +921,6 @@ function rayBox(o: number[], d: number[], b: Box): number | null {
     }
   }
   return tmin > 0 ? tmin : null;
-}
-
-/** 2D convex hull (Andrew's monotone chain) of screen points, CCW, no repeat of
- *  the first point. Used to draw a glow silhouette hugging a projected box. */
-function convexHull(pts: { x: number; y: number }[]): { x: number; y: number }[] {
-  if (pts.length < 3) return pts.slice();
-  const p = pts.slice().sort((a, b) => (a.x - b.x) || (a.y - b.y));
-  const cross = (o: { x: number; y: number }, a: { x: number; y: number }, b: { x: number; y: number }): number =>
-    (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
-  const lower: { x: number; y: number }[] = [];
-  for (const q of p) {
-    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], q) <= 0) lower.pop();
-    lower.push(q);
-  }
-  const upper: { x: number; y: number }[] = [];
-  for (let i = p.length - 1; i >= 0; i--) {
-    const q = p[i];
-    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], q) <= 0) upper.pop();
-    upper.push(q);
-  }
-  lower.pop(); upper.pop();
-  return lower.concat(upper);
 }
 
 function markerColor(type: string): string {
