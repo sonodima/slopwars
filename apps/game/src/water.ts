@@ -98,25 +98,49 @@ class WaterAnim extends Script {
   }
 }
 
-/** build a realistic animated water surface of side `s` centred at (x,y,z) */
-export function buildWater(engine: Engine, root: Entity, x: number, y: number, z: number, s: number): Entity {
+/** per-surface look controls (all optional; omitted fields keep the default look).
+ *  Exposed as params on the `water` object so each pool/river can be tuned. */
+export interface WaterLook {
+  color: [number, number, number];    // surface tint (base color rgb)
+  opacity: number;                     // base alpha (thin/edge transparency)
+  roughness: number;                   // 0 = mirror sky reflection, higher = hazier
+  ior: number;                         // index of refraction (1.33 = water)
+  flow: number;                        // ripple scroll speed
+  waves: number;                       // wave normal strength (ripple height)
+  depthColor: [number, number, number]; // attenuation tint the deeper you look
+  depth: number;                       // attenuation distance (smaller = tints faster)
+  clarity: number;                     // transmission amount (1 = fully see-through)
+}
+
+export const WATER_LOOK: WaterLook = {
+  color: [0.05, 0.16, 0.2], opacity: 0.92, roughness: 0.08, ior: 1.33,
+  flow: 0.04, waves: 0.7, depthColor: [0.16, 0.46, 0.5], depth: 6, clarity: 1.0,
+};
+
+/** build a realistic animated water surface of side `s` centred at (x,y,z),
+ *  styled by an optional partial `look` (falls back to WATER_LOOK per field). */
+export function buildWater(
+  engine: Engine, root: Entity, x: number, y: number, z: number, s: number,
+  look: Partial<WaterLook> = {},
+): Entity {
+  const L = { ...WATER_LOOK, ...look };
   const e = root.createChild("water");
   e.transform.setPosition(x, y, z);
   const r = e.addComponent(MeshRenderer);
   r.mesh = PrimitiveMesh.createCuboid(engine, s, 0.08, s);
 
   const m = new PBRMaterial(engine);
-  m.baseColor = new Color(0.05, 0.16, 0.2, 0.92);
-  m.roughness = 0.08;          // glossy → crisp sky/IBL reflection
+  m.baseColor = new Color(L.color[0], L.color[1], L.color[2], L.opacity);
+  m.roughness = L.roughness;   // glossy → crisp sky/IBL reflection
   m.metallic = 0.0;
-  m.ior = 1.33;                // water
+  m.ior = L.ior;
   m.normalTexture = waveNormal(engine);
-  m.normalTextureIntensity = 0.7;
+  m.normalTextureIntensity = L.waves;
   m.isTransparent = true;
   m.refractionMode = RefractionMode.Planar;
-  m.transmission = 1.0;        // refract the scene behind (uses camera opaque texture)
-  m.attenuationColor = new Color(0.16, 0.46, 0.5, 1);
-  m.attenuationDistance = 6;   // deeper → more teal
+  m.transmission = L.clarity;  // refract the scene behind (uses camera opaque texture)
+  m.attenuationColor = new Color(L.depthColor[0], L.depthColor[1], L.depthColor[2], 1);
+  m.attenuationDistance = L.depth;  // deeper → more teal
   m.thickness = 1.2;
   const tiling = Math.max(1, s / 6);   // larger ripples, fewer repeats across the plane
   m.tilingOffset = new Vector4(tiling, tiling, 0, 0);
@@ -126,5 +150,6 @@ export function buildWater(engine: Engine, root: Entity, x: number, y: number, z
   const anim = e.addComponent(WaterAnim);
   anim.mat = m;
   anim.tiling = tiling;
+  anim.speed = L.flow;
   return e;
 }

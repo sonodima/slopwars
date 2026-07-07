@@ -175,10 +175,14 @@ export class WeaponSystem {
       r.setMaterial(m);
     };
 
-    // ── proxy GLB viewmodels (Poly Haven CC0). AWP reuses the bolt-action ──
-    for (const [id, key] of [["ak47", "ak"], ["usp", "usp"], ["knife", "knife"], ["awp", "ak"]] as const) {
+    // ── proxy GLB viewmodels (Poly Haven CC0), referenced by model folder name.
+    // Only 2 real firearms exist on Poly Haven → AWP reuses the bolt-action rifle.
+    for (const [id, folder] of [
+      ["ak47", "bolt_action_rifle_7_62"], ["usp", "service_pistol"],
+      ["knife", "machete"], ["awp", "bolt_action_rifle_7_62"],
+    ] as const) {
       const t = WEP_TUNE[id];
-      const m = instantiate(this.src[key]);
+      const m = instantiate(this.src[folder]);
       if (!m) continue;
       m.transform.setPosition(t.p[0], t.p[1], t.p[2]);
       m.transform.setScale(t.s, t.s, t.s);
@@ -195,9 +199,9 @@ export class WeaponSystem {
     this.models.he = g;
 
     // molotov: bottle model if it loaded, else box
-    if (this.src.mol) {
+    if (this.src.bleach_bottle) {
       const t = WEP_TUNE.mol;
-      const m = instantiate(this.src.mol)!;
+      const m = instantiate(this.src.bleach_bottle)!;
       m.transform.setPosition(t.p[0], t.p[1], t.p[2]);
       m.transform.setScale(t.s, t.s, t.s);
       m.transform.setRotation(t.r[0], t.r[1], t.r[2]);

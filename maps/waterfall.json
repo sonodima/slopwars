@@ -1048,7 +1048,7 @@
       }
     },
     {
-      "type": "cliff",
+      "type": "prop",
       "at": [
         -6,
         1.5,
@@ -1063,10 +1063,14 @@
         0.55,
         0.55,
         0.55
-      ]
+      ],
+      "params": {
+        "model": "coastal_cliff_04",
+        "solid": false
+      }
     },
     {
-      "type": "tree",
+      "type": "prop",
       "at": [
         -25,
         0,
@@ -1076,10 +1080,13 @@
         1.1,
         1.1,
         1.1
-      ]
+      ],
+      "params": {
+        "model": "island_tree_01"
+      }
     },
     {
-      "type": "tree",
+      "type": "prop",
       "at": [
         25,
         0,
@@ -1089,10 +1096,13 @@
         1,
         1,
         1
-      ]
+      ],
+      "params": {
+        "model": "island_tree_01"
+      }
     },
     {
-      "type": "tree",
+      "type": "prop",
       "at": [
         -26,
         0,
@@ -1102,10 +1112,13 @@
         0.95,
         0.95,
         0.95
-      ]
+      ],
+      "params": {
+        "model": "island_tree_01"
+      }
     },
     {
-      "type": "tree2",
+      "type": "prop",
       "at": [
         24,
         0,
@@ -1115,10 +1128,13 @@
         1,
         1,
         1
-      ]
+      ],
+      "params": {
+        "model": "island_tree_02"
+      }
     },
     {
-      "type": "tree2",
+      "type": "prop",
       "at": [
         -16,
         3.2,
@@ -1128,10 +1144,13 @@
         0.8,
         0.8,
         0.8
-      ]
+      ],
+      "params": {
+        "model": "island_tree_02"
+      }
     },
     {
-      "type": "tree2",
+      "type": "prop",
       "at": [
         16,
         3.2,
@@ -1141,10 +1160,13 @@
         0.8,
         0.8,
         0.8
-      ]
+      ],
+      "params": {
+        "model": "island_tree_02"
+      }
     },
     {
-      "type": "rockset",
+      "type": "prop",
       "at": [
         -9,
         0,
@@ -1159,10 +1181,13 @@
         0.7,
         0.7,
         0.7
-      ]
+      ],
+      "params": {
+        "model": "rock_moss_set_01"
+      }
     },
     {
-      "type": "rockset2",
+      "type": "prop",
       "at": [
         9,
         0,
@@ -1177,10 +1202,13 @@
         0.9,
         0.9,
         0.9
-      ]
+      ],
+      "params": {
+        "model": "rock_moss_set_02"
+      }
     },
     {
-      "type": "boulder",
+      "type": "prop",
       "at": [
         0,
         0,
@@ -1195,10 +1223,13 @@
         0.62,
         0.62,
         0.62
-      ]
+      ],
+      "params": {
+        "model": "namaqualand_boulder_04"
+      }
     },
     {
-      "type": "boulder",
+      "type": "prop",
       "at": [
         -6,
         0,
@@ -1213,10 +1244,13 @@
         0.5,
         0.5,
         0.5
-      ]
+      ],
+      "params": {
+        "model": "namaqualand_boulder_04"
+      }
     },
     {
-      "type": "boulder",
+      "type": "prop",
       "at": [
         7,
         0,
@@ -1231,10 +1265,13 @@
         0.55,
         0.55,
         0.55
-      ]
+      ],
+      "params": {
+        "model": "namaqualand_boulder_04"
+      }
     },
     {
-      "type": "rockset2",
+      "type": "prop",
       "at": [
         0,
         0.4,
@@ -1249,10 +1286,13 @@
         0.55,
         0.55,
         0.55
-      ]
+      ],
+      "params": {
+        "model": "rock_moss_set_02"
+      }
     },
     {
-      "type": "stump",
+      "type": "prop",
       "at": [
         -13,
         0,
@@ -1262,10 +1302,13 @@
         1.1,
         1.1,
         1.1
-      ]
+      ],
+      "params": {
+        "model": "tree_stump_01"
+      }
     },
     {
-      "type": "stump",
+      "type": "prop",
       "at": [
         14,
         0,
@@ -1275,10 +1318,13 @@
         1,
         1,
         1
-      ]
+      ],
+      "params": {
+        "model": "tree_stump_01"
+      }
     },
     {
-      "type": "deadtree",
+      "type": "prop",
       "at": [
         -4,
         0,
@@ -1293,10 +1339,13 @@
         0.9,
         0.9,
         0.9
-      ]
+      ],
+      "params": {
+        "model": "dead_tree_trunk"
+      }
     },
     {
-      "type": "deadtree",
+      "type": "prop",
       "at": [
         -24,
         1.8,
@@ -1311,10 +1360,13 @@
         0.7,
         0.7,
         0.7
-      ]
+      ],
+      "params": {
+        "model": "dead_tree_trunk"
+      }
     },
     {
-      "type": "tropplant",
+      "type": "prop",
       "at": [
         -11,
         0,
@@ -1324,10 +1376,13 @@
         1.2,
         1.2,
         1.2
-      ]
+      ],
+      "params": {
+        "model": "pachira_aquatica_01"
+      }
     },
     {
-      "type": "tropplant",
+      "type": "prop",
       "at": [
         11,
         0,
@@ -1337,10 +1392,13 @@
         1.2,
         1.2,
         1.2
-      ]
+      ],
+      "params": {
+        "model": "pachira_aquatica_01"
+      }
     },
     {
-      "type": "tropplant",
+      "type": "prop",
       "at": [
         -16,
         3.2,
@@ -1350,10 +1408,13 @@
         1,
         1,
         1
-      ]
+      ],
+      "params": {
+        "model": "pachira_aquatica_01"
+      }
     },
     {
-      "type": "tropplant",
+      "type": "prop",
       "at": [
         16,
         3.2,
@@ -1363,10 +1424,13 @@
         1,
         1,
         1
-      ]
+      ],
+      "params": {
+        "model": "pachira_aquatica_01"
+      }
     },
     {
-      "type": "leafplant",
+      "type": "prop",
       "at": [
         -6,
         0,
@@ -1376,10 +1440,14 @@
         1.6,
         1.6,
         1.6
-      ]
+      ],
+      "params": {
+        "model": "calathea_orbifolia_01",
+        "solid": false
+      }
     },
     {
-      "type": "leafplant",
+      "type": "prop",
       "at": [
         6,
         0,
@@ -1389,10 +1457,14 @@
         1.6,
         1.6,
         1.6
-      ]
+      ],
+      "params": {
+        "model": "calathea_orbifolia_01",
+        "solid": false
+      }
     },
     {
-      "type": "leafplant",
+      "type": "prop",
       "at": [
         -3,
         0,
@@ -1402,10 +1474,14 @@
         1.6,
         1.6,
         1.6
-      ]
+      ],
+      "params": {
+        "model": "calathea_orbifolia_01",
+        "solid": false
+      }
     },
     {
-      "type": "leafplant",
+      "type": "prop",
       "at": [
         3,
         0,
@@ -1415,10 +1491,14 @@
         1.6,
         1.6,
         1.6
-      ]
+      ],
+      "params": {
+        "model": "calathea_orbifolia_01",
+        "solid": false
+      }
     },
     {
-      "type": "fern",
+      "type": "prop",
       "at": [
         -10,
         0,
@@ -1428,10 +1508,14 @@
         1.4,
         1.4,
         1.4
-      ]
+      ],
+      "params": {
+        "model": "fern_02",
+        "solid": false
+      }
     },
     {
-      "type": "fern",
+      "type": "prop",
       "at": [
         10,
         0,
@@ -1441,10 +1525,14 @@
         1.4,
         1.4,
         1.4
-      ]
+      ],
+      "params": {
+        "model": "fern_02",
+        "solid": false
+      }
     },
     {
-      "type": "fern",
+      "type": "prop",
       "at": [
         -2,
         0,
@@ -1454,10 +1542,14 @@
         1.2,
         1.2,
         1.2
-      ]
+      ],
+      "params": {
+        "model": "fern_02",
+        "solid": false
+      }
     },
     {
-      "type": "fern",
+      "type": "prop",
       "at": [
         4,
         0,
@@ -1467,10 +1559,14 @@
         1.2,
         1.2,
         1.2
-      ]
+      ],
+      "params": {
+        "model": "fern_02",
+        "solid": false
+      }
     },
     {
-      "type": "fern",
+      "type": "prop",
       "at": [
         -24,
         1.8,
@@ -1480,10 +1576,14 @@
         1,
         1,
         1
-      ]
+      ],
+      "params": {
+        "model": "fern_02",
+        "solid": false
+      }
     },
     {
-      "type": "fern",
+      "type": "prop",
       "at": [
         24,
         1.8,
@@ -1493,10 +1593,14 @@
         1,
         1,
         1
-      ]
+      ],
+      "params": {
+        "model": "fern_02",
+        "solid": false
+      }
     },
     {
-      "type": "fern",
+      "type": "prop",
       "at": [
         0,
         1,
@@ -1506,7 +1610,11 @@
         1.1,
         1.1,
         1.1
-      ]
+      ],
+      "params": {
+        "model": "fern_02",
+        "solid": false
+      }
     },
     {
       "type": "shrub",

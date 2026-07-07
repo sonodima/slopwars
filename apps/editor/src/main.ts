@@ -235,9 +235,12 @@ function setupDrop(): void {
 /** sensible starting transform for an object type dropped onto the ground */
 function objectPlacement(type: string, at: Tuple3): Placement {
   if (type === "box") return { type, at: [at[0], at[1] + 1, at[2]], scale: [4, 2, 4] };
+  if (type === "glass") return { type, at: [at[0], at[1] + 1.5, at[2]], scale: [3, 3, 0.15] };
   if (type === "water") return { type, at: [at[0], at[1] + 0.3, at[2]], scale: [6, 1, 6] };
   if (type === "pickup" || type === "powerup") return { type, at: [at[0], at[1] + 1, at[2]] };
   if (type === "sound") return { type, at: [at[0], at[1] + 2, at[2]] };
+  // emitters aim up their local +Y; drop them just above the ground
+  if (type === "particles" || type === "fire" || type === "smoke") return { type, at: [at[0], at[1] + 0.3, at[2]] };
   // model props carry a tuned native size — drop them at it so the regular Scale
   // tool then resizes from a correct baseline (no per-object scale param).
   const s = objectDropScale(type);

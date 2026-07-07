@@ -7,7 +7,6 @@ import {
 } from "@galacean/engine";
 import { GameModels, instantiate } from "./models";
 import { MapTextures, PbrSet, DEFAULT_FOLDER } from "./textures";
-import { buildWater } from "./water";
 import type { AABB, GameMap } from "./map";
 
 type Vec3T = readonly [number, number, number];
@@ -88,8 +87,10 @@ export class MapBuilder {
   }
 
   /** report a freshly created entity to the (editor-only) build hook so it can be
-   *  associated with the placement it came from — no-op in the game. */
-  private track(e: Entity): Entity { this.map.onBuildEntity?.(this.buildIndex, e); return e; }
+   *  associated with the placement it came from — no-op in the game. Public so
+   *  object types that build their own entities (water, glass, particles) can
+   *  register them for editor picking/highlighting the same way. */
+  track(e: Entity): Entity { this.map.onBuildEntity?.(this.buildIndex, e); return e; }
 
   /** textured cuboid mesh (visual only) */
   mesh(x: number, y: number, z: number, w: number, h: number, d: number, set: PbrSet, tu: number, tv: number): Entity {
@@ -161,13 +162,6 @@ export class MapBuilder {
     if (!has) return null;
     const { min, max } = box;
     return { min: { x: min.x, y: min.y, z: min.z }, max: { x: max.x, y: max.y, z: max.z } };
-  }
-
-  water(x: number, y: number, z: number, s: number): void {
-    // realistic animated water (refraction + reflection + flow) — see water.ts
-    const e = buildWater(this.engine, this.root, x, y, z, s);
-    this.map.tris += 12;
-    this.track(e);
   }
 
 }

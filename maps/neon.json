@@ -691,7 +691,7 @@
       }
     },
     {
-      "type": "crate2",
+      "type": "prop",
       "at": [
         -9,
         0,
@@ -706,10 +706,13 @@
         2.6,
         2.6,
         2.6
-      ]
+      ],
+      "params": {
+        "model": "plastic_crate_01"
+      }
     },
     {
-      "type": "crate2",
+      "type": "prop",
       "at": [
         -9.6,
         0,
@@ -724,10 +727,13 @@
         2.6,
         2.6,
         2.6
-      ]
+      ],
+      "params": {
+        "model": "plastic_crate_01"
+      }
     },
     {
-      "type": "crate",
+      "type": "prop",
       "at": [
         10,
         0,
@@ -742,10 +748,13 @@
         1.8,
         1.8,
         1.8
-      ]
+      ],
+      "params": {
+        "model": "old_military_crate"
+      }
     },
     {
-      "type": "crate2",
+      "type": "prop",
       "at": [
         -2,
         0,
@@ -760,10 +769,13 @@
         2.6,
         2.6,
         2.6
-      ]
+      ],
+      "params": {
+        "model": "plastic_crate_01"
+      }
     },
     {
-      "type": "toolbox",
+      "type": "prop",
       "at": [
         10.9,
         0,
@@ -778,7 +790,10 @@
         1.6,
         1.6,
         1.6
-      ]
+      ],
+      "params": {
+        "model": "metal_toolbox"
+      }
     },
     {
       "type": "sandbags",
@@ -805,7 +820,7 @@
       }
     },
     {
-      "type": "dtree",
+      "type": "prop",
       "at": [
         -22,
         0,
@@ -815,10 +830,13 @@
         1.1,
         1.1,
         1.1
-      ]
+      ],
+      "params": {
+        "model": "quiver_tree_01"
+      }
     },
     {
-      "type": "dtree",
+      "type": "prop",
       "at": [
         22,
         0,
@@ -828,10 +846,13 @@
         1,
         1,
         1
-      ]
+      ],
+      "params": {
+        "model": "quiver_tree_01"
+      }
     },
     {
-      "type": "stump",
+      "type": "prop",
       "at": [
         0,
         0,
@@ -841,7 +862,10 @@
         0.9,
         0.9,
         0.9
-      ]
+      ],
+      "params": {
+        "model": "tree_stump_01"
+      }
     },
     {
       "type": "barrel",

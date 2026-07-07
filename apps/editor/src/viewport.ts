@@ -5,8 +5,8 @@
 // transform gizmo; all projection/picking math is done manually from the camera
 // basis so it doesn't depend on engine screen-space conventions.
 import {
-  AmbientLight, BackgroundMode, BloomEffect, BoundingBox, Camera, Color, DirectLight, Entity,
-  FogMode, MeshRenderer, MSAASamples, PostProcess, PrimitiveMesh, RenderFace,
+  AmbientLight, BackgroundMode, BloomEffect, BoundingBox, Camera, Color, CompareFunction, DirectLight, Entity,
+  FogMode, MeshRenderer, MSAASamples, PostProcess, PrimitiveMesh, RenderFace, RenderQueueType,
   SkyBoxMaterial, TextureCube, TonemappingEffect, TonemappingMode, UnlitMaterial, Vector3, WebGLEngine,
 } from "@galacean/engine";
 import type { MapDef, Placement, ShadowQuality, Tuple3 } from "@slopwars/shared";
@@ -479,11 +479,12 @@ export class Viewport {
 
   // ── selection highlight: 3D inverted-hull outline ──────────────────────────
   // A selected mesh gets a cloned "shell": the same geometry, slightly enlarged,
-  // rendered back-faces-only in an unlit amber. Where the shell pokes past the
-  // real object's silhouette it shows as a crisp outline that hugs the actual
-  // mesh in 3D (depth-tested, so nearer geometry occludes it); a second larger,
-  // translucent shell adds a soft glow falloff. This reads as the object glowing
-  // rather than a flat box floating on a 2D overlay.
+  // rendered back-faces-only in an unlit amber. The crisp core shell is depth-
+  // tested, so where it pokes past the real object's silhouette it reads as an
+  // outline hugging the mesh. The larger translucent glow shell instead ignores
+  // depth entirely (compareFunction Always) and draws last, so the selection stays
+  // visible as a soft amber halo even when the object is behind walls or other
+  // objects — you never lose track of what's selected.
   private static SHELL = "__sel_outline";
 
   /** the two shared outline materials (created lazily on first selection) */
@@ -494,9 +495,14 @@ export class Viewport {
       core.renderFace = RenderFace.Back;
       this.outlineCore = core;
       const glow = new UnlitMaterial(this.engine);
-      glow.baseColor = new Color(1.0, 0.66, 0.2, 0.26);
+      glow.baseColor = new Color(1.0, 0.66, 0.2, 0.32);
       glow.renderFace = RenderFace.Back;
       glow.isTransparent = true;
+      // see-through: always pass depth (draw through occluders) and don't write
+      // depth; forced into the transparent queue so it draws after opaque scene.
+      glow.renderState.depthState.compareFunction = CompareFunction.Always;
+      glow.renderState.depthState.writeEnabled = false;
+      glow.renderState.renderQueueType = RenderQueueType.Transparent;
       this.outlineGlow = glow;
     }
     return [this.outlineCore, this.outlineGlow!];
@@ -519,15 +525,17 @@ export class Viewport {
         if (e.destroyed) continue;
         for (const r of e.getComponentsIncludeChildren(MeshRenderer, [])) {
           if (!r.mesh || r.entity.name === Viewport.SHELL) continue;
-          this.addShell(r, 1.03, core);
-          this.addShell(r, 1.09, glow);
+          this.addShell(r, 1.03, core, 0);
+          this.addShell(r, 1.09, glow, 1000);   // high priority → drawn on top / through
         }
       }
     }
   }
 
-  /** clone a mesh renderer into an enlarged, unlit "shell" child for the outline */
-  private addShell(src: MeshRenderer, factor: number, mat: UnlitMaterial): void {
+  /** clone a mesh renderer into an enlarged, unlit "shell" child for the outline.
+   *  `priority` orders draws — the see-through glow uses a high value so it renders
+   *  last, on top of the rest of the scene. */
+  private addShell(src: MeshRenderer, factor: number, mat: UnlitMaterial, priority: number): void {
     const s = src.entity.createChild(Viewport.SHELL);
     s.transform.setScale(factor, factor, factor);
     const r = s.addComponent(MeshRenderer);
@@ -535,6 +543,7 @@ export class Viewport {
     r.setMaterial(mat);
     r.castShadows = false;
     r.receiveShadows = false;
+    r.priority = priority;
     this.outlineEntities.push(s);
   }
 

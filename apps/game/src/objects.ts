@@ -10,6 +10,9 @@ import catalog from "virtual:asset-catalog";
 import type { MapBuilder } from "./mapbuilder";
 import { AABB } from "./map";
 import { assetUrl } from "./assets";
+import { buildWater, WATER_LOOK, type WaterLook } from "./water";
+import { buildGlass, GLASS_LOOK, type GlassLook } from "./glass";
+import { buildParticles, PARTICLE_LOOK, type ParticleLook } from "./particles";
 import type { MapDef, Placement } from "./maps/schema";
 
 export const BARREL_HP = 120;
@@ -37,6 +40,24 @@ const REGISTRY = new Map<string, ObjectType<any>>();
 
 export function defineObject<P extends object>(name: string, type: ObjectType<P>): void {
   REGISTRY.set(name, type);
+}
+
+/** Object wrapping: register `name` as a preset of an existing `base` object type
+ *  with some params pre-filled. The wrapper appears in the editor as its own
+ *  object (with the merged defaults, so its params are still editable) but reuses
+ *  the base type's build() — no duplicated logic. This is how `fire` and `smoke`
+ *  are just a `particles` emitter with different defaults. */
+export function definePreset<P extends object>(
+  name: string, base: string, preset: Partial<P>, category?: ObjCategory,
+): void {
+  const bt = REGISTRY.get(base);
+  if (!bt) { console.warn("[object] preset base not found:", base); return; }
+  REGISTRY.set(name, {
+    defaults: { ...bt.defaults, ...preset },
+    category: category ?? bt.category,
+    deferred: bt.deferred,
+    build: bt.build,
+  });
 }
 
 // editor default transform scale for a dropped object type (model props carry a
@@ -106,10 +127,34 @@ defineObject<{ tex: string; color: [number, number, number]; tile: [number, numb
   },
 });
 
-/** flat translucent water plane (visual only); scale.x = size */
-defineObject<object>("water", {
-  defaults: {}, category: "geometry",
-  build(b, t) { const [x, y, z] = t.at; b.water(x, y, z, t.scale[0]); },
+/** flat animated water surface (visual only); scale.x = size. Every look control
+ *  is a param, so each pool/river is tuned independently (see water.ts). The
+ *  surface builds itself here rather than through a MapBuilder helper — water is
+ *  a single object type, not a shared primitive like a box, so its construction
+ *  lives with the object instead of bloating the builder's primitive vocabulary. */
+defineObject<WaterLook>("water", {
+  defaults: { ...WATER_LOOK }, category: "geometry",
+  build(b, t, p) {
+    const [x, y, z] = t.at;
+    const e = buildWater(b.engine, b.root, x, y, z, t.scale[0], p);
+    b.map.tris += 12;
+    b.track(e);
+  },
+});
+
+/** refractive glass box (windows, panels) — scale IS its w/h/d, like a box. Solid
+ *  by default so you can't walk through a window; set solid=false for décor. */
+defineObject<GlassLook & { solid: boolean }>("glass", {
+  defaults: { ...GLASS_LOOK, solid: true }, category: "geometry",
+  build(b, t, p) {
+    const [x, y, z] = t.at; const [w, h, d] = t.scale;
+    const e = buildGlass(b.engine, b.root, x, y, z, w, h, d, p);
+    const [rx, ry, rz] = t.rot;
+    if (rx || ry || rz) e.transform.setRotation(rx, ry, rz);   // visual only (collision stays AABB)
+    b.map.tris += 12;
+    b.track(e);
+    if (p.solid !== false) b.pushSolid({ min: { x: x - w / 2, y: y - h / 2, z: z - d / 2 }, max: { x: x + w / 2, y: y + h / 2, z: z + d / 2 } });
+  },
 });
 
 // ─── markers (built after geometry so floor heights resolve) ──────────────────
@@ -129,16 +174,20 @@ defineObject<object>("powerup", {
 
 // ─── sound (positional looping audio; volume falls off with distance) ─────────
 
-defineObject<{ clip: string; radius: number; volume: number; loop: boolean }>("sound", {
-  defaults: { clip: "", radius: 12, volume: 1, loop: true },
+defineObject<{ clip: string; radius: number; volume: number; loop: boolean; spatial: boolean }>("sound", {
+  defaults: { clip: "", radius: 12, volume: 1, loop: true, spatial: true },
   category: "sound",
   build(b, t, p) {
     const a = catalog.audio.find((c) => c.name === p.clip);
     if (!a) { if (p.clip) console.warn("[sound] clip not found:", p.clip); return; }
     const el = new Audio(assetUrl(a.file));
-    el.loop = p.loop; el.volume = 0;
+    el.loop = p.loop;
+    const spatial = p.spatial !== false;
+    // non-spatial (2D) sources play at their full volume everywhere — ambience,
+    // music beds; spatial ones start silent and are faded in by distance each tick.
+    el.volume = spatial ? 0 : Math.min(1, p.volume);
     el.play().catch(() => { /* awaits user-gesture audio unlock */ });
-    b.map.sounds.push({ pos: { x: t.at[0], y: t.at[1], z: t.at[2] }, el, radius: p.radius, volume: p.volume });
+    b.map.sounds.push({ pos: { x: t.at[0], y: t.at[1], z: t.at[2] }, el, radius: p.radius, volume: p.volume, spatial });
   },
 });
 
@@ -157,6 +206,34 @@ defineObject<{ model: string; solid: boolean }>("prop", {
   },
 });
 
+// ─── particle emitter (fire / smoke / dust / sparks) ──────────────────────────
+// A tunable emitter (see particles.ts). `tex` picks a texture folder's colour map
+// as the particle sprite; leave it empty for a soft procedural puff. The cone
+// aims up the object's local +Y, so the regular Rotate tool sets the direction.
+// `fire` and `smoke` below are the same emitter with preset params (see
+// definePreset) — object wrapping, no duplicated build logic.
+defineObject<ParticleLook & { tex: string }>("particles", {
+  defaults: { tex: "", ...PARTICLE_LOOK }, category: "entity",
+  build(b, t, p) {
+    const [x, y, z] = t.at;
+    const sprite = p.tex ? b.texOf(p.tex).color : null;
+    const e = buildParticles(b.engine, b.root, x, y, z, p, sprite);
+    const [rx, ry, rz] = t.rot;
+    if (rx || ry || rz) e.transform.setRotation(rx, ry, rz);
+    b.track(e);
+  },
+});
+
+definePreset<ParticleLook & { tex: string }>("fire", "particles", {
+  rate: 46, lifetime: 1.1, speed: 1.6, size: 0.7, growth: 0.25, spread: 16,
+  gravity: -0.35, color: [1.0, 0.55, 0.14], opacity: 0.9, additive: true, world: true,
+}, "entity");
+
+definePreset<ParticleLook & { tex: string }>("smoke", "particles", {
+  rate: 14, lifetime: 3.2, speed: 0.8, size: 0.8, growth: 2.6, spread: 22,
+  gravity: -0.1, color: [0.28, 0.28, 0.3], opacity: 0.45, additive: false, world: true,
+}, "entity");
+
 // ─── gameplay entities ────────────────────────────────────────────────────────
 
 /** explosive barrel — host tracks hp, explodes at 0 */
@@ -167,7 +244,7 @@ defineObject<{ hp: number; scale?: number; radius: number; height: number }>("ba
   build(b, t, p) {
     const [x, , z] = t.at;
     const m = p.scale ?? 1;   // legacy multiplier; drop scale is 1.15 (transform)
-    const e = b.placeModelTf("barrel", [x, 0, z], [0, t.rot[1], 0], [t.scale[0] * m, t.scale[1] * m, t.scale[2] * m]);
+    const e = b.placeModelTf("Barrel_01", [x, 0, z], [0, t.rot[1], 0], [t.scale[0] * m, t.scale[1] * m, t.scale[2] * m]);
     // collision stays authored radius/height (as before) — barrels aren't resized
     const solid: AABB = { min: { x: x - p.radius, y: 0, z: z - p.radius }, max: { x: x + p.radius, y: p.height, z: z + p.radius } };
     b.pushSolid(solid);
@@ -182,7 +259,7 @@ defineObject<{ color: number; distance: number; scale?: number }>("lantern", {
   build(b, t, p) {
     const [x, y, z] = t.at;
     const m = p.scale ?? 1;
-    const e = b.placeModelTf("lantern", [x, y, z], [0, t.rot[1], 0], [t.scale[0] * m, t.scale[1] * m, t.scale[2] * m]) ?? b.root.createChild("lamp");
+    const e = b.placeModelTf("Lantern_01", [x, y, z], [0, t.rot[1], 0], [t.scale[0] * m, t.scale[1] * m, t.scale[2] * m]) ?? b.root.createChild("lamp");
     e.transform.setPosition(x, y, z);
     const l = e.addComponent(PointLight);
     l.color = new Color(((p.color >> 16) & 255) / 255, ((p.color >> 8) & 255) / 255, (p.color & 255) / 255, 1);
@@ -191,90 +268,32 @@ defineObject<{ color: number; distance: number; scale?: number }>("lantern", {
 });
 
 /** planter box with a plant on top + collision */
-defineObject<{ scale?: number; top: number; radius: number; plant: "succulent" | "shrub" }>("planter", {
-  defaults: { top: 0.5, radius: 0.8, plant: "succulent" },
+defineObject<{ scale?: number; top: number; radius: number; plant: string }>("planter", {
+  defaults: { top: 0.5, radius: 0.8, plant: "cheiridopsis_succulent" },
   category: "prop",
   build(b, t, p) {
     const [x, , z] = t.at;
     const m = p.scale ?? 1;
     const sv: [number, number, number] = [t.scale[0] * m, t.scale[1] * m, t.scale[2] * m];
-    b.placeModelTf("planter", [x, 0, z], [0, 0, 0], sv);
+    b.placeModelTf("planter_box_01", [x, 0, z], [0, 0, 0], sv);
     b.placeModelTf(p.plant, [x, p.top, z], [0, t.rot[1], 0], [t.scale[0], t.scale[1], t.scale[2]]);
     b.pushSolid({ min: { x: x - p.radius, y: 0, z: z - p.radius }, max: { x: x + p.radius, y: 0.7, z: z + p.radius } });
   },
 });
 
-/** ground vegetation (visual only) — rests on the floor */
-function vegType(model: "succulent" | "shrub"): ObjectType<{ scale?: number }> {
-  return {
-    defaults: {}, category: "prop",
-    build(b, t, p) {
-      const [x, , z] = t.at;
-      const m = p.scale ?? 1;
-      b.placeModelTf(model, [x, b.map.floorY(x, z), z], [0, t.rot[1], 0], [t.scale[0] * m, t.scale[1] * m, t.scale[2] * m]);
-    },
-  };
-}
-defineObject("shrub", vegType("shrub"));
-defineObject("succulent", vegType("succulent"));
-
-// ─── modeled props (glTF) with footprint collision ──────────────────────────
-// A prop places a loaded model at the object transform and derives its collision
-// from the model's actual world bounds (rotation/scale aware). The regular Scale
-// tool resizes it — there is no separate `scale` param anymore. A legacy numeric
-// `scale` still in older maps is honoured as a multiplier over the transform
-// scale, so existing maps look identical; the editor drops new ones at a sensible
-// default size (see DROP_SCALE). `nw/nh/nd` are the native metres, used only for
-// the fallback cube when a model fails to load.
-function defModelProp(name: string, model: string, nw: number, nh: number, nd: number, defScale: number, solid = true): void {
-  DROP_SCALE.set(name, defScale);
-  defineObject<{ scale?: number }>(name, {
-    defaults: {}, category: "prop",
-    build(b, t, p) {
-      const [x, baseY, z] = t.at;
-      const m = p.scale ?? 1;   // legacy multiplier (absent on new placements)
-      const sv: [number, number, number] = [t.scale[0] * m, t.scale[1] * m, t.scale[2] * m];
-      const e = b.placeModelTf(model, [x, baseY, z], t.rot, sv);
-      if (!solid) return;
-      if (e) { const aabb = b.modelAABB(e); if (aabb) b.pushSolid(aabb); return; }
-      // fallback cube if the model failed to load
-      const yaw = t.rot[1];
-      const near90 = Math.abs(((yaw % 180) + 180) % 180 - 90) < 45;
-      const hw = (near90 ? nd * sv[2] : nw * sv[0]) / 2;
-      const hd = (near90 ? nw * sv[0] : nd * sv[2]) / 2;
-      const h = nh * sv[1];
-      b.box(x, baseY + h / 2, z, hw * 2, h, hd * 2, b.texOf("crate"), 1, 1);
-    },
-  });
-}
-
-defModelProp("crate", "crate", 0.93, 0.36, 0.68, 1.8);
-defModelProp("crate2", "crate2", 0.30, 0.26, 0.41, 2.6);
-defModelProp("rockset", "rockset", 2.66, 1.77, 3.37, 0.7);
-defModelProp("boulder", "boulder", 2.52, 1.9, 2.5, 0.75);
-defModelProp("fern", "fern", 0.99, 0.43, 0.89, 1.3, false);
-defModelProp("stump", "stump", 1.43, 0.57, 1.59, 1.0);
-defModelProp("dtree", "dtree", 0.5, 2.72, 0.5, 1.1);
-defModelProp("deadtree", "deadtree", 3.05, 0.32, 0.32, 1.0);
-defModelProp("toolbox", "toolbox", 0.40, 0.17, 0.32, 1.6);
-defModelProp("desk", "desk", 2.0, 0.79, 0.95, 1.0);
-defModelProp("chair", "chair", 0.57, 1.0, 0.68, 1.0, false);
-defModelProp("pplant", "pplant", 0.59, 1.34, 0.63, 1.0);
-defModelProp("cabinet", "cabinet", 1.14, 1.88, 0.49, 1.0);
-defModelProp("sofa", "sofa", 1.57, 0.80, 0.66, 1.0);
-defModelProp("bookshelf", "bookshelf", 1.37, 2.06, 0.58, 1.0);
-defModelProp("trashcan", "trashcan", 0.61, 0.98, 0.56, 0.75);
-defModelProp("extinguisher", "extinguisher", 0.28, 0.66, 0.37, 1.0, false);
-defModelProp("cofftable", "cofftable", 0.60, 0.39, 1.20, 1.0);
-defModelProp("cardbox", "cardbox", 0.39, 0.34, 0.52, 1.4);
-defModelProp("pplant2", "pplant2", 0.73, 0.63, 0.76, 1.2);
-defModelProp("clock", "clock", 0.32, 0.32, 0.05, 1.4, false);
-defModelProp("tree", "treebig", 0.8, 5.0, 0.8, 1.0);
-defModelProp("tree2", "treemed", 0.7, 3.4, 0.7, 1.0);
-defModelProp("cliff", "cliff", 86.8, 11, 24.3, 0.5, false);
-defModelProp("rockset2", "rockset2", 2.49, 1.71, 2.02, 0.85);
-defModelProp("tropplant", "tropplant", 0.6, 1.9, 0.6, 1.0);
-defModelProp("leafplant", "leafplant", 0.6, 0.42, 0.56, 1.6, false);
+/** ground vegetation (visual only) — rests on the floor. `model` is a model
+ *  folder name; shrub/succulent below are just presets over this one type. */
+defineObject<{ scale?: number; model: string }>("veg", {
+  defaults: { model: "" }, category: "prop",
+  build(b, t, p) {
+    if (!p.model) return;
+    const [x, , z] = t.at;
+    const m = p.scale ?? 1;
+    b.placeModelTf(p.model, [x, b.map.floorY(x, z), z], [0, t.rot[1], 0], [t.scale[0] * m, t.scale[1] * m, t.scale[2] * m]);
+  },
+});
+definePreset<{ scale?: number; model: string }>("shrub", "veg", { model: "didelta_spinosa" });
+definePreset<{ scale?: number; model: string }>("succulent", "veg", { model: "cheiridopsis_succulent" });
 
 // ─── code-built structures (no model) ─────────────────────────────────────────
 

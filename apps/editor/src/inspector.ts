@@ -69,11 +69,17 @@ function paramField(key: string, dflt: unknown, params: Record<string, unknown>,
   if (key === "clip") return asset("audio");
   if (key === "tex") return asset("texture");
   if (key === "axis") return selectField(key, AXES, () => String(get()), (v) => set(v), touch);
-  if (key === "color") { const arr = (get() as number[]).slice(); params[key] = arr; return colorField(key, arr, touch); }
+  // rgb-triple params (color, tint, depthColor, …) get a colour swatch
+  if (isColorKey(key) && Array.isArray(dflt) && dflt.length === 3) { const arr = (get() as number[]).slice(); params[key] = arr; return colorField(key, arr, touch); }
   if (Array.isArray(dflt)) { const arr = (get() as number[]).slice(); params[key] = arr; return vecField(key, arr, touch, 0.1); }
   if (typeof dflt === "number") return numField(key, () => get() as number, (v) => set(v), touch, 0.05);
   if (typeof dflt === "boolean") return checkField(key, () => get() as boolean, (v) => set(v), touch);
   return textField(key, () => String(get() ?? ""), (v) => set(v), touch);
+}
+
+/** a param key that holds an rgb triple (gets a colour picker in the inspector) */
+function isColorKey(key: string): boolean {
+  return key === "color" || /colou?r$/i.test(key) || key === "tint";
 }
 
 function subLabel(o: Placement): string {

@@ -3109,7 +3109,7 @@
       }
     },
     {
-      "type": "desk",
+      "type": "prop",
       "at": [
         -21,
         0,
@@ -3119,10 +3119,13 @@
         0,
         0,
         0
-      ]
+      ],
+      "params": {
+        "model": "metal_office_desk"
+      }
     },
     {
-      "type": "chair",
+      "type": "prop",
       "at": [
         -21,
         0,
@@ -3132,10 +3135,14 @@
         0,
         180,
         0
-      ]
+      ],
+      "params": {
+        "model": "SchoolChair_01",
+        "solid": false
+      }
     },
     {
-      "type": "desk",
+      "type": "prop",
       "at": [
         -9.5,
         0,
@@ -3145,10 +3152,13 @@
         0,
         0,
         0
-      ]
+      ],
+      "params": {
+        "model": "metal_office_desk"
+      }
     },
     {
-      "type": "chair",
+      "type": "prop",
       "at": [
         -9.5,
         0,
@@ -3158,10 +3168,14 @@
         0,
         180,
         0
-      ]
+      ],
+      "params": {
+        "model": "SchoolChair_01",
+        "solid": false
+      }
     },
     {
-      "type": "desk",
+      "type": "prop",
       "at": [
         -21,
         0,
@@ -3171,10 +3185,13 @@
         0,
         0,
         0
-      ]
+      ],
+      "params": {
+        "model": "metal_office_desk"
+      }
     },
     {
-      "type": "chair",
+      "type": "prop",
       "at": [
         -21,
         0,
@@ -3184,10 +3201,14 @@
         0,
         180,
         0
-      ]
+      ],
+      "params": {
+        "model": "SchoolChair_01",
+        "solid": false
+      }
     },
     {
-      "type": "desk",
+      "type": "prop",
       "at": [
         -9.5,
         0,
@@ -3197,10 +3218,13 @@
         0,
         0,
         0
-      ]
+      ],
+      "params": {
+        "model": "metal_office_desk"
+      }
     },
     {
-      "type": "chair",
+      "type": "prop",
       "at": [
         -9.5,
         0,
@@ -3210,10 +3234,14 @@
         0,
         180,
         0
-      ]
+      ],
+      "params": {
+        "model": "SchoolChair_01",
+        "solid": false
+      }
     },
     {
-      "type": "cabinet",
+      "type": "prop",
       "at": [
         -26.5,
         0,
@@ -3223,10 +3251,13 @@
         0,
         90,
         0
-      ]
+      ],
+      "params": {
+        "model": "drawer_cabinet"
+      }
     },
     {
-      "type": "trashcan",
+      "type": "prop",
       "at": [
         -24,
         0,
@@ -3241,10 +3272,13 @@
         0.75,
         0.75,
         0.75
-      ]
+      ],
+      "params": {
+        "model": "metal_trash_can"
+      }
     },
     {
-      "type": "pplant2",
+      "type": "prop",
       "at": [
         -5,
         0,
@@ -3259,10 +3293,13 @@
         1.2,
         1.2,
         1.2
-      ]
+      ],
+      "params": {
+        "model": "potted_plant_02"
+      }
     },
     {
-      "type": "clock",
+      "type": "prop",
       "at": [
         -24,
         3.2,
@@ -3277,10 +3314,14 @@
         1.4,
         1.4,
         1.4
-      ]
+      ],
+      "params": {
+        "model": "wall_clock",
+        "solid": false
+      }
     },
     {
-      "type": "bookshelf",
+      "type": "prop",
       "at": [
         -26.6,
         0,
@@ -3290,10 +3331,13 @@
         0,
         90,
         0
-      ]
+      ],
+      "params": {
+        "model": "wooden_bookshelf_worn"
+      }
     },
     {
-      "type": "bookshelf",
+      "type": "prop",
       "at": [
         -26.6,
         0,
@@ -3303,10 +3347,13 @@
         0,
         90,
         0
-      ]
+      ],
+      "params": {
+        "model": "wooden_bookshelf_worn"
+      }
     },
     {
-      "type": "cabinet",
+      "type": "prop",
       "at": [
         -6,
         0,
@@ -3316,10 +3363,13 @@
         0,
         -90,
         0
-      ]
+      ],
+      "params": {
+        "model": "drawer_cabinet"
+      }
     },
     {
-      "type": "cabinet",
+      "type": "prop",
       "at": [
         -6,
         0,
@@ -3329,10 +3379,13 @@
         0,
         -90,
         0
-      ]
+      ],
+      "params": {
+        "model": "drawer_cabinet"
+      }
     },
     {
-      "type": "cardbox",
+      "type": "prop",
       "at": [
         -22,
         0,
@@ -3347,10 +3400,13 @@
         1.4,
         1.4,
         1.4
-      ]
+      ],
+      "params": {
+        "model": "cardboard_box_01"
+      }
     },
     {
-      "type": "cardbox",
+      "type": "prop",
       "at": [
         -22.5,
         0,
@@ -3365,10 +3421,13 @@
         1.4,
         1.4,
         1.4
-      ]
+      ],
+      "params": {
+        "model": "cardboard_box_01"
+      }
     },
     {
-      "type": "cardbox",
+      "type": "prop",
       "at": [
         -21.6,
         0,
@@ -3383,10 +3442,13 @@
         1.4,
         1.4,
         1.4
-      ]
+      ],
+      "params": {
+        "model": "cardboard_box_01"
+      }
     },
     {
-      "type": "cardbox",
+      "type": "prop",
       "at": [
         -14,
         0,
@@ -3401,10 +3463,13 @@
         1.4,
         1.4,
         1.4
-      ]
+      ],
+      "params": {
+        "model": "cardboard_box_01"
+      }
     },
     {
-      "type": "cardbox",
+      "type": "prop",
       "at": [
         -13.2,
         0,
@@ -3419,10 +3484,13 @@
         1.4,
         1.4,
         1.4
-      ]
+      ],
+      "params": {
+        "model": "cardboard_box_01"
+      }
     },
     {
-      "type": "cardbox",
+      "type": "prop",
       "at": [
         -14.3,
         0,
@@ -3437,10 +3505,13 @@
         1.4,
         1.4,
         1.4
-      ]
+      ],
+      "params": {
+        "model": "cardboard_box_01"
+      }
     },
     {
-      "type": "crate",
+      "type": "prop",
       "at": [
         -9,
         0,
@@ -3455,10 +3526,13 @@
         1.8,
         1.8,
         1.8
-      ]
+      ],
+      "params": {
+        "model": "old_military_crate"
+      }
     },
     {
-      "type": "crate",
+      "type": "prop",
       "at": [
         -24,
         0,
@@ -3473,10 +3547,13 @@
         1.8,
         1.8,
         1.8
-      ]
+      ],
+      "params": {
+        "model": "old_military_crate"
+      }
     },
     {
-      "type": "trashcan",
+      "type": "prop",
       "at": [
         -16,
         0,
@@ -3491,10 +3568,13 @@
         0.75,
         0.75,
         0.75
-      ]
+      ],
+      "params": {
+        "model": "metal_trash_can"
+      }
     },
     {
-      "type": "toolbox",
+      "type": "prop",
       "at": [
         -11,
         0,
@@ -3509,10 +3589,13 @@
         1.6,
         1.6,
         1.6
-      ]
+      ],
+      "params": {
+        "model": "metal_toolbox"
+      }
     },
     {
-      "type": "chair",
+      "type": "prop",
       "at": [
         6.5,
         0,
@@ -3522,10 +3605,14 @@
         0,
         -90,
         0
-      ]
+      ],
+      "params": {
+        "model": "SchoolChair_01",
+        "solid": false
+      }
     },
     {
-      "type": "chair",
+      "type": "prop",
       "at": [
         6.5,
         0,
@@ -3535,10 +3622,14 @@
         0,
         -90,
         0
-      ]
+      ],
+      "params": {
+        "model": "SchoolChair_01",
+        "solid": false
+      }
     },
     {
-      "type": "chair",
+      "type": "prop",
       "at": [
         11.5,
         0,
@@ -3548,10 +3639,14 @@
         0,
         90,
         0
-      ]
+      ],
+      "params": {
+        "model": "SchoolChair_01",
+        "solid": false
+      }
     },
     {
-      "type": "chair",
+      "type": "prop",
       "at": [
         11.5,
         0,
@@ -3561,10 +3656,14 @@
         0,
         90,
         0
-      ]
+      ],
+      "params": {
+        "model": "SchoolChair_01",
+        "solid": false
+      }
     },
     {
-      "type": "pplant",
+      "type": "prop",
       "at": [
         5,
         0,
@@ -3574,10 +3673,13 @@
         0,
         0,
         0
-      ]
+      ],
+      "params": {
+        "model": "potted_plant_01"
+      }
     },
     {
-      "type": "clock",
+      "type": "prop",
       "at": [
         9,
         3.2,
@@ -3592,10 +3694,14 @@
         1.4,
         1.4,
         1.4
-      ]
+      ],
+      "params": {
+        "model": "wall_clock",
+        "solid": false
+      }
     },
     {
-      "type": "extinguisher",
+      "type": "prop",
       "at": [
         4.4,
         1.1,
@@ -3605,10 +3711,14 @@
         0,
         -90,
         0
-      ]
+      ],
+      "params": {
+        "model": "korean_fire_extinguisher_01",
+        "solid": false
+      }
     },
     {
-      "type": "cofftable",
+      "type": "prop",
       "at": [
         19,
         0,
@@ -3618,10 +3728,13 @@
         0,
         0,
         0
-      ]
+      ],
+      "params": {
+        "model": "modern_coffee_table_01"
+      }
     },
     {
-      "type": "chair",
+      "type": "prop",
       "at": [
         19,
         0,
@@ -3631,10 +3744,14 @@
         0,
         180,
         0
-      ]
+      ],
+      "params": {
+        "model": "SchoolChair_01",
+        "solid": false
+      }
     },
     {
-      "type": "chair",
+      "type": "prop",
       "at": [
         19,
         0,
@@ -3644,10 +3761,14 @@
         0,
         0,
         0
-      ]
+      ],
+      "params": {
+        "model": "SchoolChair_01",
+        "solid": false
+      }
     },
     {
-      "type": "cofftable",
+      "type": "prop",
       "at": [
         24,
         0,
@@ -3657,10 +3778,13 @@
         0,
         0,
         0
-      ]
+      ],
+      "params": {
+        "model": "modern_coffee_table_01"
+      }
     },
     {
-      "type": "chair",
+      "type": "prop",
       "at": [
         24,
         0,
@@ -3670,10 +3794,14 @@
         0,
         180,
         0
-      ]
+      ],
+      "params": {
+        "model": "SchoolChair_01",
+        "solid": false
+      }
     },
     {
-      "type": "trashcan",
+      "type": "prop",
       "at": [
         26,
         0,
@@ -3688,10 +3816,13 @@
         0.75,
         0.75,
         0.75
-      ]
+      ],
+      "params": {
+        "model": "metal_trash_can"
+      }
     },
     {
-      "type": "pplant2",
+      "type": "prop",
       "at": [
         17,
         0,
@@ -3706,10 +3837,13 @@
         1.2,
         1.2,
         1.2
-      ]
+      ],
+      "params": {
+        "model": "potted_plant_02"
+      }
     },
     {
-      "type": "sofa",
+      "type": "prop",
       "at": [
         6,
         0,
@@ -3719,10 +3853,13 @@
         0,
         -90,
         0
-      ]
+      ],
+      "params": {
+        "model": "Sofa_01"
+      }
     },
     {
-      "type": "cofftable",
+      "type": "prop",
       "at": [
         8.2,
         0,
@@ -3732,10 +3869,13 @@
         0,
         90,
         0
-      ]
+      ],
+      "params": {
+        "model": "modern_coffee_table_01"
+      }
     },
     {
-      "type": "sofa",
+      "type": "prop",
       "at": [
         10.5,
         0,
@@ -3745,10 +3885,13 @@
         0,
         90,
         0
-      ]
+      ],
+      "params": {
+        "model": "Sofa_01"
+      }
     },
     {
-      "type": "pplant",
+      "type": "prop",
       "at": [
         5,
         0,
@@ -3758,10 +3901,13 @@
         0,
         0,
         0
-      ]
+      ],
+      "params": {
+        "model": "potted_plant_01"
+      }
     },
     {
-      "type": "pplant2",
+      "type": "prop",
       "at": [
         13,
         0,
@@ -3776,10 +3922,13 @@
         1.2,
         1.2,
         1.2
-      ]
+      ],
+      "params": {
+        "model": "potted_plant_02"
+      }
     },
     {
-      "type": "trashcan",
+      "type": "prop",
       "at": [
         12,
         0,
@@ -3794,10 +3943,13 @@
         0.75,
         0.75,
         0.75
-      ]
+      ],
+      "params": {
+        "model": "metal_trash_can"
+      }
     },
     {
-      "type": "extinguisher",
+      "type": "prop",
       "at": [
         26.6,
         1.1,
@@ -3807,10 +3959,14 @@
         0,
         90,
         0
-      ]
+      ],
+      "params": {
+        "model": "korean_fire_extinguisher_01",
+        "solid": false
+      }
     },
     {
-      "type": "desk",
+      "type": "prop",
       "at": [
         23.5,
         3.2,
@@ -3820,10 +3976,13 @@
         0,
         -90,
         0
-      ]
+      ],
+      "params": {
+        "model": "metal_office_desk"
+      }
     },
     {
-      "type": "chair",
+      "type": "prop",
       "at": [
         22.2,
         3.2,
@@ -3833,10 +3992,14 @@
         0,
         90,
         0
-      ]
+      ],
+      "params": {
+        "model": "SchoolChair_01",
+        "solid": false
+      }
     },
     {
-      "type": "cabinet",
+      "type": "prop",
       "at": [
         25.5,
         3.2,
@@ -3846,10 +4009,13 @@
         0,
         180,
         0
-      ]
+      ],
+      "params": {
+        "model": "drawer_cabinet"
+      }
     },
     {
-      "type": "pplant2",
+      "type": "prop",
       "at": [
         18,
         3.2,
@@ -3864,7 +4030,10 @@
         1.2,
         1.2,
         1.2
-      ]
+      ],
+      "params": {
+        "model": "potted_plant_02"
+      }
     },
     {
       "type": "spawn",
