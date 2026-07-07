@@ -8,15 +8,16 @@
 // standard material consumes, never applied to geometry directly.
 import { Color, Engine, PBRMaterial, RefractionMode, Vector4 } from "@galacean/engine";
 import catalog from "virtual:asset-catalog";
-import type { MaterialDef, StandardMaterialDef, GlassMaterialDef } from "@slopwars/shared";
+import { BUILTIN_MATERIALS, type MaterialDef, type StandardMaterialDef, type GlassMaterialDef } from "@slopwars/shared";
 import { MapTextures, PbrSet, DEFAULT_FOLDER } from "./textures";
 import { WATER_LOOK, type WaterLook } from "./water";
 
+// file materials (from the scanned catalog) + the code-registered built-ins
+// (water/glass). Built-ins win, so no map JSON can shadow the special types.
 const DEFS = new Map<string, MaterialDef>(catalog.materials.map((m) => [m.name, m.def]));
+for (const b of BUILTIN_MATERIALS) DEFS.set(b.name, b.def);
 /** a material guaranteed to exist — the fallback for an object that names a gap */
 export const DEFAULT_MATERIAL = DEFS.has("gray") ? "gray" : (catalog.materials[0]?.name ?? "gray");
-
-const GLASS_DEFAULT = { color: [0.85, 0.92, 0.95] as [number, number, number], opacity: 0.16, roughness: 0.02, ior: 1.5, thickness: 0.4, tint: [0.9, 0.96, 0.98] as [number, number, number] };
 
 /** look up a material def by name (falls back to the default material) */
 export function materialDef(name: string): MaterialDef {
@@ -93,31 +94,24 @@ export class MaterialLibrary {
       m.metallic = d.metallic ?? 0.02;
     }
     if (d.emissive) m.emissiveColor = new Color(d.emissive[0], d.emissive[1], d.emissive[2], 1);
-    const [bu, bv] = d.tiling ?? [1, 1];
-    m.tilingOffset = new Vector4(bu * tu, bv * tv, 0, 0);
+    m.tilingOffset = new Vector4(tu, tv, 0, 0);   // tiling comes from the geometry (`tile`)
     return m;
   }
 
   private buildGlass(d: GlassMaterialDef): PBRMaterial {
-    const L = { ...GLASS_DEFAULT, ...stripType(d) };
     const m = new PBRMaterial(this.engine);
-    m.baseColor = new Color(L.color[0], L.color[1], L.color[2], L.opacity);
-    m.roughness = L.roughness;
+    const color = d.color ?? [0.85, 0.92, 0.95];
+    const tint = d.tint ?? [0.9, 0.96, 0.98];
+    m.baseColor = new Color(color[0], color[1], color[2], d.opacity ?? 0.16);
+    m.roughness = d.roughness ?? 0.02;
     m.metallic = 0.0;
-    m.ior = L.ior;
+    m.ior = d.ior ?? 1.5;
     m.isTransparent = true;
     m.refractionMode = RefractionMode.Planar;   // refract the scene behind (opaque texture)
     m.transmission = 1.0;
-    m.attenuationColor = new Color(L.tint[0], L.tint[1], L.tint[2], 1);
+    m.attenuationColor = new Color(tint[0], tint[1], tint[2], 1);
     m.attenuationDistance = 1.5;
-    m.thickness = L.thickness;
+    m.thickness = d.thickness ?? 0.4;
     return m;
   }
-}
-
-/** drop the `type` discriminator so the remaining fields spread as look overrides */
-function stripType<T extends { type: string }>(d: T): Omit<T, "type"> {
-  const { type, ...rest } = d;
-  void type;
-  return rest;
 }

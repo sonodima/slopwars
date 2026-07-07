@@ -164,8 +164,6 @@ export class ThumbRenderer {
           m.roughness = def.roughness ?? 0.9; m.metallic = def.metallic ?? 0.02;
         }
         if (def.emissive) m.emissiveColor = new Color(def.emissive[0], def.emissive[1], def.emissive[2], 1);
-        const [bu, bv] = def.tiling ?? [1, 1];
-        m.tilingOffset = new Vector4(bu, bv, 0, 0);
       } else if (def.type === "glass") {
         const c = def.color ?? [0.85, 0.92, 0.95];
         m.baseColor = new Color(c[0], c[1], c[2], def.opacity ?? 0.16);

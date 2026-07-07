@@ -5,7 +5,7 @@
 // is an object; edits mutate an in-memory MapDef saved to maps/<id>.json via the
 // dev API. Editor opens on a blank map; Load pulls an existing one.
 import type { AssetCatalog, Placement, Tuple3 } from "@slopwars/shared";
-import { emptyMap } from "@slopwars/shared";
+import { emptyMap, mergeBuiltinMaterials } from "@slopwars/shared";
 import { Viewport, Tool, PerfStats } from "./viewport";
 import { ThumbRenderer } from "./preview";
 import { state } from "./state";
@@ -32,8 +32,16 @@ const TOOLS: { t: Tool; label: string }[] = [
 ];
 const GRAPHICS = ["low", "medium", "high"] as const;
 
+/** fetch the file catalog and fold in the code-registered built-in materials
+ *  (water/glass) so they appear in the browser and pickers alongside file ones. */
+async function loadCatalog(): Promise<AssetCatalog> {
+  const c = await api.catalog();
+  c.materials = mergeBuiltinMaterials(c.materials);
+  return c;
+}
+
 async function main(): Promise<void> {
-  try { catalog = await api.catalog(); } catch (e) { toast("catalog load failed: " + e, true); }
+  try { catalog = await loadCatalog(); } catch (e) { toast("catalog load failed: " + e, true); }
   setInspectorCatalog(catalog);
   setInspectorThumbs(thumbs);
 
@@ -71,7 +79,7 @@ async function main(): Promise<void> {
   startMcpBridge({
     viewport,
     getCatalog: () => catalog,
-    reloadCatalog: async () => { catalog = await api.catalog(); setInspectorCatalog(catalog); return catalog; },
+    reloadCatalog: async () => { catalog = await loadCatalog(); setInspectorCatalog(catalog); return catalog; },
     saveMap,
     loadMap: openMap,
     newMap,
@@ -156,7 +164,7 @@ function graphicsPicker(): HTMLElement {
 }
 
 function buildDock(): void {
-  renderBrowser($("browser"), { catalog, thumbs, reloadCatalog: async () => { catalog = await api.catalog(); setInspectorCatalog(catalog); return catalog; } });
+  renderBrowser($("browser"), { catalog, thumbs, reloadCatalog: async () => { catalog = await loadCatalog(); setInspectorCatalog(catalog); return catalog; } });
 }
 
 function selectTool(t: Tool): void { viewport.setTool(t); highlightTool(t); }
