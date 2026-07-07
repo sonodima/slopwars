@@ -16,9 +16,16 @@ async function jpost(url: string, body: unknown): Promise<unknown> {
   return data;
 }
 
+/** one uploaded file for an import: base64 `data`, original `name`, optional
+ *  PBR `slot` (texture sets). */
+export interface ImportFile { name: string; data: string; slot?: "color" | "normal" | "arm" }
+export interface ImportRequest { kind: "texture" | "model" | "audio" | "hdri"; name: string; files: ImportFile[] }
+export interface ImportResult { ok?: boolean; error?: string; name?: string; files?: string[] }
+
 export const api = {
   catalog: (): Promise<AssetCatalog> => jget("/__editor/catalog"),
   maps: (): Promise<MapCatalogEntry[]> => jget("/__editor/maps"),
   loadMap: (file: string): Promise<MapDef> => jget(`/${file}`),
   saveMap: (id: string, def: MapDef): Promise<unknown> => jpost("/__editor/save", { id, def }),
+  importAsset: (req: ImportRequest): Promise<ImportResult> => jpost("/__editor/import", req) as Promise<ImportResult>,
 };

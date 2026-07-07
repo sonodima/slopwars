@@ -1,13 +1,15 @@
-// ─── Unified asset browser (bottom dock) ─────────────────────────────────────
-// One flat, searchable view of everything the pipeline discovered: placeable
-// Objects, Models (drag → "prop"), Audio (drag → "sound") and Textures. Models
-// and textures render an inline 3D thumbnail (turntable model / lit PBR sphere)
-// right inside their card — no separate preview pane. Cards are draggable onto
-// the viewport. Payloads: {kind:"object"|"model"|"audio", name}.
+// ─── Asset browser (bottom dock) — sectioned + importable ────────────────────
+// Everything the pipeline discovered, grouped into collapsible sections: placeable
+// Objects, Models (drag → "prop"), Textures, and Audio (drag → "sound"). Models
+// and textures render an inline 3D thumbnail right inside their card. Each asset
+// section has an Import button that brings new files into the project (written
+// under public/assets/ by the dev server) and reloads the catalog. Cards are
+// draggable onto the viewport. Payloads: {kind:"object"|"model"|"audio"|"texture", name}.
 import type { AssetCatalog } from "@slopwars/shared";
 import { objectCatalog } from "@game/objects";
 import { clear, el } from "./ui";
 import { ThumbRenderer } from "./preview";
+import { openImport, type ImportKind } from "./importer";
 
 export interface PanelCtx {
   catalog: AssetCatalog;
@@ -27,51 +29,87 @@ export function renderBrowser(host: HTMLElement, ctx: PanelCtx): void {
   let query = "";
 
   const bar = el("div", "browser-bar");
-  bar.append(el("span", "browser-title", "Assets Browser"));
+  bar.append(el("span", "browser-title", "Assets"));
   const search = el("input", "browser-search") as HTMLInputElement;
   search.type = "search"; search.placeholder = "Search assets…";
   search.addEventListener("input", () => { query = search.value.toLowerCase(); draw(); });
   bar.append(search);
 
   const body = el("div", "browser-body");
-  const grid = el("div", "asset-grid");
-  body.append(grid);
   host.append(bar, body);
 
   const match = (s: string): boolean => !query || s.toLowerCase().includes(query);
 
-  const draw = (): void => {
-    clear(grid);
+  // a titled section with an optional Import action + a card grid
+  const section = (title: string, importKind: ImportKind | null): { grid: HTMLElement; wrap: HTMLElement } => {
+    const wrap = el("div", "asset-section");
+    const head = el("div", "section-head");
+    head.append(el("span", "section-title", title));
+    if (importKind) {
+      const btn = el("button", "btn mini imp-btn", "＋ Import");
+      btn.title = `Import ${importKind}`;
+      btn.addEventListener("click", () => openImport(importKind, () => { void reload(); }));
+      head.append(btn);
+    }
+    const grid = el("div", "asset-grid");
+    wrap.append(head, grid);
+    return { grid, wrap };
+  };
 
+  const draw = (): void => {
+    clear(body);
+
+    const objs = section("Objects", null);
     for (const o of objectCatalog()) {
       if (!match(o.name)) continue;
       const c = card(o.name, CAT_ICON[o.category] ?? "◆", () => ({ kind: "object", name: o.name }));
       fillThumb(c, ctx.thumbs.objectThumb(o.name, o.category));
-      grid.append(c);
+      objs.grid.append(c);
     }
+    appendSection(body, objs, objs.grid.childElementCount);
+
+    const models = section("Models", "model");
     for (const m of ctx.catalog.models) {
       if (!match(m.name)) continue;
       const c = card(m.name, "▣", () => ({ kind: "model", name: m.name }));
       fillThumb(c, ctx.thumbs.modelThumb(m.gltf));
-      grid.append(c);
+      models.grid.append(c);
     }
-    for (const a of ctx.catalog.audio) {
-      if (!match(a.name)) continue;
-      const c = card(a.name, "♪", () => ({ kind: "audio", name: a.name }));
-      c.append(audioControls(ASSET(a.file)));
-      grid.append(c);
-    }
+    appendSection(body, models, models.grid.childElementCount);
+
+    const textures = section("Textures", "texture");
     for (const t of ctx.catalog.textures) {
       if (!match(t.name)) continue;
       const c = card(t.name, "▦", () => ({ kind: "texture", name: t.name }));
       fillThumb(c, ctx.thumbs.textureThumb(t.name, t.maps));
-      grid.append(c);
+      textures.grid.append(c);
     }
+    appendSection(body, textures, textures.grid.childElementCount);
 
-    if (grid.childElementCount === 0) grid.append(el("div", "empty", "Nothing here"));
+    const audio = section("Audio", "audio");
+    for (const a of ctx.catalog.audio) {
+      if (!match(a.name)) continue;
+      const c = card(a.name, "♪", () => ({ kind: "audio", name: a.name }));
+      c.append(audioControls(ASSET(a.file)));
+      audio.grid.append(c);
+    }
+    appendSection(body, audio, audio.grid.childElementCount);
+
+    if (!body.childElementCount) body.append(el("div", "empty", "Nothing here"));
+  };
+
+  // reload the catalog (after an import) and redraw
+  const reload = async (): Promise<void> => {
+    try { ctx.catalog = await ctx.reloadCatalog(); } catch { /* keep old */ }
+    draw();
   };
 
   draw();
+}
+
+/** show a section only when it has matching cards (keeps a search tidy) */
+function appendSection(body: HTMLElement, s: { grid: HTMLElement; wrap: HTMLElement }, count: number): void {
+  if (count > 0) body.append(s.wrap);
 }
 
 /** a draggable asset card carrying a placement payload; icon slot doubles as the

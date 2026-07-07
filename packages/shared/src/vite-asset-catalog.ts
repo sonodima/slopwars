@@ -132,6 +132,20 @@ export function scanMaps(root: string): MapCatalogEntry[] {
 function sanitize(name: string): string {
   return String(name).replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 64);
 }
+/** keep a submitted filename safe (basename only, sane charset) */
+function sanitizeFile(name: string): string {
+  return path.basename(String(name)).replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 128);
+}
+function extOf(file: string): string {
+  const m = /\.([a-zA-Z0-9]+)$/.exec(String(file));
+  return m ? m[1].toLowerCase() : "";
+}
+/** write a base64 data blob to `public/assets/<rel>`, creating dirs as needed */
+function writeAssetB64(root: string, rel: string, b64: string): void {
+  const abs = path.join(root, "public", "assets", rel);
+  fs.mkdirSync(path.dirname(abs), { recursive: true });
+  fs.writeFileSync(abs, Buffer.from(b64, "base64"));
+}
 function readBody(req: import("node:http").IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     let b = ""; req.on("data", (c) => (b += c)); req.on("end", () => resolve(b)); req.on("error", reject);
@@ -139,6 +153,82 @@ function readBody(req: import("node:http").IncomingMessage): Promise<string> {
 }
 function json(res: import("node:http").ServerResponse, code: number, data: unknown): void {
   res.statusCode = code; res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify(data));
+}
+
+/** one uploaded file: base64 `data` + original `name` (for the extension) and,
+ *  for texture sets, which PBR `slot` it fills. */
+export interface ImportFile { name: string; data: string; slot?: "color" | "normal" | "arm" }
+/** an editor / MCP asset-import request */
+export interface ImportRequest {
+  kind: "texture" | "model" | "audio" | "hdri";
+  name: string;
+  files: ImportFile[];
+}
+
+const IMG_EXT = new Set(["jpg", "jpeg", "png", "webp", "ktx", "ktx2", "hdr"]);
+const MODEL_EXT = new Set(["gltf", "glb", "bin", "jpg", "jpeg", "png", "webp", "ktx", "ktx2"]);
+const AUDIO_EXT = new Set(["mp3", "wav", "ogg", "m4a"]);
+
+/** write an imported asset into public/assets/ and return the created paths.
+ *  Shared by the editor UI and (later) the MCP server. */
+export function importAsset(root: string, req: ImportRequest): { ok?: boolean; error?: string; name?: string; files?: string[] } {
+  const name = sanitize(req.name);
+  const files = Array.isArray(req.files) ? req.files : [];
+  if (!files.length) return { error: "no files provided" };
+
+  if (req.kind === "texture") {
+    if (!name) return { error: "texture needs a name" };
+    const written: string[] = [];
+    for (const f of files) {
+      const slot = f.slot;
+      const ext = extOf(f.name);
+      if (!slot || !["color", "normal", "arm"].includes(slot)) return { error: `bad texture slot: ${slot}` };
+      if (!IMG_EXT.has(ext)) return { error: `unsupported image type: .${ext}` };
+      const rel = `textures/${name}/${slot}.${ext}`;
+      writeAssetB64(root, rel, f.data);
+      written.push(rel);
+    }
+    return { ok: true, name, files: written };
+  }
+
+  if (req.kind === "model") {
+    if (!name) return { error: "model needs a name" };
+    const hasGltf = files.some((f) => ["gltf", "glb"].includes(extOf(f.name)));
+    if (!hasGltf) return { error: "model needs a .gltf or .glb file" };
+    const written: string[] = [];
+    for (const f of files) {
+      const ext = extOf(f.name);
+      if (!MODEL_EXT.has(ext)) return { error: `unsupported model file: .${ext}` };
+      const rel = `models/${name}/${sanitizeFile(f.name)}`;
+      writeAssetB64(root, rel, f.data);
+      written.push(rel);
+    }
+    return { ok: true, name, files: written };
+  }
+
+  if (req.kind === "audio") {
+    const f = files[0];
+    const ext = extOf(f.name);
+    if (!AUDIO_EXT.has(ext)) return { error: `unsupported audio type: .${ext}` };
+    const base = name || sanitize(f.name.replace(/\.[^.]+$/, ""));
+    if (!base) return { error: "audio needs a name" };
+    const rel = `audio/${base}.${ext}`;
+    writeAssetB64(root, rel, f.data);
+    return { ok: true, name: base, files: [rel] };
+  }
+
+  if (req.kind === "hdri") {
+    const f = files[0];
+    const ext = extOf(f.name) || "hdr";
+    if (!["hdr", "exr"].includes(ext)) return { error: `unsupported hdri type: .${ext}` };
+    const base = name || sanitize(f.name.replace(/\.[^.]+$/, ""));
+    if (!base) return { error: "hdri needs a name" };
+    const rel = `hdri/${base}.${ext}`;
+    writeAssetB64(root, rel, f.data);
+    return { ok: true, name: base, files: [rel] };
+  }
+
+  return { error: `unknown import kind: ${req.kind}` };
 }
 
 export function assetCatalogPlugin(opts: Options = {}): Plugin {
@@ -194,6 +284,16 @@ export function assetCatalogPlugin(opts: Options = {}): Plugin {
             fs.mkdirSync(mapsDir, { recursive: true });
             fs.writeFileSync(path.join(mapsDir, `${name}.json`), JSON.stringify(def, null, 2) + "\n");
             json(res, 200, { ok: true, file: `maps/${name}.json` });
+          }).catch((e) => json(res, 500, { error: String(e) }));
+          return;
+        }
+
+        // ── asset import: write files into public/assets/ so the scanner finds
+        //    them on the next catalog load (the same git-first flow as maps). ──
+        if (req.method === "POST" && url === "/__editor/import") {
+          readBody(req).then((body) => {
+            const result = importAsset(root, JSON.parse(body));
+            json(res, result.error ? 400 : 200, result);
           }).catch((e) => json(res, 500, { error: String(e) }));
           return;
         }
