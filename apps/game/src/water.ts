@@ -11,10 +11,49 @@ import {
   Script, Texture2D, TextureFormat, TextureWrapMode, Vector4,
 } from "@galacean/engine";
 
-const NORMAL_SIZE = 128;
+const NORMAL_SIZE = 256;
 const normalCache = new WeakMap<Engine, Texture2D>();
 
-/** procedural tangent-space wave normal (summed sine ripples) — built once per
+// ── tileable fractal noise (the seamlessness fix) ────────────────────────────
+// The old surface summed three low-frequency sines: seamless, but a small,
+// instantly-recognisable motif that repeats ~s/4 times across the plane — the
+// "moving squares" you saw were that grid scrolling as one. Fractal (fBm) value
+// noise instead layers octaves at 3/6/12/24 cells, so detail exists at every
+// scale and there is no single dominant tile the eye can lock onto. Each octave
+// wraps on its own integer lattice, so the whole field is still perfectly
+// tileable — the repeat is there but no longer visible.
+
+/** hash a wrapped lattice point → pseudo-random value in [0,1) */
+function hash2(x: number, y: number): number {
+  const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453;
+  return s - Math.floor(s);
+}
+/** quintic smoothstep — C² continuous so the noise has no diagonal creases */
+function fade(t: number): number { return t * t * t * (t * (t * 6 - 15) + 10); }
+
+/** value noise at (u,v)∈[0,1) with `f` cells across the tile; wraps mod `f` so
+ *  it is seamless when the texture repeats. */
+function tileNoise(u: number, v: number, f: number): number {
+  const x = u * f, y = v * f;
+  const xi = Math.floor(x), yi = Math.floor(y);
+  const fx = fade(x - xi), fy = fade(y - yi);
+  const x0 = ((xi % f) + f) % f, y0 = ((yi % f) + f) % f;
+  const x1 = (x0 + 1) % f, y1 = (y0 + 1) % f;
+  const a = hash2(x0, y0), b = hash2(x1, y0), c = hash2(x0, y1), d = hash2(x1, y1);
+  const top = a + (b - a) * fx, bot = c + (d - c) * fx;
+  return top + (bot - top) * fy;
+}
+// octave frequencies (integers → tileable) and amplitudes; `AMP_SUM` normalises
+const OCTAVES: [number, number][] = [[3, 1], [6, 0.5], [12, 0.26], [24, 0.14]];
+const AMP_SUM = OCTAVES.reduce((s, [, a]) => s + a, 0);
+/** fractal height field ∈ ~[-0.5, 0.5] */
+function waterHeight(u: number, v: number): number {
+  let h = 0;
+  for (const [f, a] of OCTAVES) h += (tileNoise(u, v, f) - 0.5) * a;
+  return h / AMP_SUM;
+}
+
+/** procedural tangent-space wave normal (fractal ripples) — built once per
  *  engine and reused by every water surface. */
 function waveNormal(engine: Engine): Texture2D {
   const cached = normalCache.get(engine);
@@ -23,21 +62,14 @@ function waveNormal(engine: Engine): Texture2D {
   tex.wrapModeU = TextureWrapMode.Repeat;
   tex.wrapModeV = TextureWrapMode.Repeat;
 
-  const TAU = Math.PI * 2;
-  // directional ripples (dirU, dirV, frequency) summed into a seamless height field
-  const waves: [number, number, number][] = [[1, 0.6, 3], [-0.7, 1.1, 5], [1.3, -0.4, 8]];
-  const height = (u: number, v: number): number => {
-    let h = 0;
-    for (const [du, dv, f] of waves) h += Math.sin((u * du + v * dv) * TAU * f) / f;
-    return h;
-  };
   const eps = 1 / NORMAL_SIZE;
+  const slope = NORMAL_SIZE * 0.16;   // gradient → normal tilt (tuned for gentle ripples)
   const buf = new Uint8Array(NORMAL_SIZE * NORMAL_SIZE * 4);
   for (let y = 0; y < NORMAL_SIZE; y++) {
     for (let x = 0; x < NORMAL_SIZE; x++) {
       const u = x / NORMAL_SIZE, v = y / NORMAL_SIZE;
-      const nx = (height(u - eps, v) - height(u + eps, v)) * 2.2;
-      const nz = (height(u, v - eps) - height(u, v + eps)) * 2.2;
+      const nx = (waterHeight(u - eps, v) - waterHeight(u + eps, v)) * slope;
+      const nz = (waterHeight(u, v - eps) - waterHeight(u, v + eps)) * slope;
       const inv = 1 / Math.hypot(nx, 1, nz);
       const i = (y * NORMAL_SIZE + x) * 4;
       buf[i] = Math.round((nx * inv * 0.5 + 0.5) * 255);   // tangent (X)
@@ -79,14 +111,14 @@ export function buildWater(engine: Engine, root: Entity, x: number, y: number, z
   m.metallic = 0.0;
   m.ior = 1.33;                // water
   m.normalTexture = waveNormal(engine);
-  m.normalTextureIntensity = 0.55;
+  m.normalTextureIntensity = 0.7;
   m.isTransparent = true;
   m.refractionMode = RefractionMode.Planar;
   m.transmission = 1.0;        // refract the scene behind (uses camera opaque texture)
   m.attenuationColor = new Color(0.16, 0.46, 0.5, 1);
   m.attenuationDistance = 6;   // deeper → more teal
   m.thickness = 1.2;
-  const tiling = Math.max(1, s / 4);
+  const tiling = Math.max(1, s / 6);   // larger ripples, fewer repeats across the plane
   m.tilingOffset = new Vector4(tiling, tiling, 0, 0);
   r.setMaterial(m);
   r.receiveShadows = true;

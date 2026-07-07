@@ -459,27 +459,42 @@ export class Viewport {
     return top;
   }
 
-  /** draw a glowing wireframe box around the selected object's world bounds */
+  /** highlight a selection by drawing a soft glowing silhouette hugging the
+   *  object's projected bounds — the convex hull of its 8 world corners, filled
+   *  faintly and rimmed with a bloom. Reads as a glow, not a hard wire box. */
   private drawHighlight(b: Box): void {
-    const ctx = this.octx;
     const [x0, y0, z0] = b.min, [x1, y1, z1] = b.max;
     const corners: Tuple3[] = [
       [x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1],
       [x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1],
     ];
-    const pts = corners.map((c) => this.project(c));
-    const edges = [[0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [5, 6], [6, 7], [7, 4], [0, 4], [1, 5], [2, 6], [3, 7]];
+    const pts: { x: number; y: number }[] = [];
+    for (const c of corners) { const p = this.project(c); if (p.visible) pts.push({ x: p.x, y: p.y }); }
+    if (pts.length < 3) return;                 // mostly behind the camera → skip
+    const hull = convexHull(pts);
+    if (hull.length < 3) return;
+
+    const ctx = this.octx;
     ctx.save();
-    ctx.strokeStyle = "#f5a623";
-    ctx.shadowColor = "#f5a623"; ctx.shadowBlur = 8;   // glow
-    ctx.lineWidth = 1.6;
-    ctx.beginPath();
-    for (const [a, d] of edges) {
-      const pa = pts[a], pb = pts[d];
-      if (!pa.visible || !pb.visible) continue;
-      ctx.moveTo(pa.x, pa.y); ctx.lineTo(pb.x, pb.y);
-    }
-    ctx.stroke();
+    ctx.lineJoin = "round";
+    const trace = (): void => {
+      ctx.beginPath();
+      ctx.moveTo(hull[0].x, hull[0].y);
+      for (let i = 1; i < hull.length; i++) ctx.lineTo(hull[i].x, hull[i].y);
+      ctx.closePath();
+    };
+    // faint interior wash so the whole object reads as "lit"
+    trace();
+    ctx.fillStyle = "rgba(245,166,35,0.09)";
+    ctx.fill();
+    // outer bloom + crisp inner rim (two passes = a soft glowing edge)
+    ctx.shadowColor = "rgba(245,166,35,0.95)";
+    ctx.shadowBlur = 16;
+    ctx.strokeStyle = "rgba(245,166,35,0.85)"; ctx.lineWidth = 2.4;
+    trace(); ctx.stroke();
+    ctx.shadowBlur = 4;
+    ctx.strokeStyle = "rgba(255,221,140,0.95)"; ctx.lineWidth = 1.1;
+    trace(); ctx.stroke();
     ctx.restore();
   }
 
@@ -876,6 +891,28 @@ function rayBox(o: number[], d: number[], b: Box): number | null {
     }
   }
   return tmin > 0 ? tmin : null;
+}
+
+/** 2D convex hull (Andrew's monotone chain) of screen points, CCW, no repeat of
+ *  the first point. Used to draw a glow silhouette hugging a projected box. */
+function convexHull(pts: { x: number; y: number }[]): { x: number; y: number }[] {
+  if (pts.length < 3) return pts.slice();
+  const p = pts.slice().sort((a, b) => (a.x - b.x) || (a.y - b.y));
+  const cross = (o: { x: number; y: number }, a: { x: number; y: number }, b: { x: number; y: number }): number =>
+    (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+  const lower: { x: number; y: number }[] = [];
+  for (const q of p) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], q) <= 0) lower.pop();
+    lower.push(q);
+  }
+  const upper: { x: number; y: number }[] = [];
+  for (let i = p.length - 1; i >= 0; i--) {
+    const q = p[i];
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], q) <= 0) upper.pop();
+    upper.push(q);
+  }
+  lower.pop(); upper.pop();
+  return lower.concat(upper);
 }
 
 function markerColor(type: string): string {

@@ -117,8 +117,14 @@
   .imp-hint{color:var(--dim);font-size:11px;line-height:1.5}
   .imp-row{display:flex;align-items:center;gap:10px}
   .imp-label{color:var(--dim);min-width:150px;font-size:12px}
-  .imp-file,.imp-text{flex:1;min-width:0;background:var(--panel2);color:var(--text);border:1px solid var(--line2);border-radius:4px;padding:5px 7px;font-size:12px;font-family:var(--font)}
-  .imp-text:focus,.imp-file:focus{outline:none;border-color:var(--accent)}
+  .imp-text{flex:1;min-width:0;background:var(--panel2);color:var(--text);border:1px solid var(--line2);border-radius:4px;padding:5px 7px;font-size:12px;font-family:var(--font)}
+  .imp-text:focus{outline:none;border-color:var(--accent)}
+  /* drag-drop file zone */
+  .imp-drop{flex:1;min-width:0;display:flex;align-items:center;justify-content:center;text-align:center;background:var(--panel2);border:1px dashed var(--line2);border-radius:5px;padding:11px 10px;font-size:12px;color:var(--dim);cursor:pointer;transition:border-color .12s,background .12s,color .12s}
+  .imp-drop:hover{border-color:var(--accent2);color:var(--text)}
+  .imp-drop.drop{border-color:var(--accent);background:#12233a;color:#fff}
+  .imp-drop.has{border-style:solid;border-color:var(--line2);color:var(--text)}
+  .imp-drop-hint{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
   .imp-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:6px}
   .asset-card{background:var(--panel2);border:1px solid var(--line2);border-radius:5px;padding:7px;display:flex;flex-direction:column;align-items:center;gap:4px;position:relative;text-align:center}
   .asset-card.grab{cursor:grab}
