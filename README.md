@@ -27,6 +27,7 @@ This is a **pnpm workspace** monorepo:
 |---|---|---|
 | **game** | `apps/game/` | The runtime client that players use — this is what gets deployed. |
 | **editor** | `apps/editor/` | Desktop/browser map editor (local dev tool only, not deployed). |
+| **mcp** | `apps/mcp/` | MCP server exposing editor actions to AI tools (Claude Code, Codex, …). See `apps/mcp/README.md`. |
 | **shared** | `packages/shared/` | Map schema, asset-catalog types, and the asset-scanner Vite plugin used by both. |
 
 Shared, file-driven asset directories at the repo root:

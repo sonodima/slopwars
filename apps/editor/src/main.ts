@@ -14,6 +14,7 @@ import { renderInspector, setInspectorCatalog, setInspectorThumbs } from "./insp
 import { renderBrowser, Payload } from "./panels";
 import { mountResizers } from "./layout";
 import { objectDropScale } from "@game/objects";
+import { startMcpBridge } from "./mcpbridge";
 import { api } from "./api";
 import { el, button, toast, modal } from "./ui";
 
@@ -57,6 +58,16 @@ async function main(): Promise<void> {
     .then(() => { viewport.setGraphics("high"); if (state.map) return viewport.render(state.map); })
     .catch((e) => { console.error("viewport init failed (data editing still works):", e); toast("3D viewport unavailable", true); });
   thumbs.init().catch(() => { /* thumbnails optional */ });
+
+  // MCP bridge: lets external AI tools drive this editor while it's open
+  startMcpBridge({
+    viewport,
+    getCatalog: () => catalog,
+    reloadCatalog: async () => { catalog = await api.catalog(); setInspectorCatalog(catalog); return catalog; },
+    saveMap,
+    loadMap: openMap,
+    newMap,
+  });
 }
 
 // ── keyboard: undo/redo · clipboard · delete · grouping ──────────────────────

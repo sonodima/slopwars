@@ -231,6 +231,12 @@ export function importAsset(root: string, req: ImportRequest): { ok?: boolean; e
   return { error: `unknown import kind: ${req.kind}` };
 }
 
+// ── MCP bridge queue (module state; dev server only) ─────────────────────────
+interface McpCommand { id: string; cmd: unknown }
+let mcpPending: McpCommand[] = [];
+const mcpResults = new Map<string, unknown>();
+let mcpSeq = 0;
+
 export function assetCatalogPlugin(opts: Options = {}): Plugin {
   const root = path.resolve(opts.root ?? process.cwd());
   const editor = opts.editor ?? false;
@@ -294,6 +300,42 @@ export function assetCatalogPlugin(opts: Options = {}): Plugin {
           readBody(req).then((body) => {
             const result = importAsset(root, JSON.parse(body));
             json(res, result.error ? 400 : 200, result);
+          }).catch((e) => json(res, 500, { error: String(e) }));
+          return;
+        }
+
+        // ── MCP bridge: a command queue between an external MCP server and the
+        //    running editor page. The MCP server POSTs a command to /cmd and the
+        //    request is held open until the editor (which long-polls /poll)
+        //    executes it and POSTs the result back to /result. ──
+        if (req.method === "POST" && url === "/__editor/mcp/cmd") {
+          readBody(req).then((body) => {
+            const id = `c${(++mcpSeq)}_${Date.now().toString(36)}`;
+            mcpPending.push({ id, cmd: JSON.parse(body || "{}") });
+            const started = Date.now();
+            const timer = setInterval(() => {
+              if (mcpResults.has(id)) {
+                clearInterval(timer);
+                const r = mcpResults.get(id); mcpResults.delete(id);
+                json(res, 200, { ok: true, result: r });
+              } else if (Date.now() - started > 15000) {
+                clearInterval(timer);
+                mcpPending = mcpPending.filter((p) => p.id !== id);
+                json(res, 504, { error: "editor did not respond — is the editor page open in a browser?" });
+              }
+            }, 50);
+          }).catch((e) => json(res, 500, { error: String(e) }));
+          return;
+        }
+        if (req.method === "GET" && url === "/__editor/mcp/poll") {
+          const out = mcpPending; mcpPending = [];
+          return json(res, 200, out);
+        }
+        if (req.method === "POST" && url === "/__editor/mcp/result") {
+          readBody(req).then((body) => {
+            const { id, result } = JSON.parse(body);
+            if (id) mcpResults.set(id, result);
+            json(res, 200, { ok: true });
           }).catch((e) => json(res, 500, { error: String(e) }));
           return;
         }

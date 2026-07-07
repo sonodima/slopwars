@@ -105,7 +105,8 @@ export class Viewport {
 
   async init(canvasId: string): Promise<void> {
     this.canvas = document.getElementById(canvasId) as HTMLCanvasElement;
-    const engine = await WebGLEngine.create({ canvas: this.canvas });
+    // preserveDrawingBuffer lets the MCP bridge read the canvas back as a PNG
+    const engine = await WebGLEngine.create({ canvas: this.canvas, graphicDeviceOptions: { preserveDrawingBuffer: true } });
     this.engine = engine;
     engine.canvas.resizeByClientSize();
 
@@ -250,6 +251,30 @@ export class Viewport {
     } else {
       this.focus(o.at[0], o.at[1], o.at[2], 10);
     }
+  }
+
+  // ── programmatic camera + capture (used by the MCP bridge) ─────────────────
+  /** current camera pose for tools to read back */
+  cameraState(): { pos: Tuple3; yaw: number; pitch: number } {
+    return { pos: [this.pos.x, this.pos.y, this.pos.z], yaw: this.yaw, pitch: this.pitch };
+  }
+  /** set the camera pose absolutely (any field optional) */
+  setCamera(pos?: Tuple3, yaw?: number, pitch?: number): void {
+    if (pos) this.pos.set(pos[0], pos[1], pos[2]);
+    if (typeof yaw === "number") this.yaw = yaw;
+    if (typeof pitch === "number") this.pitch = clamp(pitch, -1.5, 1.5);
+    this.applyCamera();
+  }
+  /** rotate (orbit look) the camera by deltas in radians, and/or dolly forward */
+  moveCamera(dYaw = 0, dPitch = 0, dolly = 0): void {
+    this.yaw += dYaw;
+    this.pitch = clamp(this.pitch + dPitch, -1.5, 1.5);
+    if (dolly) { const f = this.forward(); this.pos.x += f[0] * dolly; this.pos.y += f[1] * dolly; this.pos.z += f[2] * dolly; }
+    this.applyCamera();
+  }
+  /** PNG data-URL of the current viewport (needs preserveDrawingBuffer) */
+  screenshot(): string | null {
+    try { return this.canvas.toDataURL("image/png"); } catch { return null; }
   }
 
   // ── env (mirrors the game's applyEnv so the preview is faithful) ───────────

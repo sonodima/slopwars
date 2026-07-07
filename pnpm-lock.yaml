@@ -50,6 +50,8 @@ importers:
         specifier: ^7.0.0
         version: 7.3.6
 
+  apps/mcp: {}
+
   packages/shared:
     devDependencies:
       vite:
