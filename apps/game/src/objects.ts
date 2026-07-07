@@ -13,6 +13,10 @@ import { assetUrl } from "./assets";
 import { buildWater, WATER_LOOK, type WaterLook } from "./water";
 import { buildGlass, GLASS_LOOK, type GlassLook } from "./glass";
 import { buildParticles, PARTICLE_LOOK, type ParticleLook } from "./particles";
+import {
+  buildPointLight, buildDirLight, buildSpotLight, POINT_LIGHT, DIR_LIGHT, SPOT_LIGHT,
+  type PointLightLook, type DirLightLook, type SpotLightLook,
+} from "./lights";
 import type { MapDef, Placement } from "./maps/schema";
 
 export const BARREL_HP = 120;
@@ -224,12 +228,17 @@ defineObject<ParticleLook & { tex: string }>("particles", {
   },
 });
 
+// `tex` points each preset at its realistic sprite folder (public/assets/textures/
+// {fire,smoke}/) — a flame teardrop and a billowy smoke puff. Drop a different
+// sheet into that folder to restyle every fire/smoke in the game.
 definePreset<ParticleLook & { tex: string }>("fire", "particles", {
+  tex: "fire",
   rate: 46, lifetime: 1.1, speed: 1.6, size: 0.7, growth: 0.25, spread: 16,
   gravity: -0.35, color: [1.0, 0.55, 0.14], opacity: 0.9, additive: true, world: true,
 }, "entity");
 
 definePreset<ParticleLook & { tex: string }>("smoke", "particles", {
+  tex: "smoke",
   rate: 14, lifetime: 3.2, speed: 0.8, size: 0.8, growth: 2.6, spread: 22,
   gravity: -0.1, color: [0.28, 0.28, 0.3], opacity: 0.45, additive: false, world: true,
 }, "entity");
@@ -252,14 +261,39 @@ defineObject<{ hp: number; scale?: number; radius: number; height: number }>("ba
   },
 });
 
-/** hanging/standing lantern that also casts a warm point light */
+// ─── standalone light sources (point / directional / spot) ────────────────────
+// Pure lights, no model — the Unity-style building block. Group one with any prop
+// (a lantern model, a neon sign, a torch) in the editor to make it glow, instead
+// of baking a light into a bespoke model object. Colour is an rgb triple so the
+// inspector shows a colour picker; `intensity` is a brightness multiplier. Editor
+// rebuilds run the same build(), so the light lights the viewport live as you tune
+// it. See lights.ts for the controls each type exposes.
+defineObject<PointLightLook>("pointlight", {
+  defaults: { ...POINT_LIGHT }, category: "light",
+  build(b, t, p) { b.track(buildPointLight(b.root, t.at, p)); },
+});
+defineObject<DirLightLook>("dirlight", {
+  defaults: { ...DIR_LIGHT }, category: "light",
+  build(b, t, p) { b.track(buildDirLight(b.root, t.at, t.rot, p)); },
+});
+defineObject<SpotLightLook>("spotlight", {
+  defaults: { ...SPOT_LIGHT }, category: "light",
+  build(b, t, p) { b.track(buildSpotLight(b.root, t.at, t.rot, p)); },
+});
+
+/** hanging/standing lantern that also casts a warm point light. Kept for existing
+ *  maps and one-drop convenience — the modern way is a plain lantern `prop` grouped
+ *  with a `pointlight`, but this bundles both for a quick warm glow. */
 defineObject<{ color: number; distance: number; scale?: number }>("lantern", {
   defaults: { color: 0xe69e52, distance: 8 },
   category: "light",
   build(b, t, p) {
     const [x, y, z] = t.at;
     const m = p.scale ?? 1;
-    const e = b.placeModelTf("Lantern_01", [x, y, z], [0, t.rot[1], 0], [t.scale[0] * m, t.scale[1] * m, t.scale[2] * m]) ?? b.root.createChild("lamp");
+    // placeModelTf already tracks the model entity for editor picking; only the
+    // (rare) fallback lamp — created when the model fails to load — needs tracking.
+    const model = b.placeModelTf("Lantern_01", [x, y, z], [0, t.rot[1], 0], [t.scale[0] * m, t.scale[1] * m, t.scale[2] * m]);
+    const e = model ?? b.track(b.root.createChild("lamp"));
     e.transform.setPosition(x, y, z);
     const l = e.addComponent(PointLight);
     l.color = new Color(((p.color >> 16) & 255) / 255, ((p.color >> 8) & 255) / 255, (p.color & 255) / 255, 1);

@@ -15,7 +15,7 @@ import { applyFogFalloff, applyPost, applyShadows } from "@game/rendersettings";
 import { GameMap } from "@game/map";
 import { GameModels, loadModels } from "@game/models";
 import { resolveTextures, type MapTextures } from "@game/textures";
-import { mapTextureFolders } from "@game/objects";
+import { mapTextureFolders, objectCategory } from "@game/objects";
 import { loadHDRCube } from "@game/assets";
 import "@game/objects"; // side effect: register built-in object types
 import { state } from "./state";
@@ -948,5 +948,8 @@ function markerColor(type: string): string {
   if (type === "powerup") return "#ffca28";
   if (type === "sound") return "#ab47bc";
   if (type === "box" || type === "water") return "#78909c";
+  // lights (point/dir/spot/lantern) glow yellow so they read at a glance even
+  // though the light itself has no mesh to click in 3D — only this marker dot.
+  if (objectCategory(type) === "light") return "#ffd54f";
   return "#cfc3a8";
 }
