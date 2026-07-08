@@ -2,10 +2,17 @@ import { defineConfig, Plugin } from "vite";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { assetCatalogPlugin, scanMaps } from "../../packages/shared/src/vite-asset-catalog";
+// @ts-expect-error — plain .mjs helper, no type declarations
+import { vendorPhysx } from "../../scripts/vendor-physx.mjs";
 
 const appDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(appDir, "../..");
 const shared = path.resolve(repoRoot, "packages/shared/src/index.ts");
+
+// Vendor the PhysX runtime out of node_modules into public/physx up-front (synchronous,
+// at config load — before the dev server starts serving or a build copies publicDir),
+// so the game self-hosts it (no runtime CDN) without committing the wasm to the repo.
+try { vendorPhysx(repoRoot); } catch (e) { console.warn("[vite] PhysX vendor skipped:", String(e)); }
 
 /** Emit precache.json listing the app shell (JS/CSS + html + icons + maps) so the
  *  service worker can cache it on install and boot fully offline. The large
