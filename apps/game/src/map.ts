@@ -39,6 +39,9 @@ export interface Barrel { pos: Vec3; entity: Entity | null; solid: AABB; hp: num
  *  `clip` is the source name, kept so a rebuild can re-adopt the still-playing
  *  element (the editor rebuilds on every edit — music/ambience must not restart). */
 export interface MapSound { clip: string; pos: Vec3; el: HTMLAudioElement; radius: number; volume: number; spatial: boolean }
+/** a live particle emitter placed in the map, keyed so a rebuild can re-adopt it
+ *  (the editor rebuilds every edit — moving/tuning an emitter must not restart it). */
+export interface MapParticle { key: string; entity: Entity }
 
 /** a dynamic (physics-simulated) prop: a movable rigid body the PhysicsWorld
  *  integrates each frame (gravity, collisions, impulses from bullets/blasts/the
@@ -69,6 +72,13 @@ export class GameMap {
   /** sounds from the previous build, kept alive so a rebuild can re-adopt a matching
    *  still-playing element instead of restarting it (see load()/claimSound). */
   private reusableSounds: MapSound[] = [];
+  /** live particle emitters, and the previous build's kept for re-adoption. They live
+   *  under `fxRoot` (which survives a rebuild) so a moved/tuned emitter keeps flowing. */
+  particles: MapParticle[] = [];
+  private reusableParticles: MapParticle[] = [];
+  /** persistent parent for pooled particle emitters — created once and NOT torn down
+   *  on rebuild (the map root is), so re-adopted emitters keep their live particles. */
+  fxRoot!: Entity;
   /** dynamic physics props (simulated by the game's PhysicsWorld; ignored by the editor) */
   dynBodies: DynBody[] = [];
   tris = 0;
@@ -84,24 +94,42 @@ export class GameMap {
    *  repeatedly — the previous map's entities are torn down first. */
   load(engine: Engine, parent: Entity, tex: MapTextures, models: GameModels, def: MapDef, matDefs?: Map<string, MaterialDef>, modelMeta?: Map<string, ModelMeta>): void {
     if (this.root) this.root.destroy();
-    // keep the previous build's sounds alive so the new build can re-adopt matching,
-    // still-playing elements (continuous ambience/music survives an editor rebuild).
+    // keep the previous build's sounds + particle emitters alive so the new build can
+    // re-adopt matching ones (continuous ambience/music + particle streams survive an
+    // editor rebuild instead of restarting from scratch).
     this.reusableSounds = this.sounds;
+    this.reusableParticles = this.particles;
     this.solids = [];
     this.spawns = [];
     this.pickupSpots = [];
     this.powerupSpots = [];
     this.barrels = [];
     this.sounds = [];
+    this.particles = [];
     this.dynBodies = [];
     this.tris = 0;
     this.root = parent.createChild("map");
+    // the fx root persists across rebuilds (unlike the map root), so pooled emitters
+    // keep their live particles when re-adopted; create it once under the same parent.
+    if (!this.fxRoot || this.fxRoot.destroyed) this.fxRoot = parent.createChild("map-fx");
     this.meta = def.meta;
     this.env = def.env;
     loadMapDef(new MapBuilder(engine, this.root, tex, models, this, matDefs, modelMeta), def);
-    // any leftover (un-readopted) sounds belonged to placements that are gone → stop them
+    // any leftover (un-readopted) sounds/particles belonged to placements that are gone
     for (const s of this.reusableSounds) { try { s.el.pause(); } catch { /* ignore */ } }
     this.reusableSounds = [];
+    for (const p of this.reusableParticles) { try { p.entity.destroy(); } catch { /* ignore */ } }
+    this.reusableParticles = [];
+  }
+
+  /** claim a live emitter from the previous build matching `key`, so a rebuild reuses
+   *  it (keeping its in-flight particles) instead of spawning a fresh one. */
+  claimParticle(key: string): Entity | null {
+    const i = this.reusableParticles.findIndex((p) => p.key === key);
+    if (i < 0) return null;
+    const e = this.reusableParticles[i].entity;
+    this.reusableParticles.splice(i, 1);
+    return e;
   }
 
   /** claim a still-alive audio element from the previous build matching `clip`, so a

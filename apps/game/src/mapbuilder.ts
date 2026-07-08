@@ -4,13 +4,14 @@
 // Both brush interpretation (loader) and named object types (objects.ts) build
 // exclusively through this, so there is one place that knows how to make a wall.
 import {
-  BoundingBox, Engine, Entity, MeshRenderer, PrimitiveMesh, Quaternion,
+  BoundingBox, Engine, Entity, MeshRenderer, PrimitiveMesh, Quaternion, Texture2D,
 } from "@galacean/engine";
+import { buildParticles, reconfigureParticles, type ParticleLook } from "./particles";
 import catalog from "virtual:asset-catalog";
 import { GameModels, instantiate } from "./models";
 import { MapTextures, PbrSet, DEFAULT_FOLDER } from "./textures";
 import { MaterialLibrary } from "./materials";
-import type { MaterialDef, ModelMeta } from "@slopwars/shared";
+import type { GroupDef, MaterialDef, ModelMeta, Tuple3 } from "@slopwars/shared";
 import { rotateEuler } from "@slopwars/shared";
 import type { AABB, GameMap } from "./map";
 
@@ -55,7 +56,28 @@ export class MapBuilder {
     this.modelMeta = modelMeta ?? MODEL_META;
   }
 
-  pushSolid(a: AABB): void { this.map.solids.push(a); }
+  /** while building the members of a physics group, static collision is suppressed —
+   *  the group's single dynamic body is the only collider (see beginGroupBody). */
+  suppressSolids = false;
+  private groupRootStack: Entity[] = [];
+
+  pushSolid(a: AABB): void { if (this.suppressSolids) return; this.map.solids.push(a); }
+
+  /** build (or re-adopt) a pooled particle emitter identified by `key`. Emitters live
+   *  under the map's persistent fxRoot, so a rebuild re-adopts a matching one and keeps
+   *  its in-flight particles flowing (a moved/tuned emitter never restarts). */
+  buildParticleEmitter(key: string, x: number, y: number, z: number, look: Partial<ParticleLook>, sprite: Texture2D | null): Entity {
+    const reused = this.map.claimParticle(key);
+    if (reused && !reused.destroyed && reconfigureParticles(reused, look, sprite, this.engine)) {
+      reused.isActive = true;
+      reused.transform.setPosition(x, y, z);
+      this.map.particles.push({ key, entity: reused });
+      return reused;
+    }
+    const e = buildParticles(this.engine, this.map.fxRoot, x, y, z, look, sprite);
+    this.map.particles.push({ key, entity: e });
+    return e;
+  }
 
   /** raw PBR texture set for a folder (falls back to the default) — for sprite
    *  consumers like the particle emitter that need an image, not a material. */
@@ -155,6 +177,7 @@ export class MapBuilder {
    *  blocks the player; "auto" (default) pushes one AABB hugging the whole mesh.
    *  `at`/`rot`/`scale` are the placement's WORLD transform (groups already resolved). */
   pushModelSolids(id: string, entity: Entity, at: Vec3T, rot: Vec3T, scale: Vec3T): void {
+    if (this.suppressSolids) return;
     const meta = this.modelMeta.get(id) ?? {};
     const boxes = meta.collision === "manual" ? (meta.collisionBoxes ?? []) : null;
     if (boxes) {
@@ -208,6 +231,7 @@ export class MapBuilder {
    *  from its mesh bounds. `mass` (kg) governs how easily it's shoved. The simulation
    *  lives in the game (PhysicsWorld); the editor just leaves the prop where placed. */
   pushDynamicBody(id: string, entity: Entity, at: Vec3T, rot: Vec3T, scale: Vec3T, mass: number): void {
+    if (this.suppressSolids) return;   // inside a physics group → the group body owns collision
     const meta = this.modelMeta.get(id) ?? {};
     const ms = typeof meta.scale === "number" && meta.scale > 0 ? meta.scale : 1;
     const base = typeof meta.base === "number" ? meta.base : 0;
@@ -245,6 +269,41 @@ export class MapBuilder {
     this.map.dynBodies.push({
       entity, mass: Math.max(0.05, mass), half, off, shape, pos,
       vel: { x: 0, y: 0, z: 0 }, q, angVel: { x: 0, y: 0, z: 0 }, onGround: false, rest: 0,
+    });
+  }
+
+  /** open a physics group: create one body-root entity at the group's world origin
+   *  `at`, redirect subsequent builds into it, and suppress their static collision.
+   *  The loader then builds the group's members (at transforms relative to `at`) and
+   *  calls endGroupBody. Returns the body root (for the caller to build under). */
+  beginGroupBody(at: Tuple3): Entity {
+    const e = this.root.createChild("group-body");
+    e.transform.setPosition(at[0], at[1], at[2]);
+    this.groupRootStack.push(this.root);
+    this.root = e;
+    this.suppressSolids = true;
+    return e;
+  }
+
+  /** close a physics group opened with beginGroupBody: restore the build root, derive
+   *  the body's collider from the combined bounds of everything just built under it,
+   *  and register it as a dynamic body the PhysicsWorld simulates as a single unit. */
+  endGroupBody(g: GroupDef, at: Tuple3): void {
+    const e = this.root;                         // the group-body entity
+    this.root = this.groupRootStack.pop() ?? this.root;
+    this.suppressSolids = false;
+    // collider = combined world AABB of the members' meshes (lights add nothing)
+    const aabb = this.modelAABB(e);
+    let half: { x: number; y: number; z: number };
+    let off: { x: number; y: number; z: number };
+    if (aabb) {
+      half = { x: (aabb.max.x - aabb.min.x) / 2, y: (aabb.max.y - aabb.min.y) / 2, z: (aabb.max.z - aabb.min.z) / 2 };
+      off = { x: (aabb.min.x + aabb.max.x) / 2 - at[0], y: (aabb.min.y + aabb.max.y) / 2 - at[1], z: (aabb.min.z + aabb.max.z) / 2 - at[2] };
+    } else { half = { x: 0.4, y: 0.4, z: 0.4 }; off = { x: 0, y: 0.4, z: 0 }; }
+    const mass = typeof g.mass === "number" && g.mass > 0 ? g.mass : 8;
+    this.map.dynBodies.push({
+      entity: e, mass, half, off, shape: undefined, pos: { x: at[0], y: at[1], z: at[2] },
+      vel: { x: 0, y: 0, z: 0 }, q: new Quaternion(), angVel: { x: 0, y: 0, z: 0 }, onGround: false, rest: 0,
     });
   }
 

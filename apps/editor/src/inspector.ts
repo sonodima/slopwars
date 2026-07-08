@@ -237,6 +237,22 @@ function groupInspector(host: HTMLElement, g: { id: string; name: string }): voi
   host.append(vecField("Location", at, push, 0.1));
   host.append(vecField("Rotation", rot, push, 1));
   host.append(vecField("Scale", scl, push, 0.05));
+
+  // Physics: simulate the whole group as one movable rigid body (a lantern = mesh +
+  // light, a crate stack…). Its members become one shovable body; toggling it on
+  // seeds a default mass. Only meaningful in the game (the editor leaves it static).
+  const def = state.groupById(g.id);
+  if (def) {
+    group(host, "Physics");
+    host.append(checkField("dynamic body", () => !!def.physics, (v) => {
+      def.physics = v || undefined;
+      if (v && def.mass == null) def.mass = 8;
+    }, () => { state.commit(true); }));
+    if (def.physics) {
+      host.append(numField("mass", () => def.mass ?? 8, (v) => (def.mass = Math.max(0.1, v)), () => state.commit(), 0.5));
+      host.append(el("div", "side-note", "Members move & tumble together; their collision is one box."));
+    }
+  }
 }
 
 function head(host: HTMLElement, title: string, sub?: string): void {

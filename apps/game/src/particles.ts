@@ -65,7 +65,6 @@ export function buildParticles(
   engine: Engine, root: Entity, x: number, y: number, z: number,
   look: Partial<ParticleLook> = {}, sprite: Texture2D | null = null,
 ): Entity {
-  const L = { ...PARTICLE_LOOK, ...look };
   const e = root.createChild("particles");
   e.transform.setPosition(x, y, z);
 
@@ -79,10 +78,31 @@ export function buildParticles(
   const r = emit.addComponent(ParticleRenderer);
   const mat = new ParticleMaterial(engine);
   mat.baseColor = new Color(1, 1, 1, 1);           // tint comes from startColor
-  mat.baseTexture = sprite ?? puffSprite(engine);
   mat.isTransparent = true;
-  mat.blendMode = L.additive ? BlendMode.Additive : BlendMode.Normal;
   r.setMaterial(mat);
+  configureEmitter(r, mat, { ...PARTICLE_LOOK, ...look }, sprite, engine);
+  return e;
+}
+
+/** re-apply a look to an emitter built by buildParticles WITHOUT tearing it down, so
+ *  an editor rebuild that only tweaked params (or moved the object) keeps the existing
+ *  particle stream flowing instead of restarting it. Returns false if `e` isn't a
+ *  particle emitter (the caller then builds a fresh one). Reposition `e` separately. */
+export function reconfigureParticles(e: Entity, look: Partial<ParticleLook>, sprite: Texture2D | null, engine: Engine): boolean {
+  const emit = e.children[0];
+  const r = emit?.getComponent(ParticleRenderer);
+  const mat = (r?.getMaterial() as ParticleMaterial | null) ?? null;
+  if (!r || !mat) return false;
+  configureEmitter(r, mat, { ...PARTICLE_LOOK, ...look }, sprite, engine);
+  return true;
+}
+
+/** write a full look onto a renderer + material. Shared by build + reconfigure. Only
+ *  reallocates the particle buffer when maxParticles actually changes (reallocating
+ *  clears live particles — avoiding it is what keeps a moved/edited emitter smooth). */
+function configureEmitter(r: ParticleRenderer, mat: ParticleMaterial, L: ParticleLook, sprite: Texture2D | null, engine: Engine): void {
+  mat.baseTexture = sprite ?? puffSprite(engine);
+  mat.blendMode = L.additive ? BlendMode.Additive : BlendMode.Normal;
 
   const g = r.generator;
   const main = g.main;
@@ -93,7 +113,8 @@ export function buildParticles(
   main.gravityModifier = new ParticleCompositeCurve(L.gravity);
   main.simulationSpace = L.world ? ParticleSimulationSpace.World : ParticleSimulationSpace.Local;
   // headroom for the steady-state population, +a little for bursts
-  main.maxParticles = Math.max(16, Math.ceil(L.rate * L.lifetime) + 8);
+  const maxP = Math.max(16, Math.ceil(L.rate * L.lifetime) + 8);
+  if (main.maxParticles !== maxP) main.maxParticles = maxP;   // realloc only when needed
 
   g.emission.rateOverTime = new ParticleCompositeCurve(Math.max(0, L.rate));
   const cone = new ConeShape();
@@ -108,6 +129,8 @@ export function buildParticles(
     curve.addKey(1, Math.max(0, L.growth));
     g.sizeOverLifetime.enabled = true;
     g.sizeOverLifetime.size = new ParticleCompositeCurve(curve);
+  } else {
+    g.sizeOverLifetime.enabled = false;
   }
 
   // fade alpha out over life (hold colour, ramp alpha 1 → 0)
@@ -119,6 +142,4 @@ export function buildParticles(
   grad.addAlphaKey(1, 0);
   g.colorOverLifetime.enabled = true;
   g.colorOverLifetime.color = new ParticleCompositeGradient(grad);
-
-  return e;
 }

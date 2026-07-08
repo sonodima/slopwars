@@ -11,7 +11,7 @@ import type { MapBuilder } from "./mapbuilder";
 import { AABB } from "./map";
 import { assetUrl } from "./assets";
 import { DEFAULT_MATERIAL, materialTextureFolders } from "./materials";
-import { buildParticles, PARTICLE_LOOK, type ParticleLook } from "./particles";
+import { PARTICLE_LOOK, type ParticleLook } from "./particles";
 import {
   buildPointLight, buildDirLight, buildSpotLight, POINT_LIGHT, DIR_LIGHT, SPOT_LIGHT,
   type PointLightLook, type DirLightLook, type SpotLightLook,
@@ -215,9 +215,11 @@ defineObject<ParticleLook & { tex: string }>("particles", {
   build(b, t, p) {
     const [x, y, z] = t.at;
     const sprite = p.tex ? b.texOf(p.tex).color : null;
-    const e = buildParticles(b.engine, b.root, x, y, z, p, sprite);
+    // pooled by placement index so an editor rebuild (every edit/move) re-adopts the
+    // same emitter and keeps its particles flowing instead of restarting from empty.
+    const e = b.buildParticleEmitter(`particles:${b.buildIndex}`, x, y, z, p, sprite);
     const [rx, ry, rz] = t.rot;
-    if (rx || ry || rz) e.transform.setRotation(rx, ry, rz);
+    e.transform.setRotation(rx, ry, rz);   // always set so a reused emitter re-orients
     b.track(e);
   },
 });

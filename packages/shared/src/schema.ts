@@ -45,6 +45,13 @@ export interface GroupDef {
   rot?: Tuple3;
   /** group scale (default [1,1,1]) */
   scale?: Tuple3;
+  /** simulate the whole group as ONE movable rigid body (a lantern = mesh + light,
+   *  a stack of crates…): its members are parented under a single dynamic body and
+   *  move/tumble together. Members contribute no static collision — the body's
+   *  collider (derived from their combined bounds) is the only one. Default off. */
+  physics?: boolean;
+  /** body mass in kg when `physics` is on (heavier = harder to shove). Default 8. */
+  mass?: number;
 }
 
 /** shadow-map quality tier (drives resolution + softness); "off" disables shadows */
