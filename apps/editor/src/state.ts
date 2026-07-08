@@ -294,6 +294,58 @@ class EditorState {
     const g = this.groupById(groupId); if (!g) return;
     g.name = name; this.commit(true);
   }
+
+  /** delete a group AND everything inside it: the group, its descendant groups,
+   *  and every member object (recursively). This is the group-level analogue of
+   *  deleting an object — "ungroup" keeps the contents, "delete" discards them. */
+  deleteGroup(groupId: string): void {
+    if (!this.map) return;
+    if (!this.groupById(groupId)) return;
+    const doomed = new Set<string>();
+    const collect = (id: string): void => { doomed.add(id); for (const c of this.childGroups(id)) collect(c.id); };
+    collect(groupId);
+    this.map.objects = this.map.objects.filter((o) => !(o.group && doomed.has(o.group)));
+    this.map.groups = this.groups().filter((x) => !doomed.has(x.id));
+    this.selection = this.selection.filter((o) => this.map!.objects.includes(o));
+    this.selObj = this.selection[this.selection.length - 1] ?? null;
+    if (this.selGroup && doomed.has(this.selGroup)) this.selGroup = null;
+    this.commit(true);
+  }
+
+  /** duplicate a group subtree (its nested groups + member objects) with fresh ids,
+   *  offset a little, and select the copy — the group-level analogue of duplicating
+   *  an object. */
+  duplicateGroup(groupId: string): string | null {
+    if (!this.map || !this.groupById(groupId)) return null;
+    // gather the subtree ids (this group + all descendants) and map each to a new id
+    const subtree = [groupId];
+    for (let i = 0; i < subtree.length; i++) for (const c of this.childGroups(subtree[i])) subtree.push(c.id);
+    const idMap = new Map(subtree.map((id) => [id, `grp-${Math.random().toString(36).slice(2, 8)}`]));
+    const groups = this.ensureGroups();
+    for (const id of subtree) {
+      const copy: GroupDef = JSON.parse(JSON.stringify(this.groupById(id)));
+      copy.id = idMap.get(id)!;
+      if (copy.parent && idMap.has(copy.parent)) copy.parent = idMap.get(copy.parent);
+      groups.push(copy);
+    }
+    const top = this.groupById(idMap.get(groupId)!)!;
+    const a = top.at ?? [0, 0, 0];
+    top.at = [a[0] + 2, a[1], a[2] + 2];
+    for (const o of this.membersDirectSubtree(subtree)) {
+      const c: Placement = JSON.parse(JSON.stringify(o));
+      c.group = idMap.get(o.group!);
+      this.map.objects.push(c);
+    }
+    const newId = idMap.get(groupId)!;
+    this.selectGroup(newId, "outliner");
+    this.commit(true);
+    return newId;
+  }
+  /** objects whose group is any id in `ids` (helper for group duplication) */
+  private membersDirectSubtree(ids: string[]): Placement[] {
+    const set = new Set(ids);
+    return (this.map?.objects ?? []).filter((o) => o.group && set.has(o.group));
+  }
   toggleGroupCollapsed(groupId: string): void {
     const g = this.groupById(groupId); if (!g) return;
     g.collapsed = !g.collapsed; this.emitChange();

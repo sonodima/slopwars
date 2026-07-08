@@ -10,12 +10,53 @@ import { loadMapDef } from "./maps/loader";
 import { MapDef, MapEnv, MapMeta, MaterialDef, ModelMeta } from "./maps/schema";
 import { Vec3 } from "./types";
 
-export interface AABB { min: Vec3; max: Vec3 }
+/** a collision primitive. Every solid keeps an axis-aligned `min`/`max` (the broad
+ *  phase + the box case), and MAY carry a `shape` that refines the narrow phase: a
+ *  "cylinder" is upright along Y (radius = half its x/z extent), a "sphere" is
+ *  inscribed in the bounds. Omitted `shape` = a plain box (the classic behaviour),
+ *  so every existing solid and query is unchanged. */
+export type SolidShape = "cylinder" | "sphere";
+export interface AABB { min: Vec3; max: Vec3; shape?: SolidShape }
+
+/** does a vertical circle/segment proxy — radius `r` at (x,z), spanning y0..y1 (a
+ *  player capsule or a point when r≈0, y0≈y1) — overlap solid `b`, honouring its
+ *  shape? Broad-phases on the inflated AABB, then rounds off cylinders/spheres. */
+export function solidOverlaps(b: AABB, x: number, z: number, r: number, y0: number, y1: number): boolean {
+  if (!(x + r > b.min.x && x - r < b.max.x && y1 > b.min.y && y0 < b.max.y && z + r > b.min.z && z - r < b.max.z)) return false;
+  if (!b.shape) return true;
+  const cx = (b.min.x + b.max.x) / 2, cz = (b.min.z + b.max.z) / 2;
+  const R = (b.max.x - b.min.x) / 2;
+  const dx = x - cx, dz = z - cz;
+  if (b.shape === "cylinder") return dx * dx + dz * dz < (R + r) * (R + r);
+  const cy = (b.min.y + b.max.y) / 2;                  // sphere: nearest point on the segment
+  const dy = cy - (y0 > cy ? y0 : y1 < cy ? y1 : cy);
+  return dx * dx + dz * dz + dy * dy < (R + r) * (R + r);
+}
 /** damageable explosive barrel (host tracks hp; explodes at 0) */
 export interface Barrel { pos: Vec3; entity: Entity | null; solid: AABB; hp: number; dead: boolean }
 /** a looping sound placed in the map. When `spatial`, volume falls off with the
  *  listener's distance; otherwise it plays at a constant `volume` everywhere (2D). */
 export interface MapSound { pos: Vec3; el: HTMLAudioElement; radius: number; volume: number; spatial: boolean }
+
+/** a dynamic (physics-simulated) prop: a movable rigid body the PhysicsWorld
+ *  integrates each frame (gravity, collisions, impulses from bullets/blasts/the
+ *  player). Its collider is an axis-aligned box of `half`-extents offset by `off`
+ *  from the entity origin `pos`; `shape` rounds the sides for how the player brushes
+ *  past it. Only the game simulates these — the editor leaves the prop where placed. */
+export interface DynBody {
+  entity: Entity | null;
+  mass: number;          // kg (heavy = barely shoved, light = easily pushed)
+  half: Vec3;            // collider half-extents
+  off: Vec3;             // collider centre offset from `pos`
+  shape?: SolidShape;    // rounds player contact (cylinder/sphere); omit = box
+  pos: Vec3;             // entity origin in world (written to the transform each frame)
+  vel: Vec3;
+  yaw: number;           // spin about Y accumulated by physics (rad)
+  yawVel: number;
+  baseYaw: number;       // authored yaw (deg) — the visual base the spin adds to
+  onGround: boolean;
+  rest: number;          // seconds spent nearly still (→ sleeps to stop jitter)
+}
 
 export class GameMap {
   solids: AABB[] = [];
@@ -24,6 +65,8 @@ export class GameMap {
   powerupSpots: Vec3[] = [];
   barrels: Barrel[] = [];
   sounds: MapSound[] = [];
+  /** dynamic physics props (simulated by the game's PhysicsWorld; ignored by the editor) */
+  dynBodies: DynBody[] = [];
   tris = 0;
   root!: Entity;
   meta!: MapMeta;
@@ -44,6 +87,7 @@ export class GameMap {
     this.powerupSpots = [];
     this.barrels = [];
     this.sounds = [];
+    this.dynBodies = [];
     this.tris = 0;
     this.root = parent.createChild("map");
     this.meta = def.meta;
@@ -88,7 +132,9 @@ export class GameMap {
 
   pointInSolid(p: Vec3): boolean {
     for (const b of this.solids) {
-      if (p.x > b.min.x && p.x < b.max.x && p.y > b.min.y && p.y < b.max.y && p.z > b.min.z && p.z < b.max.z) return true;
+      if (p.y <= b.min.y || p.y >= b.max.y) continue;
+      if (!b.shape) { if (p.x > b.min.x && p.x < b.max.x && p.z > b.min.z && p.z < b.max.z) return true; continue; }
+      if (solidOverlaps(b, p.x, p.z, 0, p.y, p.y)) return true;
     }
     return false;
   }

@@ -172,12 +172,46 @@ export class MapBuilder {
         const [rx, ry, rz] = rotateEuler(local, rotT);
         const cx = at[0] + rx, cy = at[1] + base * sy + ry, cz = at[2] + rz;
         const hx = Math.abs(box.size[0] * sx) / 2, hy = Math.abs(box.size[1] * sy) / 2, hz = Math.abs(box.size[2] * sz) / 2;
-        this.pushSolid({ min: { x: cx - hx, y: cy - hy, z: cz - hz }, max: { x: cx + hx, y: cy + hy, z: cz + hz } });
+        const shape = box.shape === "cylinder" || box.shape === "sphere" ? box.shape : undefined;
+        this.pushSolid({ min: { x: cx - hx, y: cy - hy, z: cz - hz }, max: { x: cx + hx, y: cy + hy, z: cz + hz }, shape });
       }
       return;
     }
     const aabb = this.modelAABB(entity);
     if (aabb) this.pushSolid(aabb);
+  }
+
+  /** register a placed model as a dynamic physics body (see objects.ts `prop` with
+   *  physics on). The collider is derived from the model's authored manual collision
+   *  (so a barrel authored as a cylinder becomes a cylinder body) or, failing that,
+   *  from its mesh bounds. `mass` (kg) governs how easily it's shoved. The simulation
+   *  lives in the game (PhysicsWorld); the editor just leaves the prop where placed. */
+  pushDynamicBody(id: string, entity: Entity, at: Vec3T, rot: Vec3T, scale: Vec3T, mass: number): void {
+    const meta = this.modelMeta.get(id) ?? {};
+    const ms = typeof meta.scale === "number" && meta.scale > 0 ? meta.scale : 1;
+    const base = typeof meta.base === "number" ? meta.base : 0;
+    const sx = scale[0] * ms, sy = scale[1] * ms, sz = scale[2] * ms;
+    const pos = { x: at[0], y: at[1] + base * sy, z: at[2] };   // entity origin (matches placeModelTf)
+    let half: { x: number; y: number; z: number };
+    let off: { x: number; y: number; z: number };
+    let shape: "cylinder" | "sphere" | undefined;
+    const boxes = meta.collision === "manual" ? meta.collisionBoxes : undefined;
+    if (boxes && boxes.length) {
+      const b0 = boxes[0];   // the first authored solid defines the body's collider
+      half = { x: Math.abs(b0.size[0] * sx) / 2, y: Math.abs(b0.size[1] * sy) / 2, z: Math.abs(b0.size[2] * sz) / 2 };
+      off = { x: b0.at[0] * sx, y: b0.at[1] * sy, z: b0.at[2] * sz };
+      shape = b0.shape === "cylinder" || b0.shape === "sphere" ? b0.shape : undefined;
+    } else {
+      const aabb = this.modelAABB(entity);   // world AABB at spawn
+      if (aabb) {
+        half = { x: (aabb.max.x - aabb.min.x) / 2, y: (aabb.max.y - aabb.min.y) / 2, z: (aabb.max.z - aabb.min.z) / 2 };
+        off = { x: (aabb.min.x + aabb.max.x) / 2 - pos.x, y: (aabb.min.y + aabb.max.y) / 2 - pos.y, z: (aabb.min.z + aabb.max.z) / 2 - pos.z };
+      } else { half = { x: 0.4, y: 0.4, z: 0.4 }; off = { x: 0, y: 0.4, z: 0 }; }
+    }
+    this.map.dynBodies.push({
+      entity, mass: Math.max(0.05, mass), half, off, shape, pos,
+      vel: { x: 0, y: 0, z: 0 }, yaw: 0, yawVel: 0, baseYaw: rot[1], onGround: false, rest: 0,
+    });
   }
 
   /** world-space AABB of a placed model, unioned from its mesh renderers' bounds.

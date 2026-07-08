@@ -1,5 +1,5 @@
 // ─── Local player: quake-style movement, bhop, AABB collision, stairs ───────
-import { GameMap } from "./map";
+import { GameMap, solidOverlaps } from "./map";
 import { MOVE, Vec3, clamp } from "./types";
 
 export interface Input {
@@ -157,11 +157,14 @@ export class PlayerBody {
   private collides(p: Vec3, h: number): boolean {
     const r = MOVE.radius;
     for (const b of this.map.solids) {
-      if (
+      if (!(
         p.x + r > b.min.x && p.x - r < b.max.x &&
         p.y + h > b.min.y + 0.001 && p.y < b.max.y - 0.001 &&
         p.z + r > b.min.z && p.z - r < b.max.z
-      ) return true;
+      )) continue;
+      // box solids block on the AABB test above; cylinders/spheres round the sides
+      // off so you brush past their corners (matches how they render + physics).
+      if (!b.shape || solidOverlaps(b, p.x, p.z, r, p.y, p.y + h)) return true;
     }
     return false;
   }

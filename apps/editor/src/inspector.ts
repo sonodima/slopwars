@@ -6,7 +6,7 @@
 // model's calibration meta, a texture's preview — each with a Delete action. The
 // "World" row edits the map's sky / lighting / effects. A group is a first-class
 // parent, so its inspector edits the group's own transform.
-import type { AssetCatalog, CollisionMode, FogFalloff, MapDef, MaterialDef, MaterialType, ModelMeta, Placement, ShadowQuality, ToneMode, Tuple3 } from "@slopwars/shared";
+import type { AssetCatalog, CollisionMode, CollisionShape, FogFalloff, MapDef, MaterialDef, MaterialType, ModelMeta, Placement, ShadowQuality, ToneMode, Tuple3 } from "@slopwars/shared";
 import { MATERIAL_TYPES, defaultMaterialDef, envPost, envShadows } from "@slopwars/shared";
 import { objectDefaults } from "@game/objects";
 import type { ThumbRenderer } from "./preview";
@@ -81,7 +81,7 @@ function materialInspector(host: HTMLElement, name: string, def: MaterialDef): v
   const title = el("h3", "insp-title", name);
   renamable(title, () => name, (v) => { if (v && v !== name) matHooks?.renamed(name, v); }, () => { /* rename persists */ });
   host.append(title);
-  host.append(el("div", "insp-sub", `material · ${def.type}`));
+  host.append(el("div", "insp-sub", "material"));
   const edited = (): void => matHooks?.changed(name, def);
 
   // shading model picker — switching a material's kind is non-destructive to its
@@ -147,7 +147,6 @@ function modelInspector(host: HTMLElement, name: string): void {
   const save = (): void => modelHooks!.changed(name);
 
   group(host, "Placement");
-  host.append(el("div", "insp-note", "Calibrate the model once — applies to every placement. The white cross-hair + grid in the preview mark the root (0,0,0): tune “base” until the model rests on the grid."));
   host.append(numField("base", () => meta.base ?? 0, (v) => (meta.base = v || undefined), save, 0.02));
   host.append(numField("scale", () => meta.scale ?? 1, (v) => (meta.scale = v > 0 ? v : undefined), save, 0.02));
   // base orientation: a per-axis euler baked into the model so it faces the right
@@ -160,7 +159,6 @@ function modelInspector(host: HTMLElement, name: string): void {
   }, 1));
 
   group(host, "Material");
-  host.append(el("div", "insp-note", "Assign a material (with its textures) to skin the model — models carry no textures of their own."));
   host.append(assetField({
     label: "material", kind: "material", catalog, thumbs,
     get: () => meta.material ?? "", set: (v) => { meta.material = v || undefined; }, onChange: save,
@@ -170,30 +168,36 @@ function modelInspector(host: HTMLElement, name: string): void {
   host.append(selectField("mode", ["auto", "manual"], () => meta.collision ?? "auto",
     (v) => { meta.collision = v as CollisionMode; if (v === "manual" && !meta.collisionBoxes) meta.collisionBoxes = []; },
     () => { save(); refreshInspector(); }));
-  if ((meta.collision ?? "auto") === "auto") {
-    host.append(el("div", "insp-note", "Automatic: one box hugs the whole model (classic)."));
-  } else {
-    collisionList(host, meta, modelHooks);
-  }
+  if ((meta.collision ?? "auto") !== "auto") collisionList(host, meta, modelHooks, save);
 }
+
+/** the collision-primitive options a manual solid can take */
+const COLL_SHAPES: CollisionShape[] = ["box", "cylinder", "sphere"];
 
 /** the list of manual collision solids. Position/size is authored directly in the
  *  Collision view with the move/scale gizmo (same tools as map objects) — this list
  *  only adds, selects and deletes them (as the redesign asks: solids are placed &
  *  sized in 3D, the inspector just lists them). */
-function collisionList(host: HTMLElement, meta: ModelMeta, hooks: ModelHooks): void {
-  host.append(el("div", "insp-note", "Manual: only these solids block the player. Switch to the “Collision” view (top-left), then move/scale each solid with the gizmo — right in the view, like any object."));
+function collisionList(host: HTMLElement, meta: ModelMeta, hooks: ModelHooks, save: () => void): void {
   const add = el("button", "btn primary insp-addbtn");
   add.append(icon("plus"), el("span", "btn-label", "Add solid"));
   add.addEventListener("click", () => hooks.collAdd());
   host.append(add);
 
   const boxes = meta.collisionBoxes ?? [];
-  if (!boxes.length) { host.append(el("div", "side-note", "No solids yet — “Add solid” drops one at the model centre, already selected so you can drag it straight away.")); return; }
+  if (!boxes.length) { host.append(el("div", "side-note", "No solids yet — move/scale each in the Collision view.")); return; }
   const sel = hooks.collSel();
-  boxes.forEach((_b, i) => {
+  boxes.forEach((b, i) => {
     const row = el("div", "cbox-row" + (i === sel ? " sel" : ""));
     row.append(el("span", "cbox-name", `Solid ${i + 1}`));
+    // per-solid shape picker — box / cylinder / sphere, editable inline so a round
+    // prop (barrel, ball) collides + tumbles roundly instead of as a blocky box.
+    const shape = el("select", "cbox-shape") as HTMLSelectElement;
+    for (const s of COLL_SHAPES) { const op = el("option", undefined, s); op.value = s; shape.append(op); }
+    shape.value = b.shape ?? "box";
+    shape.addEventListener("click", (e) => e.stopPropagation());
+    shape.addEventListener("change", () => { b.shape = shape.value === "box" ? undefined : (shape.value as CollisionShape); save(); refreshInspector(); });
+    row.append(shape);
     const del = el("button", "btn mini"); del.title = "delete solid"; del.append(icon("trash"));
     del.addEventListener("click", (e) => { e.stopPropagation(); hooks.collDelete(i); });
     row.append(del);
@@ -294,7 +298,7 @@ function hdriPath(name: string): string {
 }
 
 function worldInspector(host: HTMLElement, map: MapDef, touch: () => void): void {
-  head(host, "World", "Sky · lighting · shadows · fog · post");
+  head(host, "World");
   const e = map.env;
 
   group(host, "Map");
