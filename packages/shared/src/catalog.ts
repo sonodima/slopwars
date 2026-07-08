@@ -5,11 +5,22 @@
 // and committing it is all it takes to make the asset available — the scanner
 // discovers it, the client loads it, and the editor lists it.
 
+/** author-tunable per-model defaults, persisted to models/{name}/meta.json. Applied
+ *  every time the model is instantiated (props, veg, explodables, drops), so a
+ *  model can be calibrated once — sit it on its base, size it, reskin it — instead
+ *  of nudging every placement. All optional; omitted fields keep the raw glTF. */
+export interface ModelMeta {
+  base?: number;    // vertical offset (metres) so the model rests on its footing
+  scale?: number;   // default uniform scale applied on top of a placement's scale
+  material?: string; // material name to override every surface of the model with
+  [k: string]: unknown;
+}
+
 /** a glTF model discovered under public/assets/models/{name}/ */
 export interface ModelAsset {
   name: string;            // folder name = canonical asset key
   gltf: string;            // path under assets/ e.g. "models/Barrel_01/Barrel_01.gltf"
-  meta?: Record<string, unknown>;
+  meta?: ModelMeta;
 }
 
 /** which of the standard PBR maps a texture folder provides */
@@ -39,10 +50,13 @@ export interface HdriAsset {
   file: string;            // path under assets/
 }
 
+import type { MaterialAsset } from "./materials";
+
 /** the complete discovered inventory */
 export interface AssetCatalog {
   models: ModelAsset[];
   textures: TextureAsset[];
+  materials: MaterialAsset[];
   audio: AudioAsset[];
   hdri: HdriAsset[];
 }

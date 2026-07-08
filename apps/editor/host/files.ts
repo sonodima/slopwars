@@ -9,6 +9,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { scanAssets, scanMaps } from "../../../packages/shared/src/vite-asset-catalog";
 import type { MapDef } from "../../../packages/shared/src/schema";
+import type { ModelMeta } from "../../../packages/shared/src/catalog";
+import type { MaterialDef, MaterialType } from "../../../packages/shared/src/materials";
+import { defaultMaterialDef } from "../../../packages/shared/src/materials";
 
 export { scanAssets, scanMaps };
 
@@ -58,6 +61,83 @@ export function saveMap(root: string, id: string, def: MapDef): { ok?: boolean; 
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, `${name}.json`), JSON.stringify(def, null, 2) + "\n");
   return { ok: true, file: `maps/${name}.json` };
+}
+
+// ── materials (created + edited in the editor; git-first JSON) ────────────────
+
+const MAT_DIR = "public/assets/materials";
+function matPath(root: string, name: string): string { return path.join(root, MAT_DIR, `${sanitize(name)}.json`); }
+
+/** write a material def to public/assets/materials/<name>.json (pretty + newline) */
+export function saveMaterial(root: string, name: string, def: MaterialDef): { ok?: boolean; error?: string; name?: string } {
+  const n = sanitize(name);
+  if (!n) return { error: "invalid material name" };
+  fs.mkdirSync(path.join(root, MAT_DIR), { recursive: true });
+  fs.writeFileSync(matPath(root, n), JSON.stringify(def, null, 2) + "\n");
+  return { ok: true, name: n };
+}
+
+/** create a new material with a unique auto name; returns its name. Defaults to a
+ *  plain gray `standard` material — the kind is chosen afterward in the inspector's
+ *  type switcher, not up front. */
+export function createMaterial(root: string, type: MaterialType = "standard"): { ok?: boolean; error?: string; name?: string } {
+  fs.mkdirSync(path.join(root, MAT_DIR), { recursive: true });
+  const stem = type === "standard" ? "material" : type;
+  let n = stem;
+  let i = 1;
+  while (fs.existsSync(matPath(root, n))) n = `${stem}_${++i}`;
+  fs.writeFileSync(matPath(root, n), JSON.stringify(defaultMaterialDef(type), null, 2) + "\n");
+  return { ok: true, name: n };
+}
+
+/** rename a material file (and fail if the target already exists) */
+export function renameMaterial(root: string, from: string, to: string): { ok?: boolean; error?: string; name?: string } {
+  const a = matPath(root, from), bName = sanitize(to);
+  if (!bName) return { error: "invalid name" };
+  const b = matPath(root, bName);
+  if (!fs.existsSync(a)) return { error: "material not found" };
+  if (a !== b && fs.existsSync(b)) return { error: "a material with that name already exists" };
+  fs.renameSync(a, b);
+  return { ok: true, name: bName };
+}
+
+/** delete a material file */
+export function deleteMaterial(root: string, name: string): { ok?: boolean; error?: string } {
+  const p = matPath(root, name);
+  if (fs.existsSync(p)) fs.rmSync(p);
+  return { ok: true };
+}
+
+// ── models (calibration meta + delete) + textures (delete) ────────────────────
+
+/** write a model's calibration to models/<name>/meta.json (drop the file when the
+ *  meta is empty, so a reset model carries no meta). */
+export function saveModelMeta(root: string, name: string, meta: ModelMeta): { ok?: boolean; error?: string; name?: string } {
+  const n = sanitize(name);
+  const dir = path.join(root, "public", "assets", "models", n);
+  if (!n || !fs.existsSync(dir)) return { error: "model not found" };
+  const p = path.join(dir, "meta.json");
+  const clean: ModelMeta = {};
+  if (typeof meta.base === "number") clean.base = meta.base;
+  if (typeof meta.scale === "number") clean.scale = meta.scale;
+  if (typeof meta.material === "string" && meta.material) clean.material = meta.material;
+  if (Object.keys(clean).length === 0) { if (fs.existsSync(p)) fs.rmSync(p); return { ok: true, name: n }; }
+  fs.writeFileSync(p, JSON.stringify(clean, null, 2) + "\n");
+  return { ok: true, name: n };
+}
+
+/** delete a whole model folder (public/assets/models/<name>/) */
+export function deleteModel(root: string, name: string): { ok?: boolean; error?: string } {
+  const dir = path.join(root, "public", "assets", "models", sanitize(name));
+  if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
+  return { ok: true };
+}
+
+/** delete a whole texture folder (public/assets/textures/<name>/) */
+export function deleteTexture(root: string, name: string): { ok?: boolean; error?: string } {
+  const dir = path.join(root, "public", "assets", "textures", sanitize(name));
+  if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
+  return { ok: true };
 }
 
 // ── asset import ──────────────────────────────────────────────────────────────

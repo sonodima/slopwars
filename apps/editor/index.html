@@ -103,8 +103,30 @@
   #browser{display:flex;flex-direction:column;overflow:hidden;min-height:0;flex:1}
   .browser-bar{display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--line)}
   .browser-title{font-weight:600;color:#eef1f4;letter-spacing:.02em;text-transform:uppercase;font-size:11px}
-  .browser-search{margin-left:auto;background:var(--panel2);color:var(--text);border:1px solid var(--line2);border-radius:4px;padding:4px 8px;font-family:var(--font);width:220px}
+  .browser-search{margin-left:auto;background:var(--panel2);color:var(--text);border:1px solid var(--line2);border-radius:4px;padding:4px 8px;font-family:var(--font);width:180px}
   .browser-search:focus{outline:none;border-color:var(--accent)}
+  .browser-tabs{display:flex;gap:2px;flex-wrap:wrap}
+  .browser-tab{background:transparent;border:1px solid transparent;border-radius:4px;padding:3px 9px;color:var(--dim);font-family:var(--font);font-size:11px;cursor:pointer;text-transform:uppercase;letter-spacing:.03em}
+  .browser-tab:hover{color:var(--text)}
+  .browser-tab.on{color:#fff;background:var(--panel2);border-color:var(--line2)}
+  .browser-bar .imp-btn{margin-left:6px}
+  .asset-card.sel{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+  .asset-sub{font-size:10px;color:var(--dim);font-family:var(--mono);word-break:break-word}
+  .map-card{cursor:pointer}
+  .map-card:hover{border-color:var(--accent)}
+  /* asset delete + dangling-reference + model/texture inspector previews */
+  .btn.danger{background:transparent;color:#e5484d;border-color:#5a2b2d}
+  .btn.danger:hover{background:#e5484d;color:#fff;border-color:#e5484d}
+  .insp-delete{width:100%;margin-top:16px}
+  .insp-note{color:var(--dim);font-size:11px;margin:2px 0 6px;line-height:1.4}
+  .insp-modelprev{width:100%;height:120px;background:#0e0f10;border:1px solid var(--line2);border-radius:5px;margin:6px 0;display:flex;align-items:center;justify-content:center;overflow:hidden}
+  .insp-modelimg{max-width:100%;max-height:100%;object-fit:contain}
+  .assetfield .af-warn{flex:0 0 auto;color:#e5a23a;font-size:13px}
+  .assetfield.dangling{border-color:#7a4a1a;background:#241a10}
+  .assetfield .af-name.dangling{color:#e5a23a;font-style:normal}
+  .confirm{padding:4px 2px}
+  .confirm-msg{color:var(--text);font-size:13px;margin:0 0 14px;line-height:1.5}
+  .confirm-actions{display:flex;justify-content:flex-end;gap:8px}
   .browser-body{overflow:auto;padding:8px}
   .asset-section{margin-bottom:10px}
   .section-head{display:flex;align-items:center;gap:8px;margin:2px 2px 6px;position:sticky;top:-8px;background:var(--panel);padding:4px 0;z-index:1}

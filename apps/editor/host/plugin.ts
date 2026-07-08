@@ -18,7 +18,7 @@ import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { Bridge } from "./bridge";
 import { createMcp } from "./mcp";
-import { importAsset, loadMap, saveMap, scanAssets, scanMaps } from "./files";
+import { createMaterial, deleteMaterial, deleteModel, deleteTexture, importAsset, loadMap, renameMaterial, saveMap, saveMaterial, saveModelMeta, scanAssets, scanMaps } from "./files";
 
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -68,6 +68,39 @@ export function editorHostPlugin(opts: Options = {}): Plugin {
           readBody(req).then((body) => {
             const { id, def } = JSON.parse(body);
             json(res, 200, saveMap(root, id, def));
+          }).catch((e) => json(res, 500, { error: String(e) }));
+          return;
+        }
+
+        // ── materials: create / save / rename / delete (browser UI) ──
+        if (method === "POST" && url === "/__editor/material") {
+          readBody(req).then((body) => {
+            const b = JSON.parse(body);
+            const r = b.op === "create" ? createMaterial(root, b.type)
+              : b.op === "rename" ? renameMaterial(root, b.from, b.to)
+              : b.op === "delete" ? deleteMaterial(root, b.name)
+              : saveMaterial(root, b.name, b.def);
+            json(res, (r as { error?: string }).error ? 400 : 200, r);
+          }).catch((e) => json(res, 500, { error: String(e) }));
+          return;
+        }
+
+        // ── models: save calibration meta / delete (browser UI) ──
+        if (method === "POST" && url === "/__editor/model") {
+          readBody(req).then((body) => {
+            const b = JSON.parse(body);
+            const r = b.op === "delete" ? deleteModel(root, b.name) : saveModelMeta(root, b.name, b.meta ?? {});
+            json(res, (r as { error?: string }).error ? 400 : 200, r);
+          }).catch((e) => json(res, 500, { error: String(e) }));
+          return;
+        }
+
+        // ── textures: delete (browser UI) ──
+        if (method === "POST" && url === "/__editor/texture") {
+          readBody(req).then((body) => {
+            const b = JSON.parse(body);
+            const r = deleteTexture(root, b.name);
+            json(res, (r as { error?: string }).error ? 400 : 200, r);
           }).catch((e) => json(res, 500, { error: String(e) }));
           return;
         }

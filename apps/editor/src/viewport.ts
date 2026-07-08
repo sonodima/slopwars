@@ -9,13 +9,13 @@ import {
   FogMode, MeshRenderer, MSAASamples, PostProcess, PrimitiveMesh, RenderFace,
   SkyBoxMaterial, TextureCube, TonemappingEffect, TonemappingMode, UnlitMaterial, Vector3, WebGLEngine,
 } from "@galacean/engine";
-import type { MapDef, Placement, ShadowQuality, Tuple3 } from "@slopwars/shared";
-import { envSunColor, placeRot, placeScale } from "@slopwars/shared";
+import type { MapDef, MaterialAsset, MaterialDef, ModelAsset, ModelMeta, Placement, ShadowQuality, Tuple3, WorldTf } from "@slopwars/shared";
+import { envSunColor, groupWorldTf, invComposeTf, resolveWorld } from "@slopwars/shared";
 import { applyFogFalloff, applyPost, applyShadows } from "@game/rendersettings";
 import { GameMap } from "@game/map";
 import { GameModels, loadModels } from "@game/models";
 import { resolveTextures, type MapTextures } from "@game/textures";
-import { mapTextureFolders } from "@game/objects";
+import { mapTextureFolders, objectCategory } from "@game/objects";
 import { loadHDRCube } from "@game/assets";
 import "@game/objects"; // side effect: register built-in object types
 import { state } from "./state";
@@ -67,10 +67,15 @@ export class Viewport {
   // meshes (see refreshHighlight). Rebuilt whenever the selection or scene changes.
   private outlineEntities: Entity[] = [];
   private outlineCore: UnlitMaterial | null = null;
-  private outlineGlow: UnlitMaterial | null = null;
   // cached resolved textures so a live drag can rebuild synchronously each frame
   private texCache: MapTextures | null = null;
   private texKey = "";
+  // live material defs (from the editor catalog + unsaved edits) so tweaking a
+  // material re-shades the viewport immediately, before it's saved to a file.
+  private matDefs = new Map<string, MaterialDef>();
+  // live per-model calibration metas (base/scale/material), so editing a model's
+  // meta re-poses/reskins its placements in the viewport immediately.
+  private modelMetas = new Map<string, ModelMeta>();
   // set while a transform drag mutates the map; consumed in the frame loop so the
   // rebuild is throttled to one per frame (the object follows the cursor live)
   private liveDirty = false;
@@ -90,8 +95,12 @@ export class Viewport {
   // rotates together around the shared `pivot`.
   private drag: {
     handle: Handle;
-    pivot: Tuple3;             // gizmo centre in world (selection centroid)
-    members: { o: Placement; at: Tuple3; rot: Tuple3; scale: Tuple3 }[];
+    pivot: Tuple3;             // gizmo centre in world (selection centroid / group origin)
+    // per-member snapshot: WORLD transform at grab + the parent-group world transform
+    // to store the result back into (identity for ungrouped objects). A group drag
+    // uses `group` instead and leaves members untouched.
+    members: { o: Placement; at: Tuple3; rot: Tuple3; scale: Tuple3; parent: WorldTf }[];
+    group: { id: string; at: Tuple3; rot: Tuple3; scale: Tuple3 } | null;   // group world transform at grab
     unit: [number, number];    // screen-space axis direction (unit)
     wpp: number;               // world units per screen pixel along the axis
     cx: number; cy: number;    // gizmo centre in screen px
@@ -180,9 +189,25 @@ export class Viewport {
     window.addEventListener("resize", resize);
   }
 
+  /** update the material defs used to shade the viewport (from the editor catalog
+   *  and any unsaved material edits). Pass `rebuild` to re-shade immediately. */
+  setMaterials(materials: MaterialAsset[], rebuild = false): void {
+    this.matDefs = new Map(materials.map((m) => [m.name, m.def]));
+    this.texKey = "";   // force a texture re-resolve (a material may point at a new folder)
+    if (rebuild && this.ready && state.map) void this.render(state.map);
+  }
+
+  /** update the per-model calibration metas used to pose/reskin model placements
+   *  (from the editor catalog + any unsaved model-inspector edit). */
+  setModelMetas(models: ModelAsset[], rebuild = false): void {
+    this.modelMetas = new Map(models.map((m) => [m.name, m.meta ?? {}]));
+    this.texKey = "";   // a material override may pull in a new texture folder
+    if (rebuild && this.ready && state.map) void this.render(state.map);
+  }
+
   async render(def: MapDef): Promise<void> {
     if (!this.ready) return;
-    const folders = mapTextureFolders(def);
+    const folders = mapTextureFolders(def, this.matDefs);
     const key = folders.slice().sort().join(",");
     if (key !== this.texKey || !this.texCache) {
       this.texCache = await resolveTextures(this.engine, folders);
@@ -196,7 +221,7 @@ export class Viewport {
     this.objEntities = [];
     this.outlineEntities = [];   // torn down with the old map root; drop stale refs
     this.map.onBuildEntity = (i, e) => { (this.objEntities[i] ??= []).push(e); };
-    this.map.load(this.engine, this.root, tex, this.models, def);
+    this.map.load(this.engine, this.root, tex, this.models, def, this.matDefs, this.modelMetas);
     this.applyEnv(def);
     this.refreshHighlight();     // re-attach the selection outline to fresh entities
   }
@@ -248,30 +273,44 @@ export class Viewport {
     return this.groundPoint(px, py, 0);
   }
 
-  /** frame the camera on a world point; `dist` sizes the pull-back */
+  /** frame the camera on a world point; `dist` is the true camera distance from
+   *  it (kept along a fixed 3/4 view direction for a natural angle). */
   focus(x: number, y: number, z: number, dist = 14): void {
     if (!this.ready) return;
-    this.pos.set(x + dist, y + dist * 0.85, z + dist);
+    // unit-length 3/4 view offset (|d| ≈ 1), so `dist` is the real distance
+    const dir = [0.62, 0.53, 0.62];
+    this.pos.set(x + dir[0] * dist, y + dir[1] * dist, z + dir[2] * dist);
     const dx = x - this.pos.x, dy = y - this.pos.y, dz = z - this.pos.z;
     this.yaw = Math.atan2(dx, -dz);
     this.pitch = Math.atan2(dy, Math.hypot(dx, dz));
     this.applyCamera();
   }
 
-  /** centre the camera on the current selection (used when picking in the
-   *  outliner) — frames the object's bounds so it fills a comfortable view. */
+  /** frame the camera on the current selection so it fills a comfortable portion
+   *  of the view (close, ~2/3 of the height — not way out). Fits the union bounds
+   *  of the whole selection, so a group frames as one. */
   focusSelected(): void {
     const map = state.map;
-    if (!map || state.selIndex < 0) return;
-    const o = map.objects[state.selIndex];
-    const b = this.objBox(state.selIndex);
-    if (b) {
-      const cx = (b.min[0] + b.max[0]) / 2, cy = (b.min[1] + b.max[1]) / 2, cz = (b.min[2] + b.max[2]) / 2;
-      const radius = 0.5 * Math.hypot(b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]);
-      this.focus(cx, cy, cz, Math.max(6, radius * 2.4));
-    } else {
-      this.focus(o.at[0], o.at[1], o.at[2], 10);
+    if (!this.ready || !map) return;
+    const sel = state.selectedObjects();
+    if (!sel.length) return;
+    // union AABB over every selected object (fall back to a small box at its
+    // position for objects with no rendered mesh, e.g. lights/markers)
+    let mn: Tuple3 | null = null, mx: Tuple3 | null = null;
+    for (const o of sel) {
+      const b = this.objBox(map.objects.indexOf(o));
+      const wa = this.worldAt(o);
+      const box = b ?? { min: [wa[0] - 0.5, wa[1] - 0.5, wa[2] - 0.5] as Tuple3, max: [wa[0] + 0.5, wa[1] + 0.5, wa[2] + 0.5] as Tuple3 };
+      if (!mn || !mx) { mn = box.min.slice() as Tuple3; mx = box.max.slice() as Tuple3; }
+      else for (let i = 0; i < 3; i++) { mn[i] = Math.min(mn[i], box.min[i]); mx[i] = Math.max(mx[i], box.max[i]); }
     }
+    if (!mn || !mx) return;
+    const cx = (mn[0] + mx[0]) / 2, cy = (mn[1] + mx[1]) / 2, cz = (mn[2] + mx[2]) / 2;
+    const radius = 0.5 * Math.hypot(mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2]) || 0.5;
+    // distance so the bounding sphere fills ~70% of the viewport height:
+    // d = R / (fill · tan(fov/2)). Closer than the old radius·2.4 pull-back.
+    const tanF = Math.tan((this.camera.fieldOfView * DEG) / 2);
+    this.focus(cx, cy, cz, Math.max(3, radius / (0.7 * tanF)));
   }
 
   // ── programmatic camera + capture (used by the MCP bridge) ─────────────────
@@ -444,7 +483,7 @@ export class Viewport {
     // object markers
     for (let i = 0; i < map.objects.length; i++) {
       const o = map.objects[i];
-      const p = this.project(o.at);
+      const p = this.project(this.worldAt(o));
       if (!p.visible) continue;
       const selected = state.isSelected(o);
       ctx.beginPath();
@@ -461,12 +500,20 @@ export class Viewport {
     if (pivot) this.drawGizmo(pivot);
   }
 
-  /** gizmo pivot = centroid of the selected objects' positions (null if none) */
+  /** world position of a placement, resolving its group chain (local → world) */
+  private worldAt(o: Placement): Tuple3 {
+    return state.map ? resolveWorld(state.map, o).at : o.at;
+  }
+
+  /** gizmo pivot. For a group selection it's the group's own world origin (so the
+   *  gizmo pivots exactly where the group's transform does); otherwise the centroid
+   *  of the selected objects' world positions. Null if nothing is selected. */
   private selPivot(): Tuple3 | null {
+    if (state.selGroup && state.map) return groupWorldTf(state.map, state.selGroup).at;
     const sel = state.selectedObjects();
     if (!sel.length) return null;
     let x = 0, y = 0, z = 0;
-    for (const o of sel) { x += o.at[0]; y += o.at[1]; z += o.at[2]; }
+    for (const o of sel) { const w = this.worldAt(o); x += w[0]; y += w[1]; z += w[2]; }
     return [x / sel.length, y / sel.length, z / sel.length];
   }
 
@@ -479,27 +526,21 @@ export class Viewport {
 
   // ── selection highlight: 3D inverted-hull outline ──────────────────────────
   // A selected mesh gets a cloned "shell": the same geometry, slightly enlarged,
-  // rendered back-faces-only in an unlit amber. Where the shell pokes past the
-  // real object's silhouette it shows as a crisp outline that hugs the actual
-  // mesh in 3D (depth-tested, so nearer geometry occludes it); a second larger,
-  // translucent shell adds a soft glow falloff. This reads as the object glowing
-  // rather than a flat box floating on a 2D overlay.
+  // rendered back-faces-only in an unlit amber and depth-tested, so it only shows
+  // where it pokes past the real object's silhouette — a crisp border hugging the
+  // mesh. Deliberately border-only: an earlier see-through halo tinted the whole
+  // object, hiding the very texture/colour/material changes you were making to it.
   private static SHELL = "__sel_outline";
 
-  /** the two shared outline materials (created lazily on first selection) */
-  private outlineMaterials(): [UnlitMaterial, UnlitMaterial] {
+  /** the shared outline material (created lazily on first selection) */
+  private outlineMaterial(): UnlitMaterial {
     if (!this.outlineCore) {
       const core = new UnlitMaterial(this.engine);
       core.baseColor = new Color(1.0, 0.6, 0.12, 1);
       core.renderFace = RenderFace.Back;
       this.outlineCore = core;
-      const glow = new UnlitMaterial(this.engine);
-      glow.baseColor = new Color(1.0, 0.66, 0.2, 0.26);
-      glow.renderFace = RenderFace.Back;
-      glow.isTransparent = true;
-      this.outlineGlow = glow;
     }
-    return [this.outlineCore, this.outlineGlow!];
+    return this.outlineCore;
   }
 
   /** rebuild the outline shells for the current selection */
@@ -511,7 +552,7 @@ export class Viewport {
     const sel = state.selectedObjects();
     if (!sel.length) return;
 
-    const [core, glow] = this.outlineMaterials();
+    const core = this.outlineMaterial();
     for (const o of sel) {
       const ents = this.objEntities[map.objects.indexOf(o)];
       if (!ents) continue;
@@ -519,15 +560,16 @@ export class Viewport {
         if (e.destroyed) continue;
         for (const r of e.getComponentsIncludeChildren(MeshRenderer, [])) {
           if (!r.mesh || r.entity.name === Viewport.SHELL) continue;
-          this.addShell(r, 1.03, core);
-          this.addShell(r, 1.09, glow);
+          this.addShell(r, 1.035, core, 0);   // thin silhouette border only
         }
       }
     }
   }
 
-  /** clone a mesh renderer into an enlarged, unlit "shell" child for the outline */
-  private addShell(src: MeshRenderer, factor: number, mat: UnlitMaterial): void {
+  /** clone a mesh renderer into an enlarged, unlit "shell" child for the outline.
+   *  `priority` orders draws — the see-through glow uses a high value so it renders
+   *  last, on top of the rest of the scene. */
+  private addShell(src: MeshRenderer, factor: number, mat: UnlitMaterial, priority: number): void {
     const s = src.entity.createChild(Viewport.SHELL);
     s.transform.setScale(factor, factor, factor);
     const r = s.addComponent(MeshRenderer);
@@ -535,6 +577,7 @@ export class Viewport {
     r.setMaterial(mat);
     r.castShadows = false;
     r.receiveShadows = false;
+    r.priority = priority;
     this.outlineEntities.push(s);
   }
 
@@ -673,7 +716,8 @@ export class Viewport {
       else if (e.code === "Digit1") this.emitTool("move");
       else if (e.code === "Digit2") this.emitTool("rotate");
       else if (e.code === "Digit3") this.emitTool("scale");
-      else if (e.code === "KeyF" && state.selIndex >= 0) { const o = state.map!.objects[state.selIndex]; this.focus(o.at[0], o.at[1], o.at[2]); }
+      // F or Space → frame (fit) the current selection close in view
+      else if ((e.code === "KeyF" || e.code === "Space") && state.selectedObjects().length) { e.preventDefault(); this.focusSelected(); }
     });
     window.addEventListener("keyup", (e) => this.keys.delete(e.code));
   }
@@ -732,10 +776,19 @@ export class Viewport {
     const fz = Math.max(0.5, dot([pivot[0] - this.pos.x, pivot[1] - this.pos.y, pivot[2] - this.pos.z], f));
     const tanF = Math.tan((this.camera.fieldOfView * DEG) / 2);
     const pwpp = (2 * tanF * fz) / this.rect().height;
-    const members = state.selectedObjects().map((o) => ({
-      o, at: o.at.slice() as Tuple3, rot: placeRot(o).slice() as Tuple3, scale: placeScale(o).slice() as Tuple3,
-    }));
-    this.drag = { handle: h, pivot, members, unit, wpp, cx: c.x, cy: c.y, startAngle: Math.atan2(this.py - c.y, this.px - c.x), startPx: this.px, startPy: this.py, rvec: r, uvec: u, pwpp };
+    // a group selection edits the group's own transform; otherwise each member's
+    // world transform (rebased into its group on write-back).
+    const map = state.map!;
+    let group: { id: string; at: Tuple3; rot: Tuple3; scale: Tuple3 } | null = null;
+    if (state.selGroup) {
+      const gw = groupWorldTf(map, state.selGroup);
+      group = { id: state.selGroup, at: gw.at.slice() as Tuple3, rot: gw.rot.slice() as Tuple3, scale: gw.scale.slice() as Tuple3 };
+    }
+    const members = group ? [] : state.selectedObjects().map((o) => {
+      const w = resolveWorld(map, o);
+      return { o, at: w.at.slice() as Tuple3, rot: w.rot.slice() as Tuple3, scale: w.scale.slice() as Tuple3, parent: groupWorldTf(map, o.group) };
+    });
+    this.drag = { handle: h, pivot, members, group, unit, wpp, cx: c.x, cy: c.y, startAngle: Math.atan2(this.py - c.y, this.px - c.x), startPx: this.px, startPy: this.py, rvec: r, uvec: u, pwpp };
     this.dragging = true; this.dragKind = "transform";
     this.canvas.style.cursor = "grabbing";
   }
@@ -779,7 +832,7 @@ export class Viewport {
     const map = state.map; if (!map) return -1;
     let best = 16 * 16, idx = -1;
     for (let i = 0; i < map.objects.length; i++) {
-      const p = this.project(map.objects[i].at);
+      const p = this.project(this.worldAt(map.objects[i]));
       if (!p.visible) continue;
       const d = (p.x - px) ** 2 + (p.y - py) ** 2;
       if (d < best) { best = d; idx = i; }
@@ -787,14 +840,18 @@ export class Viewport {
     return idx;
   }
 
-  /** axis-constrained edit driven by the snapshot captured in beginTransform.
-   *  Every selected object transforms about the shared pivot, so a group moves/
-   *  scales/rotates as one; for a single object it reduces to the classic behaviour
-   *  (pivot = the object, so scale/rotate don't shift its position). */
+  /** axis-constrained edit driven by the snapshot captured in beginTransform. The
+   *  drag is expressed as one `op` that maps a starting WORLD transform to a new one
+   *  about the shared pivot. A group selection applies it to the group's own
+   *  transform (children ride along, unchanged in local space); otherwise it applies
+   *  per selected object, rebasing the world result back into each object's group
+   *  local space on write (identity for ungrouped objects → classic behaviour). */
   private applyTransformDrag(): void {
     const d = this.drag;
-    if (!d || !d.members.length) return;
+    if (!d) return;
     const ddx = this.px - d.startPx, ddy = this.py - d.startPy;
+    type Tf = { at: Tuple3; rot: Tuple3; scale: Tuple3 };
+    let op: (at: Tuple3, rot: Tuple3, scale: Tuple3) => Tf;
 
     if (this.tool === "move") {
       let disp: Tuple3;
@@ -805,36 +862,53 @@ export class Viewport {
         const dir = AXIS_DIR[d.handle];
         disp = [dir[0] * along, dir[1] * along, dir[2] * along];
       }
-      for (const m of d.members) m.o.at = [round(m.at[0] + disp[0]), round(m.at[1] + disp[1]), round(m.at[2] + disp[2])];
+      op = (at, rot, scale) => ({ at: [at[0] + disp[0], at[1] + disp[1], at[2] + disp[2]], rot, scale });
     } else if (this.tool === "scale") {
       if (d.handle === "xyz") {
         const f = Math.max(0.02, 1 - ddy / 140);
-        for (const m of d.members) {
-          m.o.scale = [round2(Math.max(0.02, m.scale[0] * f)), round2(Math.max(0.02, m.scale[1] * f)), round2(Math.max(0.02, m.scale[2] * f))];
-          m.o.at = [round(d.pivot[0] + (m.at[0] - d.pivot[0]) * f), round(d.pivot[1] + (m.at[1] - d.pivot[1]) * f), round(d.pivot[2] + (m.at[2] - d.pivot[2]) * f)];
-        }
+        op = (at, rot, scale) => ({
+          at: [d.pivot[0] + (at[0] - d.pivot[0]) * f, d.pivot[1] + (at[1] - d.pivot[1]) * f, d.pivot[2] + (at[2] - d.pivot[2]) * f],
+          rot, scale: [Math.max(0.02, scale[0] * f), Math.max(0.02, scale[1] * f), Math.max(0.02, scale[2] * f)],
+        });
       } else {
         const idx = AXIS_IDX[d.handle];
         const f = 1 + (ddx * d.unit[0] + ddy * d.unit[1]) / 70;
-        for (const m of d.members) {
-          const sc = m.scale.slice() as Tuple3; sc[idx] = round2(Math.max(0.02, m.scale[idx] * f)); m.o.scale = sc;
-          const at = m.at.slice() as Tuple3; at[idx] = round(d.pivot[idx] + (m.at[idx] - d.pivot[idx]) * f); m.o.at = at;
-        }
+        op = (at, rot, scale) => {
+          const nat = at.slice() as Tuple3; nat[idx] = d.pivot[idx] + (at[idx] - d.pivot[idx]) * f;
+          const ns = scale.slice() as Tuple3; ns[idx] = Math.max(0.02, scale[idx] * f);
+          return { at: nat, rot, scale: ns };
+        };
       }
     } else {   // rotate
       const ang = Math.atan2(this.py - d.cy, this.px - d.cx);
       const deg = ((ang - d.startAngle) * 180) / Math.PI;
       const idx = AXIS_IDX[d.handle];
       const sign = d.handle === "y" ? -1 : 1;
-      const sdeg = deg * sign, rad = sdeg * DEG;
-      for (const m of d.members) {
-        const rel: Tuple3 = [m.at[0] - d.pivot[0], m.at[1] - d.pivot[1], m.at[2] - d.pivot[2]];
+      let sdeg = deg * sign;
+      // hold Shift → snap the rotation to 30° increments (from the grab angle)
+      if (this.keys.has("ShiftLeft") || this.keys.has("ShiftRight")) sdeg = Math.round(sdeg / 30) * 30;
+      const rad = sdeg * DEG;
+      op = (at, rot, scale) => {
+        const rel: Tuple3 = [at[0] - d.pivot[0], at[1] - d.pivot[1], at[2] - d.pivot[2]];
         const rr = rotateAxis(rel, idx, rad);
-        m.o.at = [round(d.pivot[0] + rr[0]), round(d.pivot[1] + rr[1]), round(d.pivot[2] + rr[2])];
-        const rot = m.rot.slice() as Tuple3; rot[idx] = round(m.rot[idx] + sdeg); m.o.rot = rot;
-      }
+        const nrot = rot.slice() as Tuple3; nrot[idx] = rot[idx] + sdeg;
+        return { at: [d.pivot[0] + rr[0], d.pivot[1] + rr[1], d.pivot[2] + rr[2]], rot: nrot, scale };
+      };
     }
-    state.touch();
+
+    if (d.group) {
+      const w = op(d.group.at, d.group.rot, d.group.scale);
+      state.setGroupWorld(d.group.id, w, false);   // stores back to parent-local + touches
+    } else {
+      for (const m of d.members) {
+        const w = op(m.at, m.rot, m.scale);
+        const lw = invComposeTf(m.parent, w);   // world → the object's group-local space
+        m.o.at = [round(lw.at[0]), round(lw.at[1]), round(lw.at[2])];
+        m.o.rot = [round(lw.rot[0]), round(lw.rot[1]), round(lw.rot[2])];
+        m.o.scale = [round2(lw.scale[0]), round2(lw.scale[1]), round2(lw.scale[2])];
+      }
+      state.touch();
+    }
     this.liveDirty = true;   // rebuild on the next frame so the change is visible live
   }
 
@@ -938,6 +1012,9 @@ function markerColor(type: string): string {
   if (type === "pickup") return "#29b6f6";
   if (type === "powerup") return "#ffca28";
   if (type === "sound") return "#ab47bc";
-  if (type === "box" || type === "water") return "#78909c";
+  if (type === "box") return "#78909c";
+  // lights (point/dir/spot/lantern) glow yellow so they read at a glance even
+  // though the light itself has no mesh to click in 3D — only this marker dot.
+  if (objectCategory(type) === "light") return "#ffd54f";
   return "#cfc3a8";
 }

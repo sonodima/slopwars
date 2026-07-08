@@ -10,19 +10,21 @@ import { Viewport, Tool, PerfStats } from "./viewport";
 import { ThumbRenderer } from "./preview";
 import { state } from "./state";
 import { mountSceneGraph } from "./scenegraph";
-import { renderInspector, setInspectorCatalog, setInspectorThumbs } from "./inspector";
-import { renderBrowser, Payload } from "./panels";
+import { renderInspector, setInspectorCatalog, setInspectorThumbs, setInspectorMaterialHooks, setInspectorModelHooks, setInspectorTextureHooks } from "./inspector";
+import type { MaterialDef, ModelMeta } from "@slopwars/shared";
+import { renderBrowser, Payload, type BrowserControl } from "./panels";
 import { mountResizers } from "./layout";
 import { objectDropScale } from "@game/objects";
 import { startMcpBridge } from "./mcpbridge";
 import { api } from "./api";
-import { el, button, toast, modal } from "./ui";
+import { el, button, toast } from "./ui";
 
 const $ = (id: string): HTMLElement => document.getElementById(id) as HTMLElement;
 
 const viewport = new Viewport();
 const thumbs = new ThumbRenderer();
-let catalog: AssetCatalog = { models: [], textures: [], audio: [], hdri: [] };
+let catalog: AssetCatalog = { models: [], textures: [], materials: [], audio: [], hdri: [] };
+let browser: BrowserControl | null = null;
 let rebuildTimer = 0;
 
 const TOOLS: { t: Tool; label: string }[] = [
@@ -32,10 +34,52 @@ const TOOLS: { t: Tool; label: string }[] = [
 ];
 const GRAPHICS = ["low", "medium", "high"] as const;
 
+async function loadCatalog(): Promise<AssetCatalog> {
+  return api.catalog();
+}
+
+/** re-fetch the catalog and push it everywhere that caches material defs (the
+ *  inspector + the viewport's live shader). `reshade` rebuilds the viewport so a
+ *  material change is visible. */
+async function refreshCatalog(reshade = false): Promise<void> {
+  catalog = await loadCatalog();
+  setInspectorCatalog(catalog);
+  viewport.setMaterials(catalog.materials, false);
+  viewport.setModelMetas(catalog.models, reshade);
+}
+
+// debounced material-file writes (a colour drag mutates the def many times/sec;
+// we re-shade live every change but only persist to disk after it settles)
+let matSaveTimer = 0;
+function saveMaterialSoon(name: string, def: MaterialDef): void {
+  window.clearTimeout(matSaveTimer);
+  matSaveTimer = window.setTimeout(() => { void api.saveMaterial(name, def).catch((e) => toast("material save failed: " + e, true)); }, 250);
+}
+
+// debounced model-meta writes (base/scale drags), same pattern as materials
+let metaSaveTimer = 0;
+function saveModelMetaSoon(name: string, meta: ModelMeta): void {
+  window.clearTimeout(metaSaveTimer);
+  metaSaveTimer = window.setTimeout(() => { void api.saveModelMeta(name, meta).catch((e) => toast("model save failed: " + e, true)); }, 250);
+}
+
 async function main(): Promise<void> {
-  try { catalog = await api.catalog(); } catch (e) { toast("catalog load failed: " + e, true); }
+  try { catalog = await loadCatalog(); } catch (e) { toast("catalog load failed: " + e, true); }
   setInspectorCatalog(catalog);
   setInspectorThumbs(thumbs);
+  setInspectorMaterialHooks({
+    // editing a material: re-shade the viewport immediately, persist shortly after
+    changed: (name, def) => { viewport.setMaterials(catalog.materials, true); saveMaterialSoon(name, def); },
+    renamed: (from, to) => { void renameMaterial(from, to); },
+    deleted: (name) => { void deleteMaterialFlow(name); },
+  });
+  setInspectorModelHooks({
+    // editing a model's meta: update the live metas + re-pose in the viewport, then
+    // persist. `meta` is a live object the inspector mutates, so re-read it on save.
+    changed: (name, meta) => { applyLiveModelMeta(name, meta); viewport.setModelMetas(catalog.models, true); saveModelMetaSoon(name, meta); },
+    deleted: (name) => { void deleteModelFlow(name); },
+  });
+  setInspectorTextureHooks({ deleted: (name) => { void deleteTextureFlow(name); } });
 
   buildToolbar();
   mountSceneGraph($("scene-graph"));
@@ -45,8 +89,16 @@ async function main(): Promise<void> {
 
   state.onChange(() => { scheduleRebuild(); refreshMapName(); });
   state.onSelect(() => renderInspector($("inspector")));
-  // selecting in the outliner reframes the camera on the object (centres it)
-  state.onSelect(() => { if (state.selectSource === "outliner" && state.selIndex >= 0) viewport.focusSelected(); });
+  // selecting in the outliner reframes the camera on the object (centres it).
+  // Consume the source afterwards so the *same* selection being re-emitted by a
+  // later commit (e.g. finishing a gizmo move, an inspector edit) doesn't fly the
+  // camera back onto the object — you'd lose your framing every time you nudge it.
+  state.onSelect(() => {
+    if (state.selectSource === "outliner" && (state.selIndex >= 0 || state.selectedObjects().length)) {
+      viewport.focusSelected();
+      state.selectSource = "";
+    }
+  });
   viewport.onToolChange(highlightTool);
   viewport.onEditCommit = () => state.commit(true);
   viewport.onPerf = showPerf;
@@ -55,7 +107,7 @@ async function main(): Promise<void> {
   setupDrop();
 
   viewport.init("editor-canvas")
-    .then(() => { viewport.setGraphics("high"); if (state.map) return viewport.render(state.map); })
+    .then(() => { viewport.setGraphics("high"); viewport.setMaterials(catalog.materials); viewport.setModelMetas(catalog.models); if (state.map) return viewport.render(state.map); })
     .catch((e) => { console.error("viewport init failed (data editing still works):", e); toast("3D viewport unavailable", true); });
   thumbs.init().catch(() => { /* thumbnails optional */ });
 
@@ -63,7 +115,7 @@ async function main(): Promise<void> {
   startMcpBridge({
     viewport,
     getCatalog: () => catalog,
-    reloadCatalog: async () => { catalog = await api.catalog(); setInspectorCatalog(catalog); return catalog; },
+    reloadCatalog: async () => { catalog = await loadCatalog(); setInspectorCatalog(catalog); return catalog; },
     saveMap,
     loadMap: openMap,
     newMap,
@@ -123,8 +175,9 @@ function buildToolbar(): void {
   const bar = $("toolbar");
   const logo = el("img", "brand-icon") as HTMLImageElement;
   logo.src = `${import.meta.env.BASE_URL}logo.png`; logo.alt = "SlopWars";
+  // New/Load live in the Maps tab of the asset browser now; Save/Save As stay here
   bar.append(logo, el("span", "brand", "Editor"),
-    button("New", newMap), button("Load…", openLoadDialog), button("Save", saveMap, "primary"), button("Save As…", saveMapAs),
+    button("Save", saveMap, "primary"), button("Save As…", saveMapAs),
     el("span", "bar-sep"));
 
   const tools = el("div", "tool-group");
@@ -148,7 +201,89 @@ function graphicsPicker(): HTMLElement {
 }
 
 function buildDock(): void {
-  renderBrowser($("browser"), { catalog, thumbs, reloadCatalog: async () => { catalog = await api.catalog(); setInspectorCatalog(catalog); return catalog; } });
+  browser = renderBrowser($("browser"), {
+    catalog, thumbs,
+    reloadCatalog: async () => { await refreshCatalog(); return catalog; },
+    listMaps: () => api.maps(),
+    onSelectMaterial: (name) => state.selectMaterial(name),
+    onSelectModel: (name) => state.selectModel(name),
+    onSelectTexture: (name) => state.selectTexture(name),
+    onCreateMaterial: () => void createMaterialFlow(),
+    onLoadMap: (file) => void openMap(file),
+    onCreateMap: () => newMap(),
+  });
+}
+
+/** create a plain gray material, refresh the browser, and open it for editing
+ *  (its kind is then chosen via the inspector's type switcher — no up-front pick) */
+async function createMaterialFlow(): Promise<void> {
+  try {
+    const r = await api.createMaterial();
+    if (!r.name) { toast("create material failed: " + (r.error ?? ""), true); return; }
+    await browser?.reload();
+    browser?.showMaterials();
+    state.selectMaterial(r.name);
+  } catch (e) { toast("create material failed: " + e, true); }
+}
+
+/** patch the in-memory catalog with a live model-meta edit, so the viewport (which
+ *  reads catalog metas) previews it before the debounced file write lands */
+function applyLiveModelMeta(name: string, meta: ModelMeta): void {
+  const m = catalog.models.find((x) => x.name === name);
+  if (m) m.meta = { ...meta };
+}
+
+/** delete a material file, then refresh: objects that named it now render the
+ *  default material (dangling ref), and the inspector flags the name in red. */
+async function deleteMaterialFlow(name: string): Promise<void> {
+  try {
+    const r = await api.deleteMaterial(name);
+    if (r.error) { toast("delete failed: " + r.error, true); return; }
+    state.selectMaterial(null);
+    await refreshCatalog(true);
+    await browser?.reload();
+    toast(`deleted material "${name}"`);
+  } catch (e) { toast("delete failed: " + e, true); }
+}
+
+/** delete a model folder, then refresh: placements that named it render nothing
+ *  (dangling ref), handled gracefully by the loader. */
+async function deleteModelFlow(name: string): Promise<void> {
+  try {
+    const r = await api.deleteModel(name);
+    if (r.error) { toast("delete failed: " + r.error, true); return; }
+    state.selectModel(null);
+    await refreshCatalog(true);
+    await browser?.reload();
+    toast(`deleted model "${name}"`);
+  } catch (e) { toast("delete failed: " + e, true); }
+}
+
+/** delete a texture folder, then refresh: materials that used it fall back to the
+ *  default texture folder. */
+async function deleteTextureFlow(name: string): Promise<void> {
+  try {
+    const r = await api.deleteTexture(name);
+    if (r.error) { toast("delete failed: " + r.error, true); return; }
+    state.selectTexture(null);
+    await refreshCatalog(true);
+    await browser?.reload();
+    toast(`deleted texture "${name}"`);
+  } catch (e) { toast("delete failed: " + e, true); }
+}
+
+/** rename a material file + repoint the loaded map's references, then reselect */
+async function renameMaterial(from: string, to: string): Promise<void> {
+  try {
+    const r = await api.renameMaterial(from, to);
+    if (!r.name) { toast("rename failed: " + (r.error ?? ""), true); return; }
+    for (const o of state.map?.objects ?? []) {
+      if ((o.params as { mat?: string } | undefined)?.mat === from) (o.params as { mat: string }).mat = r.name;
+    }
+    await refreshCatalog(true);
+    await browser?.reload();
+    state.selectMaterial(r.name);
+  } catch (e) { toast("rename failed: " + e, true); }
 }
 
 function selectTool(t: Tool): void { viewport.setTool(t); highlightTool(t); }
@@ -165,21 +300,7 @@ function refreshMapName(): void {
   if (n) n.textContent = state.map ? state.map.meta.name + (state.dirty ? " *" : "") : "";
 }
 
-// ── map management ────────────────────────────────────────────────────────────
-async function openLoadDialog(): Promise<void> {
-  let list: { id: string; name: string; file: string }[] = [];
-  try { list = await api.maps(); } catch (e) { toast("maps list failed: " + e, true); return; }
-  const body = el("div", "map-list");
-  if (!list.length) body.append(el("div", "empty", "No maps found"));
-  const dlg = modal("Load map", body);
-  for (const m of list) {
-    const row = el("button", "map-row");
-    row.append(el("span", "map-row-name", m.name), el("span", "map-row-id", m.id));
-    row.addEventListener("click", () => { dlg.close(); void openMap(m.file); });
-    body.append(row);
-  }
-}
-
+// ── map management (New/Load are the Maps tab of the asset browser) ──────────
 async function openMap(file: string): Promise<void> {
   try {
     const def = await api.loadMap(file);
@@ -200,7 +321,7 @@ function newMap(): void {
 async function saveMap(): Promise<void> {
   const map = state.map; if (!map) return;
   const id = map.meta.id || state.fileId;
-  try { await api.saveMap(id, map); state.dirty = false; refreshMapName(); toast(`saved maps/${id}.json`); }
+  try { await api.saveMap(id, map); state.dirty = false; refreshMapName(); browser?.refreshMaps(); toast(`saved maps/${id}.json`); }
   catch (e) { toast("save failed: " + e, true); }
 }
 
@@ -235,9 +356,10 @@ function setupDrop(): void {
 /** sensible starting transform for an object type dropped onto the ground */
 function objectPlacement(type: string, at: Tuple3): Placement {
   if (type === "box") return { type, at: [at[0], at[1] + 1, at[2]], scale: [4, 2, 4] };
-  if (type === "water") return { type, at: [at[0], at[1] + 0.3, at[2]], scale: [6, 1, 6] };
   if (type === "pickup" || type === "powerup") return { type, at: [at[0], at[1] + 1, at[2]] };
   if (type === "sound") return { type, at: [at[0], at[1] + 2, at[2]] };
+  // emitters aim up their local +Y; drop them just above the ground
+  if (type === "particles" || type === "fire" || type === "smoke") return { type, at: [at[0], at[1] + 0.3, at[2]] };
   // model props carry a tuned native size — drop them at it so the regular Scale
   // tool then resizes from a correct baseline (no per-object scale param).
   const s = objectDropScale(type);

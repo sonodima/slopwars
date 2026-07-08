@@ -1,0 +1,12 @@
+{
+  "type": "water",
+  "color": [0.015, 0.06, 0.08],
+  "opacity": 0.96,
+  "roughness": 0.12,
+  "ior": 1.33,
+  "flow": 0.05,
+  "waves": 0.6,
+  "depthColor": [0.04, 0.18, 0.22],
+  "depth": 1.6,
+  "clarity": 0.4
+}

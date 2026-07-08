@@ -7,14 +7,15 @@ import { GameModels } from "./models";
 import { MapTextures } from "./textures";
 import { MapBuilder } from "./mapbuilder";
 import { loadMapDef } from "./maps/loader";
-import { MapDef, MapEnv, MapMeta } from "./maps/schema";
+import { MapDef, MapEnv, MapMeta, MaterialDef, ModelMeta } from "./maps/schema";
 import { Vec3 } from "./types";
 
 export interface AABB { min: Vec3; max: Vec3 }
 /** damageable explosive barrel (host tracks hp; explodes at 0) */
 export interface Barrel { pos: Vec3; entity: Entity | null; solid: AABB; hp: number; dead: boolean }
-/** a positional looping sound placed in the map (volume falls off with distance) */
-export interface MapSound { pos: Vec3; el: HTMLAudioElement; radius: number; volume: number }
+/** a looping sound placed in the map. When `spatial`, volume falls off with the
+ *  listener's distance; otherwise it plays at a constant `volume` everywhere (2D). */
+export interface MapSound { pos: Vec3; el: HTMLAudioElement; radius: number; volume: number; spatial: boolean }
 
 export class GameMap {
   solids: AABB[] = [];
@@ -34,7 +35,7 @@ export class GameMap {
 
   /** build (or rebuild) the world from a MapDef under `parent`. Safe to call
    *  repeatedly — the previous map's entities are torn down first. */
-  load(engine: Engine, parent: Entity, tex: MapTextures, models: GameModels, def: MapDef): void {
+  load(engine: Engine, parent: Entity, tex: MapTextures, models: GameModels, def: MapDef, matDefs?: Map<string, MaterialDef>, modelMeta?: Map<string, ModelMeta>): void {
     if (this.root) this.root.destroy();
     for (const s of this.sounds) { try { s.el.pause(); } catch { /* ignore */ } }
     this.solids = [];
@@ -47,12 +48,14 @@ export class GameMap {
     this.root = parent.createChild("map");
     this.meta = def.meta;
     this.env = def.env;
-    loadMapDef(new MapBuilder(engine, this.root, tex, models, this), def);
+    loadMapDef(new MapBuilder(engine, this.root, tex, models, this, matDefs, modelMeta), def);
   }
 
-  /** per-frame: fade each positional sound by the listener's distance to it */
+  /** per-frame: fade each spatial sound by the listener's distance to it.
+   *  Non-spatial (2D) sources keep the constant volume set at build time. */
   tickSounds(listener: Vec3): void {
     for (const s of this.sounds) {
+      if (!s.spatial) continue;
       const dx = s.pos.x - listener.x, dy = s.pos.y - listener.y, dz = s.pos.z - listener.z;
       const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
       const v = Math.min(1, Math.max(0, 1 - d / s.radius) * s.volume);
