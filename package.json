@@ -12,8 +12,6 @@
     "dev": "pnpm --filter @slopwars/game dev",
     "dev:editor": "pnpm --filter @slopwars/editor dev",
     "build": "pnpm --filter @slopwars/game build",
-    "build:editor": "pnpm --filter @slopwars/editor build",
-    "preview": "pnpm --filter @slopwars/game preview",
     "typecheck": "pnpm -r typecheck"
   },
   "license": "ISC",
