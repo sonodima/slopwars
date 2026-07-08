@@ -2192,7 +2192,7 @@
 			}
 		},
 		{
-			"type": "barrel",
+			"type": "explodable",
 			"at": [
 				-27.05,
 				0,
@@ -2208,10 +2208,12 @@
 				0,
 				0
 			],
-			"params": {}
+			"params": {
+				"model": "Barrel_01"
+			}
 		},
 		{
-			"type": "barrel",
+			"type": "explodable",
 			"at": [
 				-25.98,
 				0,
@@ -2227,10 +2229,12 @@
 				0,
 				0
 			],
-			"params": {}
+			"params": {
+				"model": "Barrel_01"
+			}
 		},
 		{
-			"type": "barrel",
+			"type": "explodable",
 			"at": [
 				29.11,
 				0,
@@ -2246,10 +2250,12 @@
 				0,
 				0
 			],
-			"params": {}
+			"params": {
+				"model": "Barrel_01"
+			}
 		},
 		{
-			"type": "barrel",
+			"type": "explodable",
 			"at": [
 				12.29,
 				0,
@@ -2265,10 +2271,12 @@
 				0,
 				0
 			],
-			"params": {}
+			"params": {
+				"model": "Barrel_01"
+			}
 		},
 		{
-			"type": "barrel",
+			"type": "explodable",
 			"at": [
 				12.29,
 				0,
@@ -2284,18 +2292,23 @@
 				0,
 				0
 			],
-			"params": {}
+			"params": {
+				"model": "Barrel_01"
+			}
 		},
 		{
-			"type": "succulent",
+			"type": "veg",
 			"at": [
 				9.2,
 				0,
 				-9.3
-			]
+			],
+			"params": {
+				"model": "cheiridopsis_succulent"
+			}
 		},
 		{
-			"type": "shrub",
+			"type": "veg",
 			"at": [
 				-27.2,
 				0,
@@ -2311,10 +2324,12 @@
 				1,
 				1
 			],
-			"params": {}
+			"params": {
+				"model": "didelta_spinosa"
+			}
 		},
 		{
-			"type": "shrub",
+			"type": "veg",
 			"at": [
 				28.74,
 				0,
@@ -2330,7 +2345,9 @@
 				1,
 				1
 			],
-			"params": {}
+			"params": {
+				"model": "didelta_spinosa"
+			}
 		},
 		{
 			"type": "spawn",

@@ -19,7 +19,19 @@ import { clear, el, numField, vecField, selectField, checkField, textField, colo
 // editing shares one live working `meta` object with the shell (so the left-panel
 // collision authoring and this inspector mutate the same state).
 interface MaterialHooks { changed: (name: string, def: MaterialDef) => void; renamed: (from: string, to: string) => void; deleted: (name: string) => void }
-interface ModelHooks { meta: (name: string) => ModelMeta; changed: (name: string) => void; deleted: (name: string) => void }
+interface ModelHooks {
+  meta: (name: string) => ModelMeta;
+  changed: (name: string) => void;
+  deleted: (name: string) => void;
+  /** currently-selected collision solid index (−1 = none) */
+  collSel: () => number;
+  /** select a collision solid (highlights it + shows its gizmo in the view) */
+  collSelect: (i: number) => void;
+  /** append a new collision solid and select it */
+  collAdd: () => void;
+  /** delete collision solid `i` */
+  collDelete: (i: number) => void;
+}
 interface TextureHooks { deleted: (name: string) => void }
 let matHooks: MaterialHooks | null = null;
 let modelHooks: ModelHooks | null = null;
@@ -175,10 +187,34 @@ function modelInspector(host: HTMLElement, name: string): void {
   if ((meta.collision ?? "auto") === "auto") {
     host.append(el("div", "insp-note", "Automatic: one box hugs the whole model (classic)."));
   } else {
-    host.append(el("div", "insp-note", "Manual: only the solids you place block the player. Switch the viewport to “Collision” to author them (e.g. just a tree’s trunk)."));
+    collisionList(host, meta, modelHooks);
   }
 
   deleteButton(host, "🗑 Delete model", `model "${name}"`, () => modelHooks?.deleted(name));
+}
+
+/** the list of manual collision solids. Position/size is authored directly in the
+ *  Collision view with the move/scale gizmo (same tools as map objects) — this list
+ *  only adds, selects and deletes them (as the redesign asks: solids are placed &
+ *  sized in 3D, the inspector just lists them). */
+function collisionList(host: HTMLElement, meta: ModelMeta, hooks: ModelHooks): void {
+  host.append(el("div", "insp-note", "Manual: only these solids block the player. Open the “Collision” view (top-left) and move/scale each solid with the gizmo, like any object."));
+  const add = button("＋ Add solid", () => hooks.collAdd(), "primary");
+  add.classList.add("insp-addbtn");
+  host.append(add);
+
+  const boxes = meta.collisionBoxes ?? [];
+  if (!boxes.length) { host.append(el("div", "side-note", "No solids yet — add one, then drag it in the view.")); return; }
+  const sel = hooks.collSel();
+  boxes.forEach((_b, i) => {
+    const row = el("div", "cbox-row" + (i === sel ? " sel" : ""));
+    row.append(el("span", "cbox-name", `Solid ${i + 1}`));
+    const del = el("button", "btn mini", "✕"); del.title = "delete solid";
+    del.addEventListener("click", (e) => { e.stopPropagation(); hooks.collDelete(i); });
+    row.append(del);
+    row.addEventListener("click", () => hooks.collSelect(i));
+    host.append(row);
+  });
 }
 
 // ── texture (preview + delete) ────────────────────────────────────────────────

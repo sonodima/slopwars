@@ -1621,39 +1621,51 @@
 			}
 		},
 		{
-			"type": "shrub",
+			"type": "veg",
 			"at": [
 				-20,
 				0,
 				-6
-			]
+			],
+			"params": {
+				"model": "didelta_spinosa"
+			}
 		},
 		{
-			"type": "shrub",
+			"type": "veg",
 			"at": [
 				20,
 				0,
 				-6
-			]
+			],
+			"params": {
+				"model": "didelta_spinosa"
+			}
 		},
 		{
-			"type": "succulent",
+			"type": "veg",
 			"at": [
 				-7,
 				0,
 				-6
-			]
+			],
+			"params": {
+				"model": "cheiridopsis_succulent"
+			}
 		},
 		{
-			"type": "succulent",
+			"type": "veg",
 			"at": [
 				8,
 				0,
 				-5
-			]
+			],
+			"params": {
+				"model": "cheiridopsis_succulent"
+			}
 		},
 		{
-			"type": "barrel",
+			"type": "explodable",
 			"at": [
 				-9,
 				0,
@@ -1663,10 +1675,13 @@
 				1.15,
 				1.15,
 				1.15
-			]
+			],
+			"params": {
+				"model": "Barrel_01"
+			}
 		},
 		{
-			"type": "barrel",
+			"type": "explodable",
 			"at": [
 				9,
 				0,
@@ -1676,7 +1691,10 @@
 				1.15,
 				1.15,
 				1.15
-			]
+			],
+			"params": {
+				"model": "Barrel_01"
+			}
 		},
 		{
 			"type": "lantern",

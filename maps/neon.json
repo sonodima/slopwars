@@ -868,14 +868,15 @@
 			}
 		},
 		{
-			"type": "barrel",
+			"type": "explodable",
 			"at": [
 				0,
 				0,
 				-6
 			],
 			"params": {
-				"hp": 50
+				"hp": 50,
+				"model": "Barrel_01"
 			},
 			"scale": [
 				1.15,
@@ -884,7 +885,7 @@
 			]
 		},
 		{
-			"type": "barrel",
+			"type": "explodable",
 			"at": [
 				-20,
 				0,
@@ -894,10 +895,13 @@
 				1.15,
 				1.15,
 				1.15
-			]
+			],
+			"params": {
+				"model": "Barrel_01"
+			}
 		},
 		{
-			"type": "barrel",
+			"type": "explodable",
 			"at": [
 				20,
 				0,
@@ -907,7 +911,10 @@
 				1.15,
 				1.15,
 				1.15
-			]
+			],
+			"params": {
+				"model": "Barrel_01"
+			}
 		},
 		{
 			"type": "planter",

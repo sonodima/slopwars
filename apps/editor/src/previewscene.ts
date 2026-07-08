@@ -18,7 +18,13 @@ import {
 } from "@galacean/engine";
 import type { AssetCatalog, CollisionBox, MaterialDef, ModelMeta, Tuple3 } from "@slopwars/shared";
 import { loadGLTF, loadHDRCube, loadTexture2D } from "@game/assets";
+import { applyWaterLook, attachWaterAnim, WATER_LOOK, type WaterLook } from "@game/water";
 import type { ModelView } from "./tabs";
+import type { Tool } from "./viewport";
+
+/** UV repeat used for the water preview sphere — a couple of tiles keep the fractal
+ *  ripples a believable size on a unit sphere (matches how the game tiles by area). */
+const WATER_PREVIEW_TILING = 2;
 
 const DEG = Math.PI / 180;
 
@@ -57,6 +63,22 @@ export class PreviewScene {
   private selBox = -1;
   /** notified when a collision box is clicked in the scene (index, or -1) */
   onCollisionSelect: ((index: number) => void) | null = null;
+
+  // collision gizmo: move/scale the selected solid directly in the view (mirrors
+  // the map viewport's transform gizmo, reduced to the axis-aligned box case).
+  private overlay!: HTMLCanvasElement;
+  private octx!: CanvasRenderingContext2D;
+  private gizmoTool: "move" | "scale" = "move";
+  private gizmoHover: GHandle | null = null;
+  private gizmoDrag: {
+    handle: GHandle;
+    at: Tuple3; size: Tuple3;            // box transform at grab
+    startPx: number; startPy: number;
+    unit: [number, number]; wpp: number; // screen-space axis dir + world/pixel (axis handles)
+    rvec: number[]; uvec: number[]; pwpp: number; // camera basis + world/pixel (centre handle)
+  } | null = null;
+  /** notified after a gizmo drag mutates the selected solid (persist + reshade) */
+  onCollisionChange: (() => void) | null = null;
 
   // input bookkeeping
   private dragging = false;
@@ -103,6 +125,7 @@ export class PreviewScene {
     this.holder = this.root.createChild("holder");
     this.collisionRoot = this.root.createChild("collision");
 
+    this.setupOverlay();
     this.bindInput();
     this.bindResize();
     engine.run();
@@ -136,6 +159,7 @@ export class PreviewScene {
   }
 
   private frame = (): void => {
+    this.drawGizmo();
     requestAnimationFrame(this.frame);
   };
 
@@ -151,7 +175,12 @@ export class PreviewScene {
     const e = this.holder.createChild("sphere");
     const r = e.addComponent(MeshRenderer);
     r.mesh = PrimitiveMesh.createSphere(this.engine, 1, 64);
-    r.setMaterial(await this.buildMaterial(def));
+    const mat = await this.buildMaterial(def);
+    // guard: a slower texture load may have been superseded by another tab
+    if (this.content.kind !== "material" || this.content.name !== name || e.destroyed) return;
+    r.setMaterial(mat);
+    // water flows: scroll the wave-normal UVs so ripples move like they do in-game
+    if (def.type === "water") attachWaterAnim(e, mat, WATER_PREVIEW_TILING, waterLookOf(def).flow);
   }
 
   /** render a lit sphere textured with a raw texture set (texture preview tab). */
@@ -189,9 +218,10 @@ export class PreviewScene {
       m.roughness = def.roughness ?? 0.02; m.metallic = 0; m.ior = def.ior ?? 1.5;
       m.isTransparent = true; m.refractionMode = RefractionMode.Planar; m.transmission = 1;
     } else {
-      const c = def.color ?? [0.05, 0.16, 0.2];
-      m.baseColor = new Color(c[0], c[1], c[2], def.opacity ?? 0.92);
-      m.roughness = def.roughness ?? 0.08; m.metallic = 0; m.isTransparent = true;
+      // water — use the game's exact shading (fractal wave normal + transmission +
+      // depth attenuation) so the preview shows real ripples, not a flat tint. The
+      // scroll animation is attached to the sphere by showMaterial().
+      applyWaterLook(this.engine, m, waterLookOf(def), WATER_PREVIEW_TILING);
     }
     return m;
   }
@@ -224,6 +254,11 @@ export class PreviewScene {
    *  preserves the orbit (used when a live edit re-renders the same model). */
   async showModel(name: string, view: ModelView, meta: ModelMeta, keepCamera = false): Promise<void> {
     if (!this.ready) return;
+    // keep the orbit whenever the same model is already on screen — only reframe
+    // when a *different* model loads. So switching Model⇄Collision or changing the
+    // collision mode never yanks the camera back to its default distance/angle.
+    const sameModel = this.content.kind === "model" && this.content.name === name;
+    const keep = keepCamera || sameModel;
     this.content = { kind: "model", name, view };
     this.clearHolder();
     this.clearCollision();
@@ -233,7 +268,7 @@ export class PreviewScene {
     if (!res || this.content.kind !== "model" || this.content.name !== name) return;
     const e = res.instantiateSceneRoot();
     this.holder.addChild(e);
-    const radius = keepCamera ? this.holderRadius() : this.frameHolder();
+    const radius = keep ? this.holderRadius() : this.frameHolder();
     if (meta.material) this.applyModelMaterial(e, meta.material);
     if (view === "collision") {
       this.dimModel(e);
@@ -264,10 +299,19 @@ export class PreviewScene {
     this.restyleBoxes();
   }
 
+  /** which transform gizmo the collision solids use. Mirrors the map viewport's
+   *  tool; rotate has no meaning for an axis-aligned box, so it acts as move. */
+  setGizmoTool(t: Tool): void { this.gizmoTool = t === "scale" ? "scale" : "move"; }
+
   private renderCollision(meta: ModelMeta, radius: number): void {
-    this.clearCollision();
+    // preserve the current selection across a refresh (a gizmo drag / add rebuilds
+    // the box entities but must keep the same solid selected + its gizmo showing)
+    const keepSel = this.selBox;
+    this.collisionRoot.clearChildren();
+    this.boxEntities = [];
     this.boxes = (meta.collision === "manual" ? meta.collisionBoxes : undefined) ?? [];
     this.boxes.forEach((b, i) => this.boxEntities[i] = this.makeBoxEntity(b, i));
+    this.selBox = keepSel >= 0 && keepSel < this.boxes.length ? keepSel : -1;
     this.restyleBoxes();
     void radius;
   }
@@ -340,17 +384,22 @@ export class PreviewScene {
     this.selBox = -1;
   }
 
-  // ── input: orbit + zoom + collision pick ───────────────────────────────────────
+  // ── input: orbit + zoom + collision pick + gizmo ────────────────────────────────
   private bindInput(): void {
     const c = this.canvas;
     c.addEventListener("contextmenu", (e) => e.preventDefault());
     c.addEventListener("pointerdown", (e) => {
+      // grabbing a gizmo handle of the selected solid starts a move/scale edit
+      const { x, y } = this.local(e);
+      const h = this.gizmoActive() ? this.pickHandle(x, y) : null;
+      if (h) { this.beginGizmo(h, x, y); c.setPointerCapture(e.pointerId); return; }
       this.dragging = true; this.moved = false;
       this.lastX = e.clientX; this.lastY = e.clientY;
       c.setPointerCapture(e.pointerId);
     });
     c.addEventListener("pointermove", (e) => {
-      if (!this.dragging) return;
+      if (this.gizmoDrag) { const { x, y } = this.local(e); this.applyGizmo(x, y); return; }
+      if (!this.dragging) { this.updateGizmoHover(e); return; }
       const dx = e.clientX - this.lastX, dy = e.clientY - this.lastY;
       if (Math.abs(dx) + Math.abs(dy) > 3) this.moved = true;
       this.lastX = e.clientX; this.lastY = e.clientY;
@@ -360,6 +409,7 @@ export class PreviewScene {
     });
     c.addEventListener("pointerup", (e) => {
       c.releasePointerCapture(e.pointerId);
+      if (this.gizmoDrag) { this.gizmoDrag = null; this.onCollisionChange?.(); return; }
       const wasDrag = this.moved;
       this.dragging = false;
       if (!wasDrag) this.onClick(e);
@@ -403,6 +453,214 @@ export class PreviewScene {
     ]);
     return { o, d };
   }
+
+  // ── collision gizmo (project / draw / pick / drag) ──────────────────────────────
+  private setupOverlay(): void {
+    const o = document.createElement("canvas");
+    o.className = "preview-overlay";
+    this.canvas.parentElement!.appendChild(o);
+    this.overlay = o;
+    this.octx = o.getContext("2d")!;
+  }
+
+  /** true when a collision solid is selected and editable in the view */
+  private gizmoActive(): boolean {
+    return this.content.kind === "model" && this.content.view === "collision"
+      && this.selBox >= 0 && this.selBox < this.boxes.length;
+  }
+
+  private local(e: PointerEvent): { x: number; y: number } {
+    const rc = this.canvas.getBoundingClientRect();
+    return { x: e.clientX - rc.left, y: e.clientY - rc.top };
+  }
+
+  /** camera basis in world (forward / right / up) */
+  private basis(): { f: number[]; r: number[]; u: number[] } {
+    const pos = this.camE.transform.position;
+    const f = norm([this.target.x - pos.x, this.target.y - pos.y, this.target.z - pos.z]);
+    const r = norm(cross(f, [0, 1, 0]));
+    const u = cross(r, f);
+    return { f, r, u };
+  }
+
+  /** world → overlay pixel; visible=false if behind the camera */
+  private project(w: Tuple3): { x: number; y: number; visible: boolean } {
+    const { f, r, u } = this.basis();
+    const pos = this.camE.transform.position;
+    const rel = [w[0] - pos.x, w[1] - pos.y, w[2] - pos.z];
+    const fz = dot(rel, f);
+    if (fz <= 0.01) return { x: 0, y: 0, visible: false };
+    const rc = this.canvas.getBoundingClientRect();
+    const aspect = rc.width / rc.height;
+    const tanF = Math.tan((this.camera.fieldOfView * DEG) / 2);
+    const ndcx = (dot(rel, r) / fz) / (tanF * aspect);
+    const ndcy = (dot(rel, u) / fz) / tanF;
+    return { x: (ndcx * 0.5 + 0.5) * rc.width, y: (1 - (ndcy * 0.5 + 0.5)) * rc.height, visible: true };
+  }
+
+  /** world axis length that keeps the gizmo ~constant on-screen size at `at` */
+  private gizmoLen(at: Tuple3): number {
+    const { f } = this.basis();
+    const pos = this.camE.transform.position;
+    const fz = Math.max(0.3, dot([at[0] - pos.x, at[1] - pos.y, at[2] - pos.z], f));
+    const rc = this.canvas.getBoundingClientRect();
+    const tanF = Math.tan((this.camera.fieldOfView * DEG) / 2);
+    const pixPerWorld = (rc.height / 2) / (tanF * fz);
+    return clamp(80 / pixPerWorld, 0.05, 1e4);
+  }
+
+  private updateGizmoHover(e: PointerEvent): void {
+    if (!this.gizmoActive()) { if (this.gizmoHover) { this.gizmoHover = null; this.canvas.style.cursor = "grab"; } return; }
+    const { x, y } = this.local(e);
+    const h = this.pickHandle(x, y);
+    if (h !== this.gizmoHover) { this.gizmoHover = h; this.canvas.style.cursor = h ? "grab" : "grab"; }
+  }
+
+  /** which gizmo handle (if any) is under a pixel for the selected solid */
+  private pickHandle(px: number, py: number): GHandle | null {
+    if (!this.gizmoActive()) return null;
+    const at = this.boxes[this.selBox].at;
+    const c = this.project(at);
+    if (!c.visible) return null;
+    const L = this.gizmoLen(at);
+    let best = 10, hit: GHandle | null = null;
+    for (const { h, dir } of GIZMO_AXES) {
+      const tip = this.project([at[0] + dir[0] * L, at[1] + dir[1] * L, at[2] + dir[2] * L]);
+      if (!tip.visible) continue;
+      const d = distToSeg(px, py, c.x, c.y, tip.x, tip.y);
+      if (d < best) { best = d; hit = h; }
+    }
+    if (Math.hypot(c.x - px, c.y - py) < 9) hit = "xyz";   // centre → all-axes
+    return hit;
+  }
+
+  private beginGizmo(h: GHandle, px: number, py: number): void {
+    const b = this.boxes[this.selBox];
+    const c = this.project(b.at);
+    const L = this.gizmoLen(b.at);
+    let unit: [number, number] = [1, 0], wpp = 0;
+    if (h !== "xyz") {
+      const dir = GIZMO_AXES.find((a) => a.h === h)!.dir;
+      const tip = this.project([b.at[0] + dir[0] * L, b.at[1] + dir[1] * L, b.at[2] + dir[2] * L]);
+      const dxp = tip.x - c.x, dyp = tip.y - c.y, len = Math.hypot(dxp, dyp) || 1;
+      unit = [dxp / len, dyp / len]; wpp = L / len;
+    }
+    const { r, u, f } = this.basis();
+    const pos = this.camE.transform.position;
+    const fz = Math.max(0.3, dot([b.at[0] - pos.x, b.at[1] - pos.y, b.at[2] - pos.z], f));
+    const tanF = Math.tan((this.camera.fieldOfView * DEG) / 2);
+    const pwpp = (2 * tanF * fz) / this.canvas.getBoundingClientRect().height;
+    this.gizmoDrag = { handle: h, at: b.at.slice() as Tuple3, size: b.size.slice() as Tuple3, startPx: px, startPy: py, unit, wpp, rvec: r, uvec: u, pwpp };
+    this.canvas.style.cursor = "grabbing";
+  }
+
+  private applyGizmo(px: number, py: number): void {
+    const d = this.gizmoDrag; if (!d) return;
+    const b = this.boxes[this.selBox]; if (!b) return;
+    const ddx = px - d.startPx, ddy = py - d.startPy;
+    if (this.gizmoTool === "move") {
+      if (d.handle === "xyz") {
+        b.at = [
+          d.at[0] + (d.rvec[0] * ddx - d.uvec[0] * ddy) * d.pwpp,
+          d.at[1] + (d.rvec[1] * ddx - d.uvec[1] * ddy) * d.pwpp,
+          d.at[2] + (d.rvec[2] * ddx - d.uvec[2] * ddy) * d.pwpp,
+        ];
+      } else {
+        const along = (ddx * d.unit[0] + ddy * d.unit[1]) * d.wpp;
+        const i = AXIS_IDX[d.handle];
+        const nat = d.at.slice() as Tuple3; nat[i] = round3(d.at[i] + along);
+        b.at = nat;
+      }
+    } else {   // scale about the box centre (size changes, position stays)
+      if (d.handle === "xyz") {
+        const f = Math.max(0.02, 1 - ddy / 140);
+        b.size = [round3(d.size[0] * f), round3(d.size[1] * f), round3(d.size[2] * f)];
+      } else {
+        const i = AXIS_IDX[d.handle];
+        const f = 1 + (ddx * d.unit[0] + ddy * d.unit[1]) / 70;
+        const ns = d.size.slice() as Tuple3; ns[i] = round3(Math.max(0.02, d.size[i] * f));
+        b.size = ns;
+      }
+    }
+    // reflect the edit live on the box entity without a full rebuild
+    const e = this.boxEntities[this.selBox];
+    if (e && !e.destroyed) {
+      e.transform.setPosition(b.at[0], b.at[1], b.at[2]);
+      e.transform.setScale(Math.max(0.001, b.size[0]), Math.max(0.001, b.size[1]), Math.max(0.001, b.size[2]));
+    }
+  }
+
+  /** draw the transform gizmo for the selected solid (cleared when not authoring) */
+  private drawGizmo(): void {
+    if (!this.ready) return;
+    const rc = this.canvas.getBoundingClientRect();
+    if (this.overlay.width !== Math.round(rc.width) || this.overlay.height !== Math.round(rc.height)) {
+      this.overlay.width = Math.round(rc.width); this.overlay.height = Math.round(rc.height);
+    }
+    const ctx = this.octx;
+    ctx.clearRect(0, 0, this.overlay.width, this.overlay.height);
+    if (!this.gizmoActive()) return;
+    const at = this.boxes[this.selBox].at;
+    const c = this.project(at);
+    if (!c.visible) return;
+    const L = this.gizmoLen(at);
+    for (const { h, dir } of GIZMO_AXES) {
+      const tip = this.project([at[0] + dir[0] * L, at[1] + dir[1] * L, at[2] + dir[2] * L]);
+      if (!tip.visible) continue;
+      const on = this.gizmoHover === h || this.gizmoDrag?.handle === h;
+      ctx.strokeStyle = on ? "#ffd257" : GIZMO_COL[h];
+      ctx.fillStyle = ctx.strokeStyle;
+      ctx.lineWidth = on ? 3 : 2;
+      ctx.beginPath(); ctx.moveTo(c.x, c.y); ctx.lineTo(tip.x, tip.y); ctx.stroke();
+      if (this.gizmoTool === "move") {   // arrowhead
+        const a = Math.atan2(tip.y - c.y, tip.x - c.x);
+        ctx.beginPath();
+        ctx.moveTo(tip.x, tip.y);
+        ctx.lineTo(tip.x - 9 * Math.cos(a - 0.4), tip.y - 9 * Math.sin(a - 0.4));
+        ctx.lineTo(tip.x - 9 * Math.cos(a + 0.4), tip.y - 9 * Math.sin(a + 0.4));
+        ctx.closePath(); ctx.fill();
+      } else {                           // scale → box handle
+        ctx.fillRect(tip.x - 4, tip.y - 4, 8, 8);
+      }
+    }
+    const onC = this.gizmoHover === "xyz" || this.gizmoDrag?.handle === "xyz";
+    ctx.fillStyle = onC ? "#ffd257" : GIZMO_COL.xyz;
+    if (this.gizmoTool === "scale") ctx.fillRect(c.x - 5, c.y - 5, 10, 10);
+    else { ctx.beginPath(); ctx.arc(c.x, c.y, 6, 0, Math.PI * 2); ctx.strokeStyle = ctx.fillStyle; ctx.lineWidth = onC ? 3 : 2; ctx.stroke(); }
+    ctx.beginPath(); ctx.arc(c.x, c.y, 3, 0, Math.PI * 2); ctx.fillStyle = "#f5a623"; ctx.fill();
+  }
+}
+
+/** gizmo handle: an axis or the all-axes centre */
+type GHandle = "x" | "y" | "z" | "xyz";
+const GIZMO_AXES: { h: GHandle; dir: Tuple3 }[] = [
+  { h: "x", dir: [1, 0, 0] }, { h: "y", dir: [0, 1, 0] }, { h: "z", dir: [0, 0, 1] },
+];
+const GIZMO_COL: Record<GHandle, string> = { x: "#e5484d", y: "#5bd15b", z: "#3b82f6", xyz: "#d6d6d6" };
+const AXIS_IDX: Record<GHandle, number> = { x: 0, y: 1, z: 2, xyz: 0 };
+
+/** shortest distance from point (px,py) to the segment (ax,ay)-(bx,by) */
+function distToSeg(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
+  const vx = bx - ax, vy = by - ay;
+  const wx = px - ax, wy = py - ay;
+  const len2 = vx * vx + vy * vy || 1;
+  const t = clamp((wx * vx + wy * vy) / len2, 0, 1);
+  return Math.hypot(px - (ax + t * vx), py - (ay + t * vy));
+}
+function dot(a: number[], b: number[]): number { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
+function round3(n: number): number { return Math.round(n * 1000) / 1000; }
+
+/** a full WaterLook from a (possibly partial) water material def — defaults fill any
+ *  omitted field, mirroring the game's MaterialLibrary.lookOf so the preview matches. */
+function waterLookOf(def: MaterialDef): WaterLook {
+  const d: Partial<WaterLook> = def.type === "water" ? def : {};
+  return {
+    color: d.color ?? WATER_LOOK.color, opacity: d.opacity ?? WATER_LOOK.opacity,
+    roughness: d.roughness ?? WATER_LOOK.roughness, ior: d.ior ?? WATER_LOOK.ior,
+    flow: d.flow ?? WATER_LOOK.flow, waves: d.waves ?? WATER_LOOK.waves,
+    depthColor: d.depthColor ?? WATER_LOOK.depthColor, depth: d.depth ?? WATER_LOOK.depth,
+    clarity: d.clarity ?? WATER_LOOK.clarity,
+  };
 }
 
 // ── small vector helpers ────────────────────────────────────────────────────────
