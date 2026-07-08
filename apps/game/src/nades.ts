@@ -64,6 +64,13 @@ export class Projectiles {
   private mFlame: UnlitMaterial;
   private mFlame2: UnlitMaterial;
 
+  // one reusable blast light, toggled per explosion instead of created/destroyed —
+  // a changing scene light count forces shader-variant recompiles (a real hitch), so
+  // keeping one persistent light avoids that churn on every barrel/grenade blast.
+  private boomLightE: Entity;
+  private boomLight: PointLight;
+  private boomToken = 0;
+
   constructor(private engine: Engine, parent: Entity, private map: GameMap) {
     this.root = parent.createChild("nades");
     this.mHe = this.unlit(0.12, 0.16, 0.1);
@@ -72,6 +79,11 @@ export class Projectiles {
     this.mSmoke = this.unlit(0.32, 0.3, 0.27);
     this.mFlame = this.unlit(4.5, 1.6, 0.25);
     this.mFlame2 = this.unlit(5, 3, 0.5);
+    this.boomLightE = this.root.createChild("boom-l");
+    this.boomLight = this.boomLightE.addComponent(PointLight);
+    this.boomLight.color = new Color(1.5, 0.95, 0.45, 1);
+    this.boomLight.distance = 18;
+    this.boomLightE.isActive = false;
   }
 
   private unlit(r: number, g: number, b: number): UnlitMaterial {
@@ -100,6 +112,23 @@ export class Projectiles {
     e.transform.setScale(radius, radius, radius);   // radius via scale, not geometry
     return e;
   }
+
+  // Pool of short-lived FX sphere entities. A blast spawns ~24 of them; creating +
+  // destroying that many entities/renderers every explosion is the remaining hitch
+  // now the mesh upload is gone. We reuse deactivated ones, reconfiguring the mesh +
+  // material on acquire, so a blast allocates (near) nothing after the first.
+  private fxPool: Entity[] = [];
+  private acquireSphere(mat: UnlitMaterial, radius: number, seg: number): Entity {
+    const e = this.fxPool.pop() ?? this.root.createChild("fx");
+    let mr = e.getComponent(MeshRenderer);
+    if (!mr) mr = e.addComponent(MeshRenderer);
+    mr.mesh = this.unitSphere(seg);
+    mr.setMaterial(mat);
+    e.isActive = true;
+    e.transform.setScale(radius, radius, radius);
+    return e;
+  }
+  private releaseSphere(e: Entity): void { e.isActive = false; this.fxPool.push(e); }
 
   throw_(kind: NadeKind, o: Vec3, v: Vec3, owner: string, local: boolean): void {
     const entity = this.sphere(kind === "he" ? this.mHe : this.mMol, kind === "he" ? 0.11 : 0.13);
@@ -181,23 +210,23 @@ export class Projectiles {
 
   /** explosion visuals + boom at a point (grenade or barrel); no damage/authority */
   explodeFx(c: Vec3): void {
-    this.addFx(this.sphere(this.mFlash, 1.2, 12), c, 0.20, 11);     // white-hot flash core
-    this.addFx(this.sphere(this.mFlame2, 0.7, 12), c, 0.34, 17);    // expanding fireball
-    this.addFx(this.sphere(this.mFlame, 0.5, 10), c, 0.44, 13);     // inner flame
-    for (let k = 0; k < 12; k++) {                                  // smoke plume
-      const e = this.sphere(this.mSmoke, rand(0.3, 0.6), 6);
+    this.addFx(this.acquireSphere(this.mFlash, 1.2, 12), c, 0.20, 11);   // white-hot flash core
+    this.addFx(this.acquireSphere(this.mFlame2, 0.7, 12), c, 0.34, 17);  // expanding fireball
+    this.addFx(this.acquireSphere(this.mFlame, 0.5, 10), c, 0.44, 13);   // inner flame
+    for (let k = 0; k < 12; k++) {                                       // smoke plume
+      const e = this.acquireSphere(this.mSmoke, rand(0.3, 0.6), 6);
       this.addFx(e, c, rand(0.8, 1.7), 1.9, { x: rand(-3.5, 3.5), y: rand(1.2, 5), z: rand(-3.5, 3.5) });
     }
-    for (let k = 0; k < 10; k++) {                                  // flying embers
-      const e = this.sphere(this.mFlame, rand(0.04, 0.09), 5);
+    for (let k = 0; k < 10; k++) {                                       // flying embers
+      const e = this.acquireSphere(this.mFlame, rand(0.04, 0.09), 5);
       this.addFx(e, c, rand(0.5, 1.1), 0.4, { x: rand(-6, 6), y: rand(2, 7), z: rand(-6, 6) });
     }
-    const le = this.root.createChild("boom-l");                    // light pop
-    le.transform.setPosition(c.x, c.y + 0.5, c.z);
-    const l = le.addComponent(PointLight);
-    l.color = new Color(1.5, 0.95, 0.45, 1);
-    l.distance = 18;
-    window.setTimeout(() => le.destroy(), 140);
+    // reuse the single blast light (toggled, not created) — see constructor
+    this.boomLightE.transform.setPosition(c.x, c.y + 0.5, c.z);
+    this.boomLight.distance = 18;
+    this.boomLightE.isActive = true;
+    const tok = ++this.boomToken;
+    window.setTimeout(() => { if (tok === this.boomToken) this.boomLightE.isActive = false; }, 140);
     this.onBoom?.(c);
   }
 
@@ -261,7 +290,7 @@ export class Projectiles {
     for (let i = this.fx.length - 1; i >= 0; i--) {
       const f = this.fx[i];
       f.ttl -= dt;
-      if (f.ttl <= 0) { f.e.destroy(); this.fx.splice(i, 1); continue; }
+      if (f.ttl <= 0) { this.releaseSphere(f.e); this.fx.splice(i, 1); continue; }
       const k = 1 - f.ttl / f.max;
       const s = f.base * (0.4 + f.grow * k * (1 - k * 0.4));
       f.e.transform.setScale(s, s, s);

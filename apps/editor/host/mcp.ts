@@ -138,11 +138,13 @@ export function createMcp({ root, bridge }: Deps): { handle: (msg: any) => Promi
     { name: "editor_get_model_meta", description: "Get a model's calibration meta (base/scale/material/collision).",
       inputSchema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] },
       run: (a) => { const m = scanAssets(root).models.find((x) => x.name === a.name); if (!m) throw new Error(`model not found: ${a.name}`); return { name: m.name, meta: m.meta ?? {} }; } },
-    { name: "editor_set_model_meta", description: "Set a model's calibration + collision. `collision` is \"auto\" (whole-mesh box) or \"manual\"; when manual, `collisionBoxes` is an array of { at:[x,y,z], size:[x,y,z] } solids in model-local space (e.g. just a tree trunk).",
+    { name: "editor_set_model_meta", description: "Set a model's calibration + collision. `baseRot` is a baked orientation (euler degrees). `collision` is \"auto\" (whole-mesh box) or \"manual\"; when manual, `collisionBoxes` is an array of solids in model-local space, each { at:[x,y,z], size:[x,y,z], rot?:[x,y,z] euler degrees, shape?: \"box\"|\"cylinder\"|\"sphere\" } (e.g. just a tree trunk, or a diagonal beam via `rot`).",
       inputSchema: { type: "object", properties: {
-        name: { type: "string" }, base: { type: "number" }, scale: { type: "number" }, material: { type: "string" },
+        name: { type: "string" }, base: { type: "number" }, scale: { type: "number" }, material: { type: "string" }, baseRot: V3,
         collision: { type: "string", enum: ["auto", "manual"] },
-        collisionBoxes: { type: "array", items: { type: "object", properties: { at: V3, size: V3 }, required: ["at", "size"] } },
+        collisionBoxes: { type: "array", items: { type: "object", properties: {
+          at: V3, size: V3, rot: V3, shape: { type: "string", enum: ["box", "cylinder", "sphere"] },
+        }, required: ["at", "size"] } },
       }, required: ["name"] },
       run: (a) => {
         const cur = scanAssets(root).models.find((x) => x.name === a.name);
@@ -151,6 +153,7 @@ export function createMcp({ root, bridge }: Deps): { handle: (msg: any) => Promi
         if (a.base !== undefined) meta.base = a.base;
         if (a.scale !== undefined) meta.scale = a.scale;
         if (a.material !== undefined) meta.material = a.material || undefined;
+        if (a.baseRot !== undefined) meta.baseRot = a.baseRot as [number, number, number];
         if (a.collision !== undefined) meta.collision = a.collision;
         if (a.collisionBoxes !== undefined) meta.collisionBoxes = a.collisionBoxes as CollisionBox[];
         const r = saveModelMeta(root, a.name, meta);

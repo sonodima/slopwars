@@ -1,5 +1,5 @@
 // ─── DOM HUD & screens ───────────────────────────────────────────────────────
-import { BOT_LEVELS, BotLevel, CFG_BOUNDS, GameSnapshot, MatchConfig, ModeId, PlayerInfo, WEAPONS, WeaponId } from "./types";
+import { BOT_LEVELS, BotLevel, CFG_BOUNDS, DeathCause, deathCauseLabel, GameSnapshot, MatchConfig, ModeId, PlayerInfo, WEAPONS, WeaponId } from "./types";
 import { MapMeta } from "./maps/schema";
 import { MODES, MODE_LIST } from "./modes";
 
@@ -241,11 +241,11 @@ export class Hud {
     $("hud-round").textContent = phase === "inter" ? "next round…" : `round ${round}/${rounds}`;
   }
 
-  kill(killer: string, victim: string, w: WeaponId, hs: boolean): void {
+  kill(killer: string, victim: string, w: DeathCause, hs: boolean): void {
     const feed = $("killfeed");
     const el = document.createElement("div");
     el.className = "kf";
-    el.innerHTML = `<b>${esc(killer)}</b> <span>[${WEAPONS[w].name}${hs ? " ✱" : ""}]</span> ${esc(victim)}`;
+    el.innerHTML = `<b>${esc(killer)}</b> <span>[${deathCauseLabel(w)}${hs ? " ✱" : ""}]</span> ${esc(victim)}`;
     feed.prepend(el);
     setTimeout(() => el.remove(), 5000);
     while (feed.children.length > 5) feed.lastChild?.remove();

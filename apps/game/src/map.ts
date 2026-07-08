@@ -2,7 +2,7 @@
 // The map is no longer hard-coded here — build() is replaced by load(), which
 // runs a MapDef through the loader. This class now just holds the resulting
 // solids/spawns/objects and answers ray/point queries the game logic needs.
-import { Engine, Entity } from "@galacean/engine";
+import { Engine, Entity, Quaternion } from "@galacean/engine";
 import { GameModels } from "./models";
 import { MapTextures } from "./textures";
 import { MapBuilder } from "./mapbuilder";
@@ -35,8 +35,10 @@ export function solidOverlaps(b: AABB, x: number, z: number, r: number, y0: numb
 /** damageable explosive barrel (host tracks hp; explodes at 0) */
 export interface Barrel { pos: Vec3; entity: Entity | null; solid: AABB; hp: number; dead: boolean }
 /** a looping sound placed in the map. When `spatial`, volume falls off with the
- *  listener's distance; otherwise it plays at a constant `volume` everywhere (2D). */
-export interface MapSound { pos: Vec3; el: HTMLAudioElement; radius: number; volume: number; spatial: boolean }
+ *  listener's distance; otherwise it plays at a constant `volume` everywhere (2D).
+ *  `clip` is the source name, kept so a rebuild can re-adopt the still-playing
+ *  element (the editor rebuilds on every edit — music/ambience must not restart). */
+export interface MapSound { clip: string; pos: Vec3; el: HTMLAudioElement; radius: number; volume: number; spatial: boolean }
 
 /** a dynamic (physics-simulated) prop: a movable rigid body the PhysicsWorld
  *  integrates each frame (gravity, collisions, impulses from bullets/blasts/the
@@ -51,9 +53,8 @@ export interface DynBody {
   shape?: SolidShape;    // rounds player contact (cylinder/sphere); omit = box
   pos: Vec3;             // entity origin in world (written to the transform each frame)
   vel: Vec3;
-  yaw: number;           // spin about Y accumulated by physics (rad)
-  yawVel: number;
-  baseYaw: number;       // authored yaw (deg) — the visual base the spin adds to
+  q: Quaternion;         // current orientation (world), integrated from angVel
+  angVel: Vec3;          // angular velocity (rad/s) about world x/y/z — full tumble/roll/tilt
   onGround: boolean;
   rest: number;          // seconds spent nearly still (→ sleeps to stop jitter)
 }
@@ -65,6 +66,9 @@ export class GameMap {
   powerupSpots: Vec3[] = [];
   barrels: Barrel[] = [];
   sounds: MapSound[] = [];
+  /** sounds from the previous build, kept alive so a rebuild can re-adopt a matching
+   *  still-playing element instead of restarting it (see load()/claimSound). */
+  private reusableSounds: MapSound[] = [];
   /** dynamic physics props (simulated by the game's PhysicsWorld; ignored by the editor) */
   dynBodies: DynBody[] = [];
   tris = 0;
@@ -80,7 +84,9 @@ export class GameMap {
    *  repeatedly — the previous map's entities are torn down first. */
   load(engine: Engine, parent: Entity, tex: MapTextures, models: GameModels, def: MapDef, matDefs?: Map<string, MaterialDef>, modelMeta?: Map<string, ModelMeta>): void {
     if (this.root) this.root.destroy();
-    for (const s of this.sounds) { try { s.el.pause(); } catch { /* ignore */ } }
+    // keep the previous build's sounds alive so the new build can re-adopt matching,
+    // still-playing elements (continuous ambience/music survives an editor rebuild).
+    this.reusableSounds = this.sounds;
     this.solids = [];
     this.spawns = [];
     this.pickupSpots = [];
@@ -93,6 +99,28 @@ export class GameMap {
     this.meta = def.meta;
     this.env = def.env;
     loadMapDef(new MapBuilder(engine, this.root, tex, models, this, matDefs, modelMeta), def);
+    // any leftover (un-readopted) sounds belonged to placements that are gone → stop them
+    for (const s of this.reusableSounds) { try { s.el.pause(); } catch { /* ignore */ } }
+    this.reusableSounds = [];
+  }
+
+  /** claim a still-alive audio element from the previous build matching `clip`, so a
+   *  rebuild reuses it (keeping its playback position) instead of starting a new one.
+   *  Returns null when there's no match — the caller then creates a fresh element. */
+  claimSound(clip: string): HTMLAudioElement | null {
+    const i = this.reusableSounds.findIndex((s) => s.clip === clip);
+    if (i < 0) return null;
+    const el = this.reusableSounds[i].el;
+    this.reusableSounds.splice(i, 1);
+    return el;
+  }
+
+  /** pause or resume every map sound — used when the editor hides the map viewport
+   *  behind a preview tab so its ambience/music doesn't keep playing off-screen. */
+  setSoundsPlaying(play: boolean): void {
+    for (const s of this.sounds) {
+      try { if (play) void s.el.play().catch(() => { /* awaits gesture */ }); else s.el.pause(); } catch { /* ignore */ }
+    }
   }
 
   /** per-frame: fade each spatial sound by the listener's distance to it.

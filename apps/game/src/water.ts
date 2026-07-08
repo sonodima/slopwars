@@ -93,6 +93,10 @@ export class WaterAnim extends Script {
   speed = 0.04;
   private t = 0;
   private v = new Vector4();
+  /** current animation phase (seconds) — read/seed it to keep the flow continuous
+   *  when the surface is rebuilt (e.g. a live material edit in the editor preview). */
+  get phase(): number { return this.t; }
+  set phase(t: number) { this.t = t; }
   onUpdate(dt: number): void {
     this.t += dt;
     const off = this.t * this.speed;
@@ -141,10 +145,14 @@ export function applyWaterLook(engine: Engine, m: PBRMaterial, L: WaterLook, til
 }
 
 /** attach the flow animation to a box entity carrying a water material, so its
- *  ripples scroll. `tiling` must match the material's UV repeat; `flow` the speed. */
-export function attachWaterAnim(entity: Entity, m: PBRMaterial, tiling: number, flow: number): void {
+ *  ripples scroll. `tiling` must match the material's UV repeat; `flow` the speed.
+ *  `startPhase` seeds the elapsed time so a rebuilt surface flows on continuously
+ *  instead of snapping back to t=0. Returns the anim so callers can read its phase. */
+export function attachWaterAnim(entity: Entity, m: PBRMaterial, tiling: number, flow: number, startPhase = 0): WaterAnim {
   const anim = entity.addComponent(WaterAnim);
   anim.mat = m;
   anim.tiling = tiling;
   anim.speed = flow;
+  anim.phase = startPhase;
+  return anim;
 }

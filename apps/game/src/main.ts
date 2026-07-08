@@ -27,7 +27,7 @@ import {
   BOT_TUNING, DEFAULT_CONFIG, GamePhase, GameSnapshot, INTERMISSION, MatchConfig, MAX_HP, ModeId, Msg,
   PICKUP_HEAL, PICKUP_RADIUS, PICKUP_RESPAWN, PlayerState, POWERUPS, POWERUP_INTERVAL,
   POWERUP_RADIUS, PowerupKind, QUAD_MULT, RAPID_MULT, SPEED_MULT, TICK_RATE,
-  Vec3, WEAPONS, WeaponDef, WeaponId, LOADOUT, clamp, rand, randomPowerup,
+  Vec3, WEAPONS, WeaponDef, WeaponId, DeathCause, LOADOUT, clamp, rand, randomPowerup,
 } from "./types";
 import {
   DEFAULT_MODE, GUNGAME_FINAL, MODES, PROPHUNT_PREP, ROLE_HIDE, ROLE_SEEK,
@@ -988,7 +988,7 @@ class Game {
     }
   }
 
-  reportHit(victimId: string, dmg: number, hs: boolean, w: WeaponId): void {
+  reportHit(victimId: string, dmg: number, hs: boolean, w: DeathCause): void {
     if (this.net.isHost) this.hostApplyHit(this.net.myId, victimId, dmg, hs, w);
     else this.net.send({ t: "hit", v: victimId, dmg, hs: hs ? 1 : 0, w });
   }
@@ -1028,7 +1028,9 @@ class Game {
     }, 500);
   }
 
-  explodeDamage(c: Vec3): void {
+  /** area damage from a blast at `c`. `cause` attributes the kill — a thrown HE
+   *  grenade ("he") or an exploding barrel/environmental charge ("barrel"). */
+  explodeDamage(c: Vec3, cause: DeathCause = "he"): void {
     const targets: { id: string; p: Vec3 }[] = this.alive ? [{ id: this.net.myId, p: this.body.pos }] : [];
     for (const r of this.remotes.values()) if (r.alive) targets.push({ id: r.id, p: r.pos });
     for (const t of targets) {
@@ -1040,7 +1042,7 @@ class Game {
       const wall = this.map.raycast({ x: c.x, y: c.y + 0.15, z: c.z }, dir, dist);
       if (wall && wall.dist < dist - 0.3) continue; // fully blocked
       const dmg = Math.max(1, Math.round(HE_DAMAGE * (1 - dist / HE_RADIUS)));
-      this.reportHit(t.id, dmg, false, "he");
+      this.reportHit(t.id, dmg, false, cause);
     }
   }
 
@@ -1074,7 +1076,7 @@ class Game {
     const c: Vec3 = { ...b.pos };
     this.map.killBarrel(i);
     this.spawnBarrelFx(c);
-    this.explodeDamage(c); // host applies HE-like area damage
+    this.explodeDamage(c, "barrel"); // host applies HE-like area damage, credited to the barrel
     this.net.broadcast({ t: "bexp", i });
   }
 
@@ -1085,7 +1087,7 @@ class Game {
 
   // ─── host authority ─────────────────────────────────────────────────────────
 
-  hostApplyHit(attacker: string, victim: string, dmg: number, hs: boolean, w: WeaponId): void {
+  hostApplyHit(attacker: string, victim: string, dmg: number, hs: boolean, w: DeathCause): void {
     if (this.phase !== "play") return;
     const hp = this.hpMap[victim];
     if (hp === undefined || hp <= 0) return;
@@ -1122,7 +1124,7 @@ class Game {
   }
 
   /** host: mode-specific consequences of a kill (team score, gungame ladder, prophunt end) */
-  hostModeOnKill(attacker: string, victim: string, w: WeaponId): void {
+  hostModeOnKill(attacker: string, victim: string, w: DeathCause): void {
     if (attacker === victim) return;
     if (this.mode === "tdm") {
       const t = this.teams[attacker];

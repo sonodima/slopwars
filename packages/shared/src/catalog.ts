@@ -20,6 +20,9 @@ export type CollisionShape = "box" | "cylinder" | "sphere";
 export interface CollisionBox {
   at: Tuple3;
   size: Tuple3;
+  /** optional orientation (euler degrees, model-local). Omit → axis-aligned. The
+   *  game collides it as the world AABB that encloses the oriented solid. */
+  rot?: Tuple3;
   shape?: CollisionShape;
 }
 

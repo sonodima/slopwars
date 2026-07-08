@@ -171,14 +171,17 @@ defineObject<{ clip: string; radius: number; volume: number; loop: boolean; spat
   build(b, t, p) {
     const a = catalog.audio.find((c) => c.name === p.clip);
     if (!a) { if (p.clip) console.warn("[sound] clip not found:", p.clip); return; }
-    const el = new Audio(assetUrl(a.file));
-    el.loop = p.loop;
     const spatial = p.spatial !== false;
+    // re-adopt a still-playing element for the same clip (an editor rebuild) so the
+    // track keeps its position instead of restarting; otherwise start a fresh one.
+    const reused = b.map.claimSound(p.clip);
+    const el = reused ?? new Audio(assetUrl(a.file));
+    el.loop = p.loop;
     // non-spatial (2D) sources play at their full volume everywhere — ambience,
     // music beds; spatial ones start silent and are faded in by distance each tick.
-    el.volume = spatial ? 0 : Math.min(1, p.volume);
+    if (!reused) el.volume = spatial ? 0 : Math.min(1, p.volume);
     el.play().catch(() => { /* awaits user-gesture audio unlock */ });
-    b.map.sounds.push({ pos: { x: t.at[0], y: t.at[1], z: t.at[2] }, el, radius: p.radius, volume: p.volume, spatial });
+    b.map.sounds.push({ clip: p.clip, pos: { x: t.at[0], y: t.at[1], z: t.at[2] }, el, radius: p.radius, volume: p.volume, spatial });
   },
 });
 

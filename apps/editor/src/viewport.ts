@@ -207,6 +207,10 @@ export class Viewport {
     requestAnimationFrame(() => { if (this.ready && this.visibleSize()) { this.engine.canvas.resizeByClientSize(); if (state.map) void this.render(state.map); } });
   }
 
+  /** pause (or resume) the current map's looping sounds — the shell calls this when
+   *  the map viewport is hidden behind a preview tab so ambience/music stops. */
+  setAudioPlaying(play: boolean): void { this.map.setSoundsPlaying(play); }
+
   /** update the material defs used to shade the viewport (from the editor catalog
    *  and any unsaved material edits). Pass `rebuild` to re-shade immediately. */
   setMaterials(materials: MaterialAsset[], rebuild = false): void {

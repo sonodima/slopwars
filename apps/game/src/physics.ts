@@ -15,11 +15,15 @@ import { MOVE, Vec3 } from "./types";
 
 const GRAVITY = 20;          // m/s² (matches the player's feel)
 const REST_VEL = 0.25;       // below this speed a grounded body is "still"
+const REST_SPIN = 0.35;      // below this angular speed (rad/s) a body counts as still
 const SLEEP_AFTER = 0.5;     // s of stillness → sleep (stops micro-jitter)
 const LINEAR_DAMP = 0.35;    // air drag (per second)
 const GROUND_FRICTION = 7;   // horizontal friction while resting on a surface
 const RESTITUTION = 0.3;     // bounciness off static geometry
-const SPIN_DAMP = 2.5;       // yaw-spin decay (per second)
+const ANG_DAMP = 1.6;        // free-tumble angular decay (per second)
+const GROUND_ANG_DAMP = 6;   // extra angular decay while resting on a surface (settles)
+const MAX_SPIN = 14;         // clamp angular speed (rad/s) so a hit can't fling wildly
+const TORQUE_K = 3.2;        // impact off-centre → tumble strength (per unit mass)
 const PLAYER_MASS = 82;      // reference mass the player pushes with
 
 type Axis = "x" | "y" | "z";
@@ -43,14 +47,14 @@ export class PhysicsWorld {
         const damp = Math.exp(-LINEAR_DAMP * dt);
         b.vel.x *= damp; b.vel.z *= damp;
         this.integrate(b, dt);
-        b.yaw += b.yawVel * dt;
-        b.yawVel *= Math.exp(-SPIN_DAMP * dt);
+        this.integrateSpin(b, dt);
       }
       if (player) this.playerPush(b, player);
       // rest / sleep bookkeeping
       const sp = Math.hypot(b.vel.x, b.vel.y, b.vel.z);
-      if (sp < REST_VEL && b.onGround) b.rest += dt; else b.rest = 0;
-      if (b.rest > SLEEP_AFTER) { b.vel.x = b.vel.y = b.vel.z = 0; b.yawVel = 0; }
+      const asp = Math.hypot(b.angVel.x, b.angVel.y, b.angVel.z);
+      if (sp < REST_VEL && asp < REST_SPIN && b.onGround) b.rest += dt; else b.rest = 0;
+      if (b.rest > SLEEP_AFTER) { b.vel.x = b.vel.y = b.vel.z = 0; b.angVel.x = b.angVel.y = b.angVel.z = 0; }
       this.sync(b);
     }
   }
@@ -78,6 +82,30 @@ export class PhysicsWorld {
     // ── horizontal: attempt, and bounce back if it would tunnel into a wall ──
     this.moveHoriz(b, "x", dt);
     this.moveHoriz(b, "z", dt);
+  }
+
+  /** integrate the body's orientation from its angular velocity (full 3D tumble),
+   *  with air drag and stronger settling drag once it's resting on the ground. The
+   *  collider stays an upright AABB — this is the *visual* roll/tilt/tumble, so a
+   *  shot on top of a barrel tips and spins it instead of only nudging it. */
+  private integrateSpin(b: DynBody, dt: number): void {
+    const w = b.angVel;
+    // clamp so a big off-centre hit can't fling it absurdly fast
+    const sp = Math.hypot(w.x, w.y, w.z);
+    if (sp > MAX_SPIN) { const s = MAX_SPIN / sp; w.x *= s; w.y *= s; w.z *= s; }
+    if (sp > 1e-5) {
+      // q += 0.5 * (0,w) * q · dt, then renormalise (small-step quaternion integration)
+      const q = b.q;
+      const hx = w.x * 0.5 * dt, hy = w.y * 0.5 * dt, hz = w.z * 0.5 * dt;
+      const nx = hx * q.w + hy * q.z - hz * q.y;
+      const ny = hy * q.w + hz * q.x - hx * q.z;
+      const nz = hz * q.w + hx * q.y - hy * q.x;
+      const nw = -hx * q.x - hy * q.y - hz * q.z;
+      q.x += nx; q.y += ny; q.z += nz; q.w += nw;
+      q.normalize();
+    }
+    const damp = Math.exp(-(b.onGround ? ANG_DAMP + GROUND_ANG_DAMP : ANG_DAMP) * dt);
+    w.x *= damp; w.y *= damp; w.z *= damp;
   }
 
   private moveHoriz(b: DynBody, axis: Axis, dt: number): void {
@@ -172,7 +200,10 @@ export class PhysicsWorld {
       const ul = Math.hypot(ux, uy, uz) || 1; ux /= ul; uy /= ul; uz /= ul;
       const j = (power * fall) / b.mass;
       b.vel.x += ux * j; b.vel.y += uy * j; b.vel.z += uz * j;
-      b.yawVel += (Math.random() * 2 - 1) * fall * 5;
+      // random tumble on all three axes so blasted props spin as they fly
+      b.angVel.x += (Math.random() * 2 - 1) * fall * 7;
+      b.angVel.y += (Math.random() * 2 - 1) * fall * 7;
+      b.angVel.z += (Math.random() * 2 - 1) * fall * 7;
       b.rest = 0; b.onGround = false;
     }
   }
@@ -182,8 +213,15 @@ export class PhysicsWorld {
   applyImpulseAt(b: DynBody, point: Vec3, dir: Vec3, power: number): void {
     const j = power / b.mass;
     b.vel.x += dir.x * j; b.vel.y += Math.max(0, dir.y) * j + 0.35; b.vel.z += dir.z * j;
-    const cx = b.pos.x + b.off.x, cz = b.pos.z + b.off.z;
-    b.yawVel += ((point.x - cx) * dir.z - (point.z - cz) * dir.x) * 2.2;
+    // torque = r × dir, where r is the impact point relative to the body centre — a
+    // hit above/off-centre tips and rolls the prop (shoot the top of a barrel → it
+    // topples), not just slides it.
+    const cx = b.pos.x + b.off.x, cy = b.pos.y + b.off.y, cz = b.pos.z + b.off.z;
+    const rx = point.x - cx, ry = point.y - cy, rz = point.z - cz;
+    const k = TORQUE_K / b.mass;
+    b.angVel.x += (ry * dir.z - rz * dir.y) * k;
+    b.angVel.y += (rz * dir.x - rx * dir.z) * k;
+    b.angVel.z += (rx * dir.y - ry * dir.x) * k;
     b.rest = 0; b.onGround = false;
   }
 
@@ -202,10 +240,10 @@ export class PhysicsWorld {
     return hit ? { body: hit, dist: best } : null;
   }
 
-  /** write a body's simulated transform back onto its entity (yaw-only visual) */
+  /** write a body's simulated transform back onto its entity (full 3D orientation) */
   private sync(b: DynBody): void {
     if (!b.entity || b.entity.destroyed) return;
     b.entity.transform.setPosition(b.pos.x, b.pos.y, b.pos.z);
-    b.entity.transform.setRotation(0, b.baseYaw + (b.yaw * 180) / Math.PI, 0);
+    b.entity.transform.rotationQuaternion = b.q;   // reassign to flag the transform dirty
   }
 }

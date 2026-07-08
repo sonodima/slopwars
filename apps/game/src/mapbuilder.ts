@@ -163,16 +163,37 @@ export class MapBuilder {
       const sx = scale[0] * ms, sy = scale[1] * ms, sz = scale[2] * ms;
       const rotT: [number, number, number] = [rot[0], rot[1], rot[2]];
       const baseRot = meta.baseRot;
+      const hasBaseRot = !!baseRot && (baseRot[0] !== 0 || baseRot[1] !== 0 || baseRot[2] !== 0);
       for (const box of boxes) {
+        const shape = box.shape === "cylinder" || box.shape === "sphere" ? box.shape : undefined;
+        const boxRot = box.rot;
+        if (boxRot && (boxRot[0] || boxRot[1] || boxRot[2])) {
+          // oriented solid: transform its 8 corners into world and collide as the
+          // enclosing world AABB (the collision model is AABB-only, so a rotated
+          // solid contributes the tight axis-aligned box that wraps it).
+          let mnx = Infinity, mny = Infinity, mnz = Infinity, mxx = -Infinity, mxy = -Infinity, mxz = -Infinity;
+          const hx0 = box.size[0] / 2, hy0 = box.size[1] / 2, hz0 = box.size[2] / 2;
+          for (let i = 0; i < 8; i++) {
+            const off = rotateEuler([(i & 1 ? hx0 : -hx0), (i & 2 ? hy0 : -hy0), (i & 4 ? hz0 : -hz0)], boxRot);
+            let p: [number, number, number] = [(box.at[0] + off[0]) * sx, (box.at[1] + off[1]) * sy, (box.at[2] + off[2]) * sz];
+            if (hasBaseRot) p = rotateEuler(p, [baseRot![0], baseRot![1], baseRot![2]]);
+            p = rotateEuler(p, rotT);
+            const wx = at[0] + p[0], wy = at[1] + base * sy + p[1], wz = at[2] + p[2];
+            if (wx < mnx) mnx = wx; if (wx > mxx) mxx = wx;
+            if (wy < mny) mny = wy; if (wy > mxy) mxy = wy;
+            if (wz < mnz) mnz = wz; if (wz > mxz) mxz = wz;
+          }
+          this.pushSolid({ min: { x: mnx, y: mny, z: mnz }, max: { x: mxx, y: mxy, z: mxz }, shape });
+          continue;
+        }
         // box centre in model-local space, scaled then rotated into world (extents
         // stay axis-aligned — collision is AABB-only, matching the box object type).
         // baseRot (if any) reorients the box in the model frame first, then placement.
         let local: [number, number, number] = [box.at[0] * sx, box.at[1] * sy, box.at[2] * sz];
-        if (baseRot && (baseRot[0] || baseRot[1] || baseRot[2])) local = rotateEuler(local, [baseRot[0], baseRot[1], baseRot[2]]);
+        if (hasBaseRot) local = rotateEuler(local, [baseRot![0], baseRot![1], baseRot![2]]);
         const [rx, ry, rz] = rotateEuler(local, rotT);
         const cx = at[0] + rx, cy = at[1] + base * sy + ry, cz = at[2] + rz;
         const hx = Math.abs(box.size[0] * sx) / 2, hy = Math.abs(box.size[1] * sy) / 2, hz = Math.abs(box.size[2] * sz) / 2;
-        const shape = box.shape === "cylinder" || box.shape === "sphere" ? box.shape : undefined;
         this.pushSolid({ min: { x: cx - hx, y: cy - hy, z: cz - hz }, max: { x: cx + hx, y: cy + hy, z: cz + hz }, shape });
       }
       return;
@@ -198,7 +219,18 @@ export class MapBuilder {
     const boxes = meta.collision === "manual" ? meta.collisionBoxes : undefined;
     if (boxes && boxes.length) {
       const b0 = boxes[0];   // the first authored solid defines the body's collider
-      half = { x: Math.abs(b0.size[0] * sx) / 2, y: Math.abs(b0.size[1] * sy) / 2, z: Math.abs(b0.size[2] * sz) / 2 };
+      if (b0.rot && (b0.rot[0] || b0.rot[1] || b0.rot[2])) {
+        // enclosing axis-aligned half-extents of the oriented authored solid
+        const hx0 = Math.abs(b0.size[0] * sx) / 2, hy0 = Math.abs(b0.size[1] * sy) / 2, hz0 = Math.abs(b0.size[2] * sz) / 2;
+        let ex = 0, ey = 0, ez = 0;
+        for (let i = 0; i < 8; i++) {
+          const c = rotateEuler([(i & 1 ? hx0 : -hx0), (i & 2 ? hy0 : -hy0), (i & 4 ? hz0 : -hz0)], b0.rot);
+          ex = Math.max(ex, Math.abs(c[0])); ey = Math.max(ey, Math.abs(c[1])); ez = Math.max(ez, Math.abs(c[2]));
+        }
+        half = { x: ex, y: ey, z: ez };
+      } else {
+        half = { x: Math.abs(b0.size[0] * sx) / 2, y: Math.abs(b0.size[1] * sy) / 2, z: Math.abs(b0.size[2] * sz) / 2 };
+      }
       off = { x: b0.at[0] * sx, y: b0.at[1] * sy, z: b0.at[2] * sz };
       shape = b0.shape === "cylinder" || b0.shape === "sphere" ? b0.shape : undefined;
     } else {
@@ -208,9 +240,11 @@ export class MapBuilder {
         off = { x: (aabb.min.x + aabb.max.x) / 2 - pos.x, y: (aabb.min.y + aabb.max.y) / 2 - pos.y, z: (aabb.min.z + aabb.max.z) / 2 - pos.z };
       } else { half = { x: 0.4, y: 0.4, z: 0.4 }; off = { x: 0, y: 0.4, z: 0 }; }
     }
+    const q = new Quaternion();
+    Quaternion.rotationEuler(rot[0] * DEG, rot[1] * DEG, rot[2] * DEG, q);   // start at the authored orientation
     this.map.dynBodies.push({
       entity, mass: Math.max(0.05, mass), half, off, shape, pos,
-      vel: { x: 0, y: 0, z: 0 }, yaw: 0, yawVel: 0, baseYaw: rot[1], onGround: false, rest: 0,
+      vel: { x: 0, y: 0, z: 0 }, q, angVel: { x: 0, y: 0, z: 0 }, onGround: false, rest: 0,
     });
   }
 

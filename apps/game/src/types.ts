@@ -146,6 +146,17 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
 
 export const LOADOUT: WeaponId[] = ["knife", "usp", "ak47", "awp", "he", "mol"];
 
+/** what killed a player: a weapon, or an environmental cause (an exploding barrel).
+ *  Kept distinct from WeaponId so the loadout/weapon systems stay weapon-only while
+ *  the kill feed + stats can still attribute environmental deaths correctly. Extend
+ *  this union (and deathCauseLabel) as new hazards are added (fall, fire pit…). */
+export type DeathCause = WeaponId | "barrel";
+
+/** display name for a death cause, used by the kill feed */
+export function deathCauseLabel(c: DeathCause): string {
+  return c === "barrel" ? "Barrel" : WEAPONS[c].name;
+}
+
 // ─── Net protocol ────────────────────────────────────────────────────────────
 
 export interface PlayerInfo { id: string; name: string; color: number }
@@ -186,9 +197,9 @@ export type Msg =
   | { t: "state"; s: PlayerState }
   | { t: "snap"; ps: PlayerState[]; time: number }
   | { t: "shot"; id: string; o: [number, number, number]; d: [number, number, number]; w: WeaponId }
-  | { t: "hit"; v: string; dmg: number; hs: 0 | 1; w: WeaponId }
+  | { t: "hit"; v: string; dmg: number; hs: 0 | 1; w: DeathCause }
   | { t: "dmg"; v: string; hp: number; a: string; from: [number, number, number] }
-  | { t: "kill"; k: string; v: string; w: WeaponId; hs: 0 | 1 }
+  | { t: "kill"; k: string; v: string; w: DeathCause; hs: 0 | 1 }
   | { t: "spawn"; id: string; p: [number, number, number]; yaw: number }
   | { t: "game"; g: GameSnapshot }
   | { t: "start" }

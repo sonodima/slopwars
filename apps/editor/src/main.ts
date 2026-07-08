@@ -85,7 +85,7 @@ async function main(): Promise<void> {
   setInspectorCatalog(catalog);
   setInspectorThumbs(thumbs);
   setInspectorMaterialHooks({
-    changed: (name, def) => { viewport.setMaterials(catalog.materials, true); saveMaterialSoon(name, def); previewMaterialEdit(name, def); },
+    changed: (name, def) => onMaterialChanged(name, def),
     renamed: (from, to) => { void renameMaterial(from, to); },
   });
   setInspectorModelHooks({
@@ -116,7 +116,7 @@ async function main(): Promise<void> {
     }
   });
   // tab list / active tab → viewport mode + left panel + inspector + strip
-  tabs.onChange(() => { renderTabStrip(); syncViewport(); renderLeftPanel(); renderInspector($("inspector")); });
+  tabs.onChange(() => { renderTabStrip(); syncViewport(); renderLeftPanel(); renderInspector($("inspector")); renderSaveButtons(); });
 
   viewport.onToolChange((t) => { highlightTool(t); preview.setGizmoTool(t); });
   viewport.onEditCommit = () => state.commit(true);
@@ -124,8 +124,9 @@ async function main(): Promise<void> {
 
   // clicking a collision solid in the preview selects it → reflect in the inspector list
   preview.onCollisionSelect = (i) => { selBox = i; refreshInspector(); };
-  // a gizmo drag in the preview mutated the selected solid → persist + re-shade
-  preview.onCollisionChange = () => { const t = tabs.active(); if (t?.kind === "model" && t.model) onModelMetaChanged(t.model); };
+  // a gizmo drag in the preview mutated the selected solid → persist + re-shade +
+  // refresh the inspector so its numeric transform fields show the new values.
+  preview.onCollisionChange = () => { const t = tabs.active(); if (t?.kind === "model" && t.model) { onModelMetaChanged(t.model); refreshInspector(); } };
 
   tabs.newMap();     // start on a blank map tab (Load opens existing ones)
   setupDrop();
@@ -158,6 +159,9 @@ function syncViewport(): void {
   stage.classList.toggle("preview", isPreview);
   stage.classList.toggle("empty", isEmpty);
   preview.show(isPreview);
+  // leaving a map tab: silence its looping ambience/music (a returning map re-adopts
+  // the still-alive elements, so it resumes rather than restarts).
+  if (viewport.ready) viewport.setAudioPlaying(kind === "map");
   renderModes();
   renderEnvButton();
 
@@ -165,12 +169,11 @@ function syncViewport(): void {
   if (isPreview && key !== previewKey && preview.ready) {
     if (tab!.kind === "material") {
       const m = catalog.materials.find((x) => x.name === tab!.material);
-      if (m) void preview.showMaterial(m.name, m.def);
-      ensureEnv();
+      if (m) { ensureMatHist(m.name); void preview.showMaterial(m.name, m.def); }
     } else if (tab!.kind === "model") {
       selBox = -1;
+      ensureMetaHist(tab!.model!);
       void preview.showModel(tab!.model!, tab!.view ?? "model", liveMeta(tab!.model!));
-      ensureEnv();   // an environment gives the model real reflections + a lit skybox
     }
   }
   previewKey = isPreview ? key : "";
@@ -180,19 +183,69 @@ function syncViewport(): void {
   if (kind === "map" && viewport.ready && state.map) viewport.onShown();
 }
 
-/** default the material/model preview to an environment for nice reflections */
-function ensureEnv(): void {
-  if (preview.currentHdri() === null && catalog.hdri.length) void preview.setHdri(catalog.hdri[0].name);
-}
-
 /** live material edit → rebuild the preview sphere (keeping the orbit) if its tab is active */
 function previewMaterialEdit(name: string, def: MaterialDef): void {
   const tab = tabs.active();
   if (tab?.kind === "material" && tab.material === name) void preview.showMaterial(name, def, true);
 }
 
-/** a model meta edit (calibration / material / collision) → persist + re-preview */
+/** a material edit → record history, apply everywhere (map, file, preview) */
+function onMaterialChanged(name: string, def: MaterialDef): void {
+  recordMatHistory(name);
+  applyMaterialEffects(name, def);
+}
+function applyMaterialEffects(name: string, def: MaterialDef): void {
+  viewport.setMaterials(catalog.materials, true);
+  saveMaterialSoon(name, def);
+  previewMaterialEdit(name, def);
+}
+
+// ── material undo/redo (preview tabs) — same snapshot scheme as model metas ───
+const matHistory = new Map<string, MetaHist>();
+function matDefOf(name: string): MaterialDef | null { return catalog.materials.find((m) => m.name === name)?.def ?? null; }
+function ensureMatHist(name: string): MetaHist | null {
+  const def = matDefOf(name); if (!def) return null;
+  let h = matHistory.get(name);
+  if (!h) { h = { undo: [], redo: [], baseline: JSON.stringify(def) }; matHistory.set(name, h); }
+  return h;
+}
+function recordMatHistory(name: string): void {
+  const h = ensureMatHist(name); const def = matDefOf(name); if (!h || !def) return;
+  const now = JSON.stringify(def);
+  if (now === h.baseline) return;
+  h.undo.push(h.baseline);
+  if (h.undo.length > META_HISTORY_CAP) h.undo.shift();
+  h.redo.length = 0;
+  h.baseline = now;
+}
+function restoreMat(name: string, json: string): void {
+  const def = matDefOf(name); if (!def) return;
+  for (const k of Object.keys(def)) delete (def as unknown as Record<string, unknown>)[k];
+  Object.assign(def, JSON.parse(json));
+  applyMaterialEffects(name, def);
+  refreshInspector();
+}
+function matUndo(name: string): void {
+  const h = ensureMatHist(name); if (!h) return;
+  const prev = h.undo.pop(); if (prev === undefined) return;
+  h.redo.push(h.baseline); h.baseline = prev; restoreMat(name, prev);
+}
+function matRedo(name: string): void {
+  const h = ensureMatHist(name); if (!h) return;
+  const next = h.redo.pop(); if (next === undefined) return;
+  h.undo.push(h.baseline); h.baseline = next; restoreMat(name, next);
+}
+
+/** a model meta edit (calibration / material / collision) → record history, persist,
+ *  and re-preview. Live gizmo drags call this once at drag-end. */
 function onModelMetaChanged(name: string): void {
+  recordMetaHistory(name);
+  applyModelMetaEffects(name);
+}
+
+/** apply a model meta's current state everywhere (map viewport, file, preview)
+ *  WITHOUT touching history — shared by edits and undo/redo. */
+function applyModelMetaEffects(name: string): void {
   const meta = liveMeta(name);
   applyLiveModelMeta(name, meta);
   viewport.setModelMetas(catalog.models, true);   // re-pose/reskin map placements live
@@ -206,6 +259,62 @@ function onModelMetaChanged(name: string): void {
     if (view === "collision") preview.refreshCollision(meta);
     else void preview.showModel(name, "model", meta, true);
   }
+}
+
+// ── model-meta undo/redo (preview tabs) ──────────────────────────────────────
+// Model/collision edits mutate a live working meta object, so history is a stack of
+// JSON snapshots per model. `baseline` is the last recorded state; recording an edit
+// pushes the baseline onto undo and re-baselines to the (already-mutated) current.
+interface MetaHist { undo: string[]; redo: string[]; baseline: string }
+const metaHistory = new Map<string, MetaHist>();
+const META_HISTORY_CAP = 200;
+
+/** capture the model's current meta as the history baseline the first time its tab
+ *  is shown, so the first edit has a state to undo back to. */
+function ensureMetaHist(name: string): MetaHist {
+  let h = metaHistory.get(name);
+  if (!h) { h = { undo: [], redo: [], baseline: JSON.stringify(liveMeta(name)) }; metaHistory.set(name, h); }
+  return h;
+}
+function recordMetaHistory(name: string): void {
+  const h = ensureMetaHist(name);
+  const now = JSON.stringify(liveMeta(name));
+  if (now === h.baseline) return;   // nothing actually changed
+  h.undo.push(h.baseline);
+  if (h.undo.length > META_HISTORY_CAP) h.undo.shift();
+  h.redo.length = 0;
+  h.baseline = now;
+}
+/** overwrite a live meta object in place (keeps its identity for open closures) */
+function replaceMeta(target: ModelMeta, src: ModelMeta): void {
+  for (const k of Object.keys(target)) delete (target as Record<string, unknown>)[k];
+  Object.assign(target, JSON.parse(JSON.stringify(src)));
+}
+function restoreMeta(name: string, json: string): void {
+  const meta = liveMeta(name);
+  replaceMeta(meta, JSON.parse(json) as ModelMeta);
+  // keep the collision selection valid against the restored solid count
+  const n = (meta.collision === "manual" ? meta.collisionBoxes?.length : 0) ?? 0;
+  if (selBox >= n) selBox = n - 1;
+  applyModelMetaEffects(name);
+  preview.selectBox(selBox);
+  refreshInspector();
+}
+function metaUndo(name: string): void {
+  const h = ensureMetaHist(name);
+  const prev = h.undo.pop();
+  if (prev === undefined) return;
+  h.redo.push(h.baseline);
+  h.baseline = prev;
+  restoreMeta(name, prev);
+}
+function metaRedo(name: string): void {
+  const h = ensureMetaHist(name);
+  const next = h.redo.pop();
+  if (next === undefined) return;
+  h.undo.push(h.baseline);
+  h.baseline = next;
+  restoreMeta(name, next);
 }
 
 // ── viewport tab strip + view-mode control ───────────────────────────────────
@@ -259,6 +368,12 @@ function renderModes(): void {
 }
 
 // ── left column visibility · preview environment picker · collision authoring ──
+/** Save / Save As belong to map documents only — hide the cluster on preview tabs. */
+function renderSaveButtons(): void {
+  const g = document.getElementById("save-group");
+  if (g) g.style.display = tabs.activeKind() === "map" ? "" : "none";
+}
+
 /** the left column (scene outliner) belongs to map tabs; preview tabs hide it
  *  entirely (their asset controls live in the inspector on the right). */
 function renderLeftPanel(): void {
@@ -352,9 +467,21 @@ function isTypingTarget(el: EventTarget | null): boolean {
 function bindUndoRedo(): void {
   window.addEventListener("keydown", (e) => {
     if (isTypingTarget(e.target)) return;
-    if (tabs.activeKind() !== "map") return;   // history/clipboard apply to map tabs
     const mod = e.ctrlKey || e.metaKey;
     const k = e.key.toLowerCase();
+    const kind = tabs.activeKind();
+    // preview tabs (material / model) have their own per-asset edit history
+    if (kind === "model" || kind === "material") {
+      const tab = tabs.active();
+      const undo = mod && k === "z" && !e.shiftKey;
+      const redo = mod && ((k === "z" && e.shiftKey) || k === "y");
+      if (!undo && !redo) return;
+      e.preventDefault();
+      if (kind === "model" && tab?.model) { if (undo) metaUndo(tab.model); else metaRedo(tab.model); }
+      else if (kind === "material" && tab?.material) { if (undo) matUndo(tab.material); else matRedo(tab.material); }
+      return;
+    }
+    if (kind !== "map") return;   // history/clipboard apply to map tabs
     if (mod && k === "z" && !e.shiftKey) { e.preventDefault(); state.undo(); return; }
     if (mod && ((k === "z" && e.shiftKey) || k === "y")) { e.preventDefault(); state.redo(); return; }
     if (mod && k === "c") { e.preventDefault(); copySelection(); return; }
@@ -398,9 +525,13 @@ function buildToolbar(): void {
   const bar = $("toolbar");
   const logo = el("img", "brand-icon") as HTMLImageElement;
   logo.src = `${import.meta.env.BASE_URL}logo.png`; logo.alt = "SlopWars";
-  bar.append(logo, el("span", "brand", "Editor"),
+  // Save / Save As act on the active map document, so they only make sense on a map
+  // tab — grouped here so the whole cluster hides on material/model preview tabs.
+  const saveGroup = el("span", "save-group"); saveGroup.id = "save-group";
+  saveGroup.append(
     iconButton("save", "Save", () => void saveMap(), "primary"), button("Save As…", () => void saveMapAs()),
     el("span", "bar-sep"));
+  bar.append(logo, el("span", "brand", "Editor"), saveGroup);
 
   const tools = el("div", "tool-group");
   for (const { t, label } of TOOLS) {

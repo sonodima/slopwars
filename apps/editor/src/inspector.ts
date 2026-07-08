@@ -174,10 +174,10 @@ function modelInspector(host: HTMLElement, name: string): void {
 /** the collision-primitive options a manual solid can take */
 const COLL_SHAPES: CollisionShape[] = ["box", "cylinder", "sphere"];
 
-/** the list of manual collision solids. Position/size is authored directly in the
- *  Collision view with the move/scale gizmo (same tools as map objects) — this list
- *  only adds, selects and deletes them (as the redesign asks: solids are placed &
- *  sized in 3D, the inspector just lists them). */
+/** the list of manual collision solids. Each solid can be authored directly in the
+ *  Collision view with the Move / Rotate / Scale gizmo (same tools as map objects),
+ *  or numerically here: the selected solid exposes Location / Rotation / Size fields
+ *  below the list, just like an object's transform. */
 function collisionList(host: HTMLElement, meta: ModelMeta, hooks: ModelHooks, save: () => void): void {
   const add = el("button", "btn primary insp-addbtn");
   add.append(icon("plus"), el("span", "btn-label", "Add solid"));
@@ -185,7 +185,7 @@ function collisionList(host: HTMLElement, meta: ModelMeta, hooks: ModelHooks, sa
   host.append(add);
 
   const boxes = meta.collisionBoxes ?? [];
-  if (!boxes.length) { host.append(el("div", "side-note", "No solids yet — move/scale each in the Collision view.")); return; }
+  if (!boxes.length) { host.append(el("div", "side-note", "No solids yet — add one, then move/rotate/scale it in the Collision view.")); return; }
   const sel = hooks.collSel();
   boxes.forEach((b, i) => {
     const row = el("div", "cbox-row" + (i === sel ? " sel" : ""));
@@ -204,6 +204,20 @@ function collisionList(host: HTMLElement, meta: ModelMeta, hooks: ModelHooks, sa
     row.addEventListener("click", () => hooks.collSelect(i));
     host.append(row);
   });
+
+  // transform of the selected solid — position / rotation / size, mirroring an
+  // object's Transform block. Fields write straight into the box and re-preview.
+  if (sel >= 0 && sel < boxes.length) {
+    const b = boxes[sel];
+    group(host, `Solid ${sel + 1} Transform`);
+    host.append(vecField("Location", b.at, save, 0.05));
+    const rot = (b.rot ?? [0, 0, 0]).slice() as number[];
+    host.append(vecField("Rotation", rot, () => {
+      b.rot = (rot[0] || rot[1] || rot[2]) ? [rot[0], rot[1], rot[2]] as Tuple3 : undefined;
+      save();
+    }, 1));
+    host.append(vecField("Size", b.size, save, 0.05));
+  }
 }
 
 // ── group (a first-class parent — edit its own transform) ─────────────────────

@@ -17,8 +17,9 @@ import {
   TextureCube, UnlitMaterial, Vector3, Vector4, WebGLEngine,
 } from "@galacean/engine";
 import type { AssetCatalog, CollisionBox, MaterialDef, ModelMeta, Tuple3 } from "@slopwars/shared";
+import { rotateEulerInv } from "@slopwars/shared";
 import { loadGLTF, loadHDRCube, loadTexture2D } from "@game/assets";
-import { applyWaterLook, attachWaterAnim, WATER_LOOK, type WaterLook } from "@game/water";
+import { applyWaterLook, attachWaterAnim, WATER_LOOK, type WaterAnim, type WaterLook } from "@game/water";
 import { buildGlassMaterial } from "@game/materials";
 import type { ModelView } from "./tabs";
 import type { Tool } from "./viewport";
@@ -61,6 +62,9 @@ export class PreviewScene {
   private hdriCache = new Map<string, Promise<TextureCube>>();
   private catalog: AssetCatalog = { models: [], textures: [], materials: [], audio: [], hdri: [] };
   private curHdri: string | null = null;
+  /** live water flow animation of the current material preview (kept so its phase
+   *  survives a rebuild on a param edit — see showMaterial) */
+  private waterAnim: WaterAnim | null = null;
 
   // collision authoring
   private boxes: CollisionBox[] = [];
@@ -69,18 +73,19 @@ export class PreviewScene {
   /** notified when a collision box is clicked in the scene (index, or -1) */
   onCollisionSelect: ((index: number) => void) | null = null;
 
-  // collision gizmo: move/scale the selected solid directly in the view (mirrors
-  // the map viewport's transform gizmo, reduced to the axis-aligned box case).
+  // collision gizmo: move/rotate/scale the selected solid directly in the view
+  // (mirrors the map viewport's transform gizmo for a single solid).
   private overlay!: HTMLCanvasElement;
   private octx!: CanvasRenderingContext2D;
-  private gizmoTool: "move" | "scale" = "move";
+  private gizmoTool: "move" | "rotate" | "scale" = "move";
   private gizmoHover: GHandle | null = null;
   private gizmoDrag: {
     handle: GHandle;
-    at: Tuple3; size: Tuple3;            // box transform at grab
+    at: Tuple3; size: Tuple3; rot: Tuple3;   // box transform at grab
     startPx: number; startPy: number;
     unit: [number, number]; wpp: number; // screen-space axis dir + world/pixel (axis handles)
     rvec: number[]; uvec: number[]; pwpp: number; // camera basis + world/pixel (centre handle)
+    cx: number; cy: number; startAngle: number;   // ring centre + grab angle (rotate)
   } | null = null;
   /** notified after a gizmo drag mutates the selected solid (persist + reshade) */
   onCollisionChange: (() => void) | null = null;
@@ -173,6 +178,11 @@ export class PreviewScene {
    *  `keepCamera` preserves the orbit (used for live material edits). */
   async showMaterial(name: string, def: MaterialDef, keepCamera = false): Promise<void> {
     if (!this.ready) return;
+    // preserve the water flow phase when re-showing the SAME material (a live edit),
+    // so tweaking a param doesn't snap the ripples back to the start.
+    const samePrev = keepCamera && this.content.kind === "material" && this.content.name === name;
+    const prevPhase = samePrev && this.waterAnim ? this.waterAnim.phase : 0;
+    this.waterAnim = null;
     this.content = { kind: "material", name };
     this.clearHolder();
     this.clearCollision();
@@ -185,7 +195,7 @@ export class PreviewScene {
     if (this.content.kind !== "material" || this.content.name !== name || e.destroyed) return;
     r.setMaterial(mat);
     // water flows: scroll the wave-normal UVs so ripples move like they do in-game
-    if (def.type === "water") attachWaterAnim(e, mat, WATER_PREVIEW_TILING, waterLookOf(def).flow);
+    if (def.type === "water") this.waterAnim = attachWaterAnim(e, mat, WATER_PREVIEW_TILING, waterLookOf(def).flow, prevPhase);
   }
 
   /** build an engine material from a def (mirrors the thumbnail renderer) */
@@ -308,9 +318,9 @@ export class PreviewScene {
     this.restyleBoxes();
   }
 
-  /** which transform gizmo the collision solids use. Mirrors the map viewport's
-   *  tool; rotate has no meaning for an axis-aligned box, so it acts as move. */
-  setGizmoTool(t: Tool): void { this.gizmoTool = t === "scale" ? "scale" : "move"; }
+  /** which transform gizmo the collision solids use — mirrors the map viewport's
+   *  Move / Rotate / Scale tool, applied to the selected solid. */
+  setGizmoTool(t: Tool): void { this.gizmoTool = t === "scale" ? "scale" : t === "rotate" ? "rotate" : "move"; }
 
   private renderCollision(meta: ModelMeta, radius: number): void {
     // preserve the current selection across a refresh (a gizmo drag / add rebuilds
@@ -328,6 +338,7 @@ export class PreviewScene {
   private makeBoxEntity(b: CollisionBox, i: number): Entity {
     const e = this.collisionRoot.createChild(`box${i}`);
     e.transform.setPosition(b.at[0], b.at[1], b.at[2]);
+    if (b.rot && (b.rot[0] || b.rot[1] || b.rot[2])) e.transform.setRotation(b.rot[0], b.rot[1], b.rot[2]);
     e.transform.setScale(Math.max(0.001, b.size[0]), Math.max(0.001, b.size[1]), Math.max(0.001, b.size[2]));
     const r = e.addComponent(MeshRenderer);
     // a unit primitive (fits a 1³ box) so the shared per-solid scale sizes it: a
@@ -529,6 +540,22 @@ export class PreviewScene {
     if (h !== this.gizmoHover) { this.gizmoHover = h; this.canvas.style.cursor = h ? "grab" : "grab"; }
   }
 
+  /** N sampled screen points of the rotation ring in the plane ⟂ to a world axis */
+  private ring(at: Tuple3, dir: Tuple3, L: number): { x: number; y: number; visible: boolean }[] {
+    const u = norm(Math.abs(dir[1]) > 0.9 ? [1, 0, 0] : [0, 1, 0]);
+    const a = norm(cross(dir, u)), b = norm(cross(dir, a));
+    const pts = [];
+    for (let i = 0; i <= 48; i++) {
+      const t = (i / 48) * Math.PI * 2;
+      pts.push(this.project([
+        at[0] + (a[0] * Math.cos(t) + b[0] * Math.sin(t)) * L,
+        at[1] + (a[1] * Math.cos(t) + b[1] * Math.sin(t)) * L,
+        at[2] + (a[2] * Math.cos(t) + b[2] * Math.sin(t)) * L,
+      ] as Tuple3));
+    }
+    return pts;
+  }
+
   /** which gizmo handle (if any) is under a pixel for the selected solid */
   private pickHandle(px: number, py: number): GHandle | null {
     if (!this.gizmoActive()) return null;
@@ -537,6 +564,16 @@ export class PreviewScene {
     if (!c.visible) return null;
     const L = this.gizmoLen(at);
     let best = 10, hit: GHandle | null = null;
+    if (this.gizmoTool === "rotate") {
+      for (const { h, dir } of GIZMO_AXES) {
+        for (const p of this.ring(at, dir, L)) {
+          if (!p.visible) continue;
+          const d = Math.hypot(p.x - px, p.y - py);
+          if (d < best) { best = d; hit = h; }
+        }
+      }
+      return hit;
+    }
     for (const { h, dir } of GIZMO_AXES) {
       const tip = this.project([at[0] + dir[0] * L, at[1] + dir[1] * L, at[2] + dir[2] * L]);
       if (!tip.visible) continue;
@@ -563,7 +600,12 @@ export class PreviewScene {
     const fz = Math.max(0.3, dot([b.at[0] - pos.x, b.at[1] - pos.y, b.at[2] - pos.z], f));
     const tanF = Math.tan((this.camera.fieldOfView * DEG) / 2);
     const pwpp = (2 * tanF * fz) / this.canvas.getBoundingClientRect().height;
-    this.gizmoDrag = { handle: h, at: b.at.slice() as Tuple3, size: b.size.slice() as Tuple3, startPx: px, startPy: py, unit, wpp, rvec: r, uvec: u, pwpp };
+    this.gizmoDrag = {
+      handle: h, at: b.at.slice() as Tuple3, size: b.size.slice() as Tuple3,
+      rot: (b.rot ?? [0, 0, 0]).slice() as Tuple3,
+      startPx: px, startPy: py, unit, wpp, rvec: r, uvec: u, pwpp,
+      cx: c.x, cy: c.y, startAngle: Math.atan2(py - c.y, px - c.x),
+    };
     this.canvas.style.cursor = "grabbing";
   }
 
@@ -574,9 +616,9 @@ export class PreviewScene {
     if (this.gizmoTool === "move") {
       if (d.handle === "xyz") {
         b.at = [
-          d.at[0] + (d.rvec[0] * ddx - d.uvec[0] * ddy) * d.pwpp,
-          d.at[1] + (d.rvec[1] * ddx - d.uvec[1] * ddy) * d.pwpp,
-          d.at[2] + (d.rvec[2] * ddx - d.uvec[2] * ddy) * d.pwpp,
+          round3(d.at[0] + (d.rvec[0] * ddx - d.uvec[0] * ddy) * d.pwpp),
+          round3(d.at[1] + (d.rvec[1] * ddx - d.uvec[1] * ddy) * d.pwpp),
+          round3(d.at[2] + (d.rvec[2] * ddx - d.uvec[2] * ddy) * d.pwpp),
         ];
       } else {
         const along = (ddx * d.unit[0] + ddy * d.unit[1]) * d.wpp;
@@ -584,6 +626,13 @@ export class PreviewScene {
         const nat = d.at.slice() as Tuple3; nat[i] = round3(d.at[i] + along);
         b.at = nat;
       }
+    } else if (this.gizmoTool === "rotate") {
+      const ang = Math.atan2(py - d.cy, px - d.cx);
+      const idx = AXIS_IDX[d.handle];
+      const sign = d.handle === "y" ? -1 : 1;
+      const sdeg = ((ang - d.startAngle) * 180) / Math.PI * sign;
+      const nrot = d.rot.slice() as Tuple3; nrot[idx] = round3(d.rot[idx] + sdeg);
+      b.rot = (nrot[0] || nrot[1] || nrot[2]) ? nrot : undefined;
     } else {   // scale about the box centre (size changes, position stays)
       if (d.handle === "xyz") {
         const f = Math.max(0.02, 1 - ddy / 140);
@@ -599,6 +648,8 @@ export class PreviewScene {
     const e = this.boxEntities[this.selBox];
     if (e && !e.destroyed) {
       e.transform.setPosition(b.at[0], b.at[1], b.at[2]);
+      const br = b.rot ?? [0, 0, 0];
+      e.transform.setRotation(br[0], br[1], br[2]);
       e.transform.setScale(Math.max(0.001, b.size[0]), Math.max(0.001, b.size[1]), Math.max(0.001, b.size[2]));
     }
   }
@@ -620,6 +671,18 @@ export class PreviewScene {
     const c = this.project(at);
     if (!c.visible) return;
     const L = this.gizmoLen(at);
+    if (this.gizmoTool === "rotate") {
+      for (const { h, dir } of GIZMO_AXES) {
+        const pts = this.ring(at, dir, L);
+        ctx.beginPath();
+        let started = false;
+        for (const p of pts) { if (!p.visible) { started = false; continue; } if (!started) { ctx.moveTo(p.x, p.y); started = true; } else ctx.lineTo(p.x, p.y); }
+        const on = this.gizmoHover === h || this.gizmoDrag?.handle === h;
+        ctx.strokeStyle = on ? "#ffd257" : GIZMO_COL[h]; ctx.lineWidth = on ? 3 : 2; ctx.stroke();
+      }
+      ctx.beginPath(); ctx.arc(c.x, c.y, 3, 0, Math.PI * 2); ctx.fillStyle = "#f5a623"; ctx.fill();
+      return;
+    }
     for (const { h, dir } of GIZMO_AXES) {
       const tip = this.project([at[0] + dir[0] * L, at[1] + dir[1] * L, at[2] + dir[2] * L]);
       if (!tip.visible) continue;
@@ -714,8 +777,18 @@ function clamp(v: number, a: number, b: number): number { return v < a ? a : v >
 function cross(a: number[], b: number[]): number[] { return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]; }
 function norm(a: number[]): number[] { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; }
 
-/** ray vs an axis-aligned collision box (centre `at`, full `size`); entry dist or null */
-function rayBox(o: number[], d: number[], box: { at: Tuple3; size: Tuple3 }): number | null {
+/** ray vs a collision box (centre `at`, full `size`, optional euler `rot`); entry
+ *  dist or null. A rotated box is tested in its local frame (inverse-rotate the ray). */
+function rayBox(o: number[], d: number[], box: { at: Tuple3; size: Tuple3; rot?: Tuple3 }): number | null {
+  const rot = box.rot;
+  let ox = o[0], oy = o[1], oz = o[2], dx = d[0], dy = d[1], dz = d[2];
+  if (rot && (rot[0] || rot[1] || rot[2])) {
+    const ro = rotateEulerInv([o[0] - box.at[0], o[1] - box.at[1], o[2] - box.at[2]], rot);
+    const rd = rotateEulerInv([d[0], d[1], d[2]], rot);
+    ox = box.at[0] + ro[0]; oy = box.at[1] + ro[1]; oz = box.at[2] + ro[2];
+    dx = rd[0]; dy = rd[1]; dz = rd[2];
+  }
+  o = [ox, oy, oz]; d = [dx, dy, dz];
   const mn = [box.at[0] - box.size[0] / 2, box.at[1] - box.size[1] / 2, box.at[2] - box.size[2] / 2];
   const mx = [box.at[0] + box.size[0] / 2, box.at[1] + box.size[1] / 2, box.at[2] + box.size[2] / 2];
   let tmin = 0, tmax = Infinity;

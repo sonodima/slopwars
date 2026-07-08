@@ -157,7 +157,7 @@ export function rotateEuler(v: Tuple3, deg: Tuple3): Tuple3 {
 }
 
 /** inverse of rotateEuler: undo an X→Y→Z rotation (apply −Z, −Y, −X) */
-function rotateEulerInv(v: Tuple3, deg: Tuple3): Tuple3 {
+export function rotateEulerInv(v: Tuple3, deg: Tuple3): Tuple3 {
   const D = Math.PI / 180;
   let [x, y, z] = v;
   if (deg[2]) { const c = Math.cos(-deg[2] * D), s = Math.sin(-deg[2] * D); const nx = x * c - y * s, ny = x * s + y * c; x = nx; y = ny; }
