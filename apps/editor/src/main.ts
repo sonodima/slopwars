@@ -10,19 +10,22 @@ import { Viewport, Tool, PerfStats } from "./viewport";
 import { ThumbRenderer } from "./preview";
 import { state } from "./state";
 import { mountSceneGraph } from "./scenegraph";
-import { renderInspector, setInspectorCatalog, setInspectorThumbs } from "./inspector";
-import { renderBrowser, Payload } from "./panels";
+import { renderInspector, setInspectorCatalog, setInspectorThumbs, setInspectorMaterialHooks } from "./inspector";
+import type { MaterialDef } from "@slopwars/shared";
+import { renderBrowser, Payload, type BrowserControl } from "./panels";
+import type { MaterialType } from "@slopwars/shared";
 import { mountResizers } from "./layout";
 import { objectDropScale } from "@game/objects";
 import { startMcpBridge } from "./mcpbridge";
 import { api } from "./api";
-import { el, button, toast, modal } from "./ui";
+import { el, button, toast } from "./ui";
 
 const $ = (id: string): HTMLElement => document.getElementById(id) as HTMLElement;
 
 const viewport = new Viewport();
 const thumbs = new ThumbRenderer();
-let catalog: AssetCatalog = { models: [], textures: [], audio: [], hdri: [] };
+let catalog: AssetCatalog = { models: [], textures: [], materials: [], audio: [], hdri: [] };
+let browser: BrowserControl | null = null;
 let rebuildTimer = 0;
 
 const TOOLS: { t: Tool; label: string }[] = [
@@ -32,10 +35,36 @@ const TOOLS: { t: Tool; label: string }[] = [
 ];
 const GRAPHICS = ["low", "medium", "high"] as const;
 
+async function loadCatalog(): Promise<AssetCatalog> {
+  return api.catalog();
+}
+
+/** re-fetch the catalog and push it everywhere that caches material defs (the
+ *  inspector + the viewport's live shader). `reshade` rebuilds the viewport so a
+ *  material change is visible. */
+async function refreshCatalog(reshade = false): Promise<void> {
+  catalog = await loadCatalog();
+  setInspectorCatalog(catalog);
+  viewport.setMaterials(catalog.materials, reshade);
+}
+
+// debounced material-file writes (a colour drag mutates the def many times/sec;
+// we re-shade live every change but only persist to disk after it settles)
+let matSaveTimer = 0;
+function saveMaterialSoon(name: string, def: MaterialDef): void {
+  window.clearTimeout(matSaveTimer);
+  matSaveTimer = window.setTimeout(() => { void api.saveMaterial(name, def).catch((e) => toast("material save failed: " + e, true)); }, 250);
+}
+
 async function main(): Promise<void> {
-  try { catalog = await api.catalog(); } catch (e) { toast("catalog load failed: " + e, true); }
+  try { catalog = await loadCatalog(); } catch (e) { toast("catalog load failed: " + e, true); }
   setInspectorCatalog(catalog);
   setInspectorThumbs(thumbs);
+  setInspectorMaterialHooks({
+    // editing a material: re-shade the viewport immediately, persist shortly after
+    changed: (name, def) => { viewport.setMaterials(catalog.materials, true); saveMaterialSoon(name, def); },
+    renamed: (from, to) => { void renameMaterial(from, to); },
+  });
 
   buildToolbar();
   mountSceneGraph($("scene-graph"));
@@ -63,7 +92,7 @@ async function main(): Promise<void> {
   setupDrop();
 
   viewport.init("editor-canvas")
-    .then(() => { viewport.setGraphics("high"); if (state.map) return viewport.render(state.map); })
+    .then(() => { viewport.setGraphics("high"); viewport.setMaterials(catalog.materials); if (state.map) return viewport.render(state.map); })
     .catch((e) => { console.error("viewport init failed (data editing still works):", e); toast("3D viewport unavailable", true); });
   thumbs.init().catch(() => { /* thumbnails optional */ });
 
@@ -71,7 +100,7 @@ async function main(): Promise<void> {
   startMcpBridge({
     viewport,
     getCatalog: () => catalog,
-    reloadCatalog: async () => { catalog = await api.catalog(); setInspectorCatalog(catalog); return catalog; },
+    reloadCatalog: async () => { catalog = await loadCatalog(); setInspectorCatalog(catalog); return catalog; },
     saveMap,
     loadMap: openMap,
     newMap,
@@ -131,8 +160,9 @@ function buildToolbar(): void {
   const bar = $("toolbar");
   const logo = el("img", "brand-icon") as HTMLImageElement;
   logo.src = `${import.meta.env.BASE_URL}logo.png`; logo.alt = "SlopWars";
+  // New/Load live in the Maps tab of the asset browser now; Save/Save As stay here
   bar.append(logo, el("span", "brand", "Editor"),
-    button("New", newMap), button("Load…", openLoadDialog), button("Save", saveMap, "primary"), button("Save As…", saveMapAs),
+    button("Save", saveMap, "primary"), button("Save As…", saveMapAs),
     el("span", "bar-sep"));
 
   const tools = el("div", "tool-group");
@@ -156,7 +186,40 @@ function graphicsPicker(): HTMLElement {
 }
 
 function buildDock(): void {
-  renderBrowser($("browser"), { catalog, thumbs, reloadCatalog: async () => { catalog = await api.catalog(); setInspectorCatalog(catalog); return catalog; } });
+  browser = renderBrowser($("browser"), {
+    catalog, thumbs,
+    reloadCatalog: async () => { await refreshCatalog(); return catalog; },
+    listMaps: () => api.maps(),
+    onSelectMaterial: (name) => state.selectMaterial(name),
+    onCreateMaterial: (type) => void createMaterialFlow(type),
+    onLoadMap: (file) => void openMap(file),
+    onCreateMap: () => newMap(),
+  });
+}
+
+/** create a material of `type`, refresh the browser, and open it for editing */
+async function createMaterialFlow(type: MaterialType): Promise<void> {
+  try {
+    const r = await api.createMaterial(type);
+    if (!r.name) { toast("create material failed: " + (r.error ?? ""), true); return; }
+    await browser?.reload();
+    browser?.showMaterials();
+    state.selectMaterial(r.name);
+  } catch (e) { toast("create material failed: " + e, true); }
+}
+
+/** rename a material file + repoint the loaded map's references, then reselect */
+async function renameMaterial(from: string, to: string): Promise<void> {
+  try {
+    const r = await api.renameMaterial(from, to);
+    if (!r.name) { toast("rename failed: " + (r.error ?? ""), true); return; }
+    for (const o of state.map?.objects ?? []) {
+      if ((o.params as { mat?: string } | undefined)?.mat === from) (o.params as { mat: string }).mat = r.name;
+    }
+    await refreshCatalog(true);
+    await browser?.reload();
+    state.selectMaterial(r.name);
+  } catch (e) { toast("rename failed: " + e, true); }
 }
 
 function selectTool(t: Tool): void { viewport.setTool(t); highlightTool(t); }
@@ -173,21 +236,7 @@ function refreshMapName(): void {
   if (n) n.textContent = state.map ? state.map.meta.name + (state.dirty ? " *" : "") : "";
 }
 
-// ── map management ────────────────────────────────────────────────────────────
-async function openLoadDialog(): Promise<void> {
-  let list: { id: string; name: string; file: string }[] = [];
-  try { list = await api.maps(); } catch (e) { toast("maps list failed: " + e, true); return; }
-  const body = el("div", "map-list");
-  if (!list.length) body.append(el("div", "empty", "No maps found"));
-  const dlg = modal("Load map", body);
-  for (const m of list) {
-    const row = el("button", "map-row");
-    row.append(el("span", "map-row-name", m.name), el("span", "map-row-id", m.id));
-    row.addEventListener("click", () => { dlg.close(); void openMap(m.file); });
-    body.append(row);
-  }
-}
-
+// ── map management (New/Load are the Maps tab of the asset browser) ──────────
 async function openMap(file: string): Promise<void> {
   try {
     const def = await api.loadMap(file);
@@ -208,7 +257,7 @@ function newMap(): void {
 async function saveMap(): Promise<void> {
   const map = state.map; if (!map) return;
   const id = map.meta.id || state.fileId;
-  try { await api.saveMap(id, map); state.dirty = false; refreshMapName(); toast(`saved maps/${id}.json`); }
+  try { await api.saveMap(id, map); state.dirty = false; refreshMapName(); browser?.refreshMaps(); toast(`saved maps/${id}.json`); }
   catch (e) { toast("save failed: " + e, true); }
 }
 
