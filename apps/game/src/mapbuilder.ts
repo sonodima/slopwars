@@ -11,6 +11,7 @@ import { GameModels, instantiate } from "./models";
 import { MapTextures, PbrSet, DEFAULT_FOLDER } from "./textures";
 import { MaterialLibrary } from "./materials";
 import type { MaterialDef, ModelMeta } from "@slopwars/shared";
+import { rotateEuler } from "@slopwars/shared";
 import type { AABB, GameMap } from "./map";
 
 /** author-tuned per-model defaults (base offset / scale / material override),
@@ -140,6 +141,34 @@ export class MapBuilder {
     this.root.addChild(e);
     this.map.tris += 500;
     return this.track(e);
+  }
+
+  /** push a model placement's collision into the map. Honours the model's authored
+   *  collision mode (models/<id>/meta.json): "manual" pushes each authored box
+   *  (transformed by the placement + meta calibration) so e.g. only a tree's trunk
+   *  blocks the player; "auto" (default) pushes one AABB hugging the whole mesh.
+   *  `at`/`rot`/`scale` are the placement's WORLD transform (groups already resolved). */
+  pushModelSolids(id: string, entity: Entity, at: Vec3T, rot: Vec3T, scale: Vec3T): void {
+    const meta = this.modelMeta.get(id) ?? {};
+    const boxes = meta.collision === "manual" ? (meta.collisionBoxes ?? []) : null;
+    if (boxes) {
+      const ms = typeof meta.scale === "number" && meta.scale > 0 ? meta.scale : 1;
+      const base = typeof meta.base === "number" ? meta.base : 0;
+      const sx = scale[0] * ms, sy = scale[1] * ms, sz = scale[2] * ms;
+      const rotT: [number, number, number] = [rot[0], rot[1], rot[2]];
+      for (const box of boxes) {
+        // box centre in model-local space, scaled then rotated into world (extents
+        // stay axis-aligned — collision is AABB-only, matching the box object type).
+        const local: [number, number, number] = [box.at[0] * sx, box.at[1] * sy, box.at[2] * sz];
+        const [rx, ry, rz] = rotateEuler(local, rotT);
+        const cx = at[0] + rx, cy = at[1] + base * sy + ry, cz = at[2] + rz;
+        const hx = Math.abs(box.size[0] * sx) / 2, hy = Math.abs(box.size[1] * sy) / 2, hz = Math.abs(box.size[2] * sz) / 2;
+        this.pushSolid({ min: { x: cx - hx, y: cy - hy, z: cz - hz }, max: { x: cx + hx, y: cy + hy, z: cz + hz } });
+      }
+      return;
+    }
+    const aabb = this.modelAABB(entity);
+    if (aabb) this.pushSolid(aabb);
   }
 
   /** world-space AABB of a placed model, unioned from its mesh renderers' bounds.

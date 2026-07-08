@@ -3,12 +3,11 @@
 // Audio · Maps) instead of one long scroll. The active tab shows a search box + a
 // context action: Import (models/textures/skyboxes/audio bring files into the
 // project), or Create (materials are *created* not imported; maps too). Cards are
-// draggable onto the viewport / inspector slots. Clicking a Material selects it
-// for editing in the inspector; double-clicking a Map loads it.
+// draggable onto the viewport / inspector slots. Double-clicking an asset opens (or
+// focuses) its viewport tab: a material/model/texture preview, or a loaded map.
 import type { AssetCatalog, MapCatalogEntry } from "@slopwars/shared";
 import { objectCatalog } from "@game/objects";
 import { clear, el } from "./ui";
-import { state } from "./state";
 import { ThumbRenderer } from "./preview";
 import { openImport, type ImportKind } from "./importer";
 
@@ -17,9 +16,9 @@ export interface PanelCtx {
   thumbs: ThumbRenderer;
   reloadCatalog: () => Promise<AssetCatalog>;
   listMaps: () => Promise<MapCatalogEntry[]>;
-  onSelectMaterial: (name: string) => void;
-  onSelectModel: (name: string) => void;
-  onSelectTexture: (name: string) => void;
+  onOpenMaterial: (name: string) => void;
+  onOpenModel: (name: string) => void;
+  onOpenTexture: (name: string) => void;
   onCreateMaterial: () => void;
   onLoadMap: (file: string) => void;
   onCreateMap: () => void;
@@ -99,8 +98,8 @@ export function renderBrowser(host: HTMLElement, ctx: PanelCtx): BrowserControl 
     for (const m of ctx.catalog.models) {
       if (!match(m.name)) continue;
       const c = card(m.name, "▣", () => ({ kind: "model", name: m.name }));
-      if (state.selModel === m.name) c.classList.add("sel");
-      c.addEventListener("click", () => ctx.onSelectModel(m.name));
+      c.title = "double-click to open · drag into the viewport to place";
+      c.addEventListener("dblclick", () => ctx.onOpenModel(m.name));
       fillThumb(c, ctx.thumbs.modelThumb(m.gltf));
       grid.append(c);
     }
@@ -109,8 +108,8 @@ export function renderBrowser(host: HTMLElement, ctx: PanelCtx): BrowserControl 
     for (const mt of ctx.catalog.materials) {
       if (!match(mt.name)) continue;
       const c = card(mt.name, "◆", () => ({ kind: "material", name: mt.name }));
-      if (state.selMaterial === mt.name) c.classList.add("sel");
-      c.addEventListener("click", () => ctx.onSelectMaterial(mt.name));
+      c.title = "double-click to open";
+      c.addEventListener("dblclick", () => ctx.onOpenMaterial(mt.name));
       fillThumb(c, ctx.thumbs.materialThumb(mt.name, mt.def, ctx.catalog));
       grid.append(c);
     }
@@ -121,8 +120,8 @@ export function renderBrowser(host: HTMLElement, ctx: PanelCtx): BrowserControl 
     for (const t of ctx.catalog.textures) {
       if (!match(t.name)) continue;
       const c = card(t.name, "▦", () => ({ kind: "texture", name: t.name }));
-      if (state.selTexture === t.name) c.classList.add("sel");
-      c.addEventListener("click", () => ctx.onSelectTexture(t.name));
+      c.title = "double-click to open";
+      c.addEventListener("dblclick", () => ctx.onOpenTexture(t.name));
       if (t.maps.color) fillImg(c, ASSET(t.maps.color));
       grid.append(c);
     }
@@ -157,8 +156,6 @@ export function renderBrowser(host: HTMLElement, ctx: PanelCtx): BrowserControl 
   body.append(grid);
   syncTabs();
   draw();
-  // keep the asset-tab selection highlight fresh as the selection changes
-  state.onSelect(() => { if (active === "Materials" || active === "Models" || active === "Textures") draw(); });
   const refreshMaps = (): void => void ctx.listMaps().then((m) => { maps = m; if (active === "Maps") draw(); });
   refreshMaps();
 

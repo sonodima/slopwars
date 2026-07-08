@@ -147,7 +147,7 @@ export function placeScale(o: Placement): Tuple3 { return o.scale ?? [1, 1, 1]; 
 export interface WorldTf { at: Tuple3; rot: Tuple3; scale: Tuple3 }
 
 /** rotate a vector by an euler-degree triple, applying X then Y then Z */
-function rotateEuler(v: Tuple3, deg: Tuple3): Tuple3 {
+export function rotateEuler(v: Tuple3, deg: Tuple3): Tuple3 {
   const D = Math.PI / 180;
   let [x, y, z] = v;
   if (deg[0]) { const c = Math.cos(deg[0] * D), s = Math.sin(deg[0] * D); const ny = y * c - z * s, nz = y * s + z * c; y = ny; z = nz; }

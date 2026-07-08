@@ -194,7 +194,7 @@ defineObject<{ model: string; solid: boolean }>("prop", {
     if (!p.model) return;
     const e = b.placeModelTf(p.model, t.at, t.rot, t.scale);
     if (!e) return;
-    if (p.solid) { const aabb = b.modelAABB(e); if (aabb) b.pushSolid(aabb); }
+    if (p.solid) b.pushModelSolids(p.model, e, t.at, t.rot, t.scale);
   },
 });
 

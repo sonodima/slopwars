@@ -13,7 +13,12 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type { Bridge } from "./bridge";
-import { importAsset, type ImportFile } from "./files";
+import {
+  createMaterial, deleteMaterial, deleteModel, deleteTexture, importAsset,
+  renameMaterial, saveMaterial, saveModelMeta, scanAssets, type ImportFile,
+} from "./files";
+import type { MaterialDef } from "../../../packages/shared/src/materials";
+import type { CollisionBox, ModelMeta } from "../../../packages/shared/src/catalog";
 
 interface Deps {
   root: string;
@@ -108,6 +113,73 @@ export function createMcp({ root, bridge }: Deps): { handle: (msg: any) => Promi
     { name: "editor_import_hdri", description: "Import an HDRI (.hdr) into public/assets/hdri/.",
       inputSchema: { type: "object", properties: { name: { type: "string" }, file: { type: "string" } }, required: ["file"] },
       run: async (a) => doImport({ kind: "hdri", name: a.name || "", files: [await filepayload(a.file)] }) },
+
+    // ── materials (created/edited in the editor; a texture is applied via a material,
+    // never directly on geometry). File tools → run headless against the repo. ──
+    { name: "editor_list_materials", description: "List materials with their full defs (type + params).", inputSchema: { type: "object", properties: {} },
+      run: () => ({ materials: scanAssets(root).materials }) },
+    { name: "editor_get_material", description: "Get one material's def by name.",
+      inputSchema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] },
+      run: (a) => { const m = scanAssets(root).materials.find((x) => x.name === a.name); if (!m) throw new Error(`material not found: ${a.name}`); return m; } },
+    { name: "editor_create_material", description: "Create a new material (default gray `standard`, or a `water`/`glass`). Returns its name.",
+      inputSchema: { type: "object", properties: { type: { type: "string", enum: ["standard", "water", "glass"] } } },
+      run: (a) => { const r = createMaterial(root, a.type); if (r.error) throw new Error(r.error); bridge.notify("reloadCatalog"); return r; } },
+    { name: "editor_update_material", description: "Overwrite a material's def. `def` is a full MaterialDef ({type, …params}).",
+      inputSchema: { type: "object", properties: { name: { type: "string" }, def: { type: "object" } }, required: ["name", "def"] },
+      run: (a) => { const r = saveMaterial(root, a.name, a.def as MaterialDef); if (r.error) throw new Error(r.error); bridge.notify("reloadCatalog"); return r; } },
+    { name: "editor_rename_material", description: "Rename a material file.",
+      inputSchema: { type: "object", properties: { from: { type: "string" }, to: { type: "string" } }, required: ["from", "to"] },
+      run: (a) => { const r = renameMaterial(root, a.from, a.to); if (r.error) throw new Error(r.error); bridge.notify("reloadCatalog"); return r; } },
+    { name: "editor_delete_material", description: "Delete a material file.",
+      inputSchema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] },
+      run: (a) => { const r = deleteMaterial(root, a.name); if (r.error) throw new Error(r.error); bridge.notify("reloadCatalog"); return r; } },
+
+    // ── model calibration + collision (models/<name>/meta.json) ──
+    { name: "editor_get_model_meta", description: "Get a model's calibration meta (base/scale/material/collision).",
+      inputSchema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] },
+      run: (a) => { const m = scanAssets(root).models.find((x) => x.name === a.name); if (!m) throw new Error(`model not found: ${a.name}`); return { name: m.name, meta: m.meta ?? {} }; } },
+    { name: "editor_set_model_meta", description: "Set a model's calibration + collision. `collision` is \"auto\" (whole-mesh box) or \"manual\"; when manual, `collisionBoxes` is an array of { at:[x,y,z], size:[x,y,z] } solids in model-local space (e.g. just a tree trunk).",
+      inputSchema: { type: "object", properties: {
+        name: { type: "string" }, base: { type: "number" }, scale: { type: "number" }, material: { type: "string" },
+        collision: { type: "string", enum: ["auto", "manual"] },
+        collisionBoxes: { type: "array", items: { type: "object", properties: { at: V3, size: V3 }, required: ["at", "size"] } },
+      }, required: ["name"] },
+      run: (a) => {
+        const cur = scanAssets(root).models.find((x) => x.name === a.name);
+        if (!cur) throw new Error(`model not found: ${a.name}`);
+        const meta: ModelMeta = { ...(cur.meta ?? {}) };
+        if (a.base !== undefined) meta.base = a.base;
+        if (a.scale !== undefined) meta.scale = a.scale;
+        if (a.material !== undefined) meta.material = a.material || undefined;
+        if (a.collision !== undefined) meta.collision = a.collision;
+        if (a.collisionBoxes !== undefined) meta.collisionBoxes = a.collisionBoxes as CollisionBox[];
+        const r = saveModelMeta(root, a.name, meta);
+        if (r.error) throw new Error(r.error);
+        bridge.notify("reloadCatalog");
+        return r;
+      } },
+    { name: "editor_delete_model", description: "Delete a model folder (public/assets/models/<name>/).",
+      inputSchema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] },
+      run: (a) => { const r = deleteModel(root, a.name); if (r.error) throw new Error(r.error); bridge.notify("reloadCatalog"); return r; } },
+    { name: "editor_delete_texture", description: "Delete a texture folder (public/assets/textures/<name>/).",
+      inputSchema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] },
+      run: (a) => { const r = deleteTexture(root, a.name); if (r.error) throw new Error(r.error); bridge.notify("reloadCatalog"); return r; } },
+
+    // ── viewport tabs (live: the open editor page) ──
+    { name: "editor_list_tabs", description: "List open viewport tabs (maps + material/model/texture previews).", inputSchema: { type: "object", properties: {} },
+      run: () => live("listTabs") },
+    { name: "editor_open_tab", description: "Open (or focus) a viewport tab. `kind`: material/model/texture (needs `name`) or map (needs `file`).",
+      inputSchema: { type: "object", properties: { kind: { type: "string", enum: ["material", "model", "texture", "map"] }, name: { type: "string" }, file: { type: "string" } }, required: ["kind"] },
+      run: (a) => live("openTab", { kind: a.kind, name: a.name, file: a.file }) },
+    { name: "editor_focus_tab", description: "Focus a viewport tab by id (see editor_list_tabs).",
+      inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
+      run: (a) => live("focusTab", { id: a.id }) },
+    { name: "editor_close_tab", description: "Close a viewport tab by id.",
+      inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
+      run: (a) => live("closeTab", { id: a.id }) },
+    { name: "editor_set_model_view", description: "Set a model tab's sub-view: \"model\" (geometry) or \"collision\" (author solids). Defaults to the active model tab.",
+      inputSchema: { type: "object", properties: { view: { type: "string", enum: ["model", "collision"] }, id: { type: "string" } }, required: ["view"] },
+      run: (a) => live("setModelView", { view: a.view, id: a.id }) },
 
     { name: "editor_camera_focus", description: "Point the viewport camera at a world position [x,y,z].",
       inputSchema: { type: "object", properties: { at: V3, dist: { type: "number" } }, required: ["at"] },

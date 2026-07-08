@@ -34,9 +34,9 @@ Shared, file-driven asset directories at the repo root:
 | What | Where | Notes |
 |---|---|---|
 | **Maps** | `maps/*.json` | One JSON file per map. No map data lives in TypeScript. |
-| **Models** | `public/assets/models/{name}/` | glTF; folder name = asset key. |
+| **Models** | `public/assets/models/{name}/` | glTF **geometry** (no textures); folder name = asset key. `meta.json` holds calibration + collision. |
 | **Textures** | `public/assets/textures/{name}/` | PBR sets (color / normal / arm). |
-| **Materials** | `public/assets/materials/{name}.json` | Created/edited from the editor. |
+| **Materials** | `public/assets/materials/{name}.json` | Created/edited from the editor. A texture is applied to geometry *through* a material — assign one to a model. |
 | **Audio / HDRI** | `public/assets/{audio,hdri}/` | |
 
 Assets are **discovered by scanning the filesystem** (the `virtual:asset-catalog`
@@ -71,12 +71,20 @@ transform (position / rotation / scale) and params. New object types are one
 `defineObject()` call in `apps/game/src/objects.ts`; the loader and the editor
 pick them up automatically.
 
+The viewport is **tabbed** (Unreal-style): several maps plus interactive
+**material / model / texture previews** can be open at once. Double-click an asset
+in the browser to open its preview tab — a material shows a lit sphere in a
+selectable HDRI environment, a model is orbitable with a **Model / Collision**
+toggle for authoring per-model collision solids (`auto` whole-mesh box, or `manual`
+solids so e.g. only a tree's trunk blocks the player). See `apps/editor/README.md`.
+
 Editor controls (Unreal-style):
 
 | Input | Action |
 |---|---|
-| **Hold RMB + WASD / Q E** | Fly the camera (mouse to look) |
+| **Hold RMB + WASD / Q E** | Fly the camera (map viewport) |
 | **Q / W / E / R** | Select / Move / Rotate / Scale tool |
 | **Left-click** | Select an object; drag with a tool to transform it |
 | **F** | Frame the selected object |
 | **Drag from browser** | Model → a `prop`; audio → a positional `sound`; object → that type |
+| **Double-click asset** | Open its material / model / texture preview tab |
