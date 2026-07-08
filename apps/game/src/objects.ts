@@ -236,8 +236,8 @@ definePreset<ParticleLook & { tex: string }>("smoke", "particles", {
 /** generic explodable prop — any `model` that takes damage and explodes at 0 hp
  *  (host-tracked, reusing the barrel gameplay path). Drop one and point `model` at
  *  a barrel, crate, gas tank… to make it shootable+explosive. `radius`/`height`
- *  size its collision + blast cylinder. `barrel` below is just this with the barrel
- *  model pre-filled (object wrapping — no duplicated logic). */
+ *  size its collision + blast cylinder. (An explosive barrel is just this with the
+ *  barrel model dropped in — there is no bespoke `barrel` preset.) */
 defineObject<{ model: string; hp: number; scale?: number; radius: number; height: number }>("explodable", {
   defaults: { model: "", hp: BARREL_HP, radius: 0.45, height: 1.1 },
   category: "entity",
@@ -252,10 +252,6 @@ defineObject<{ model: string; hp: number; scale?: number; radius: number; height
     b.map.barrels.push({ pos: { x, y: y + p.height / 2, z }, entity: e, solid, hp: p.hp, dead: false });
   },
 });
-
-/** explosive barrel — the classic explodable, with the barrel model pre-filled */
-DROP_SCALE.set("barrel", 1.15);
-definePreset<{ model: string; hp: number; scale?: number; radius: number; height: number }>("barrel", "explodable", { model: "Barrel_01" });
 
 // ─── standalone light sources (point / directional / spot) ────────────────────
 // Pure lights, no model — the Unity-style building block. Group one with any prop
@@ -312,7 +308,8 @@ defineObject<{ scale?: number; top: number; radius: number; plant: string }>("pl
 });
 
 /** ground vegetation (visual only) — rests on the floor. `model` is a model
- *  folder name; shrub/succulent below are just presets over this one type. */
+ *  folder name; drop any plant/shrub/succulent model in to place it snapped to the
+ *  floor (that's all shrub/succulent ever were — a `veg` with a model pre-filled). */
 defineObject<{ scale?: number; model: string }>("veg", {
   defaults: { model: "" }, category: "prop",
   build(b, t, p) {
@@ -322,8 +319,6 @@ defineObject<{ scale?: number; model: string }>("veg", {
     b.placeModelTf(p.model, [x, b.map.floorY(x, z), z], [0, t.rot[1], 0], [t.scale[0] * m, t.scale[1] * m, t.scale[2] * m]);
   },
 });
-definePreset<{ scale?: number; model: string }>("shrub", "veg", { model: "didelta_spinosa" });
-definePreset<{ scale?: number; model: string }>("succulent", "veg", { model: "cheiridopsis_succulent" });
 
 // ─── code-built structures (no model) ─────────────────────────────────────────
 

@@ -19,7 +19,7 @@ import { mountResizers } from "./layout";
 import { objectDropScale } from "@game/objects";
 import { startMcpBridge } from "./mcpbridge";
 import { api } from "./api";
-import { el, clear, button, toast } from "./ui";
+import { el, clear, button, toast, modal } from "./ui";
 
 const $ = (id: string): HTMLElement => document.getElementById(id) as HTMLElement;
 
@@ -92,6 +92,10 @@ async function main(): Promise<void> {
     meta: (name) => liveMeta(name),
     changed: (name) => onModelMetaChanged(name),
     deleted: (name) => { void deleteModelFlow(name); },
+    collSel: () => selBox,
+    collSelect: (i) => collSelect(i),
+    collAdd: () => collAdd(),
+    collDelete: (i) => collDelete(i),
   });
   setInspectorTextureHooks({ deleted: (name) => { void deleteTextureFlow(name); } });
 
@@ -114,15 +118,18 @@ async function main(): Promise<void> {
   // tab list / active tab → viewport mode + left panel + inspector + strip
   tabs.onChange(() => { renderTabStrip(); syncViewport(); renderLeftPanel(); renderInspector($("inspector")); });
 
-  viewport.onToolChange(highlightTool);
+  viewport.onToolChange((t) => { highlightTool(t); preview.setGizmoTool(t); });
   viewport.onEditCommit = () => state.commit(true);
   viewport.onPerf = showPerf;
 
-  // clicking a collision solid in the preview selects it here
-  preview.onCollisionSelect = (i) => { selBox = i; renderLeftPanel(); };
+  // clicking a collision solid in the preview selects it → reflect in the inspector list
+  preview.onCollisionSelect = (i) => { selBox = i; refreshInspector(); };
+  // a gizmo drag in the preview mutated the selected solid → persist + re-shade
+  preview.onCollisionChange = () => { const t = tabs.active(); if (t?.kind === "model" && t.model) onModelMetaChanged(t.model); };
 
   tabs.newMap();     // start on a blank map tab (Load opens existing ones)
   setupDrop();
+  trackCursor();
 
   viewport.init("editor-canvas")
     .then(() => { viewport.setGraphics("high"); viewport.setMaterials(catalog.materials); viewport.setModelMetas(catalog.models); if (state.map) return viewport.render(state.map); })
@@ -149,6 +156,7 @@ function syncViewport(): void {
   $("vp-stage").classList.toggle("preview", isPreview);
   preview.show(isPreview);
   renderModes();
+  renderEnvButton();
 
   const key = tab ? `${tab.kind}:${tab.material ?? tab.texture ?? tab.model ?? ""}:${tab.view ?? ""}` : "";
   if (isPreview && key !== previewKey && preview.ready) {
@@ -189,7 +197,6 @@ function onModelMetaChanged(name: string): void {
   if (tab?.kind === "model" && tab.model === name) {
     if (tab.view === "collision") preview.refreshCollision(meta);
     else void preview.showModel(name, "model", meta, true);
-    renderLeftPanel();
   }
 }
 
@@ -211,6 +218,10 @@ function renderTabStrip(): void {
     x.addEventListener("click", (e) => { e.stopPropagation(); tabs.close(t.id); });
     b.append(x);
     b.addEventListener("click", () => tabs.focus(t.id));
+    // middle-click a tab to close it (Unreal/browser convention); suppress the
+    // browser's middle-click autoscroll on press.
+    b.addEventListener("mousedown", (e) => { if (e.button === 1) e.preventDefault(); });
+    b.addEventListener("auxclick", (e) => { if (e.button === 1) { e.preventDefault(); e.stopPropagation(); tabs.close(t.id); } });
     bar.append(b);
   }
 }
@@ -229,100 +240,88 @@ function renderModes(): void {
   }
 }
 
-// ── left panel: outliner (map) · environment (material/texture) · collision (model) ─
+// ── left column visibility · preview environment picker · collision authoring ──
+/** the left column (scene outliner) belongs to map tabs; preview tabs hide it
+ *  entirely (their asset controls live in the inspector on the right). */
 function renderLeftPanel(): void {
-  const head = $("left-head");
-  const sg = $("scene-graph");
-  const sp = $("side-panel");
-  const tab = tabs.active();
-  if (!tab || tab.kind === "map") {
-    head.textContent = "Scene Outliner";
-    sg.style.display = ""; sp.style.display = "none";
-    return;
-  }
-  sg.style.display = "none"; sp.style.display = "block";
-  clear(sp);
-  if (tab.kind === "material" || tab.kind === "texture") { head.textContent = "Environment"; renderEnvPanel(sp); }
-  else if (tab.kind === "model") { head.textContent = "Collision"; renderModelPanel(sp, tab); }
+  const isMap = tabs.activeKind() === "map" || tabs.activeKind() === null;
+  document.getElementById("main")!.classList.toggle("no-left", !isMap);
+  if (isMap) $("left-head").textContent = "Scene Outliner";
 }
 
-/** HDRI environment picker for the material/texture preview */
-function renderEnvPanel(host: HTMLElement): void {
-  host.append(el("div", "side-note", "Environment used to light & reflect the preview. Drag to orbit · scroll to zoom."));
-  const grid = el("div", "env-swatch");
-  const cur = preview.currentHdri();
-  const card = (name: string | null, label: string): HTMLElement => {
-    const c = el("div", "env-card" + ((name ?? null) === cur ? " on" : ""));
-    const thumb = el("div", "asset-thumb");
-    if (name) { const h = catalog.hdri.find((x) => x.name === name); if (h) void thumbs.hdriThumb(h.file).then((u) => { if (u) { const img = el("img", "thumb-img"); img.src = u; thumb.replaceChildren(img); } }); }
-    else thumb.append(el("div", "asset-icon", "∅"));
-    c.append(thumb, el("div", "env-name", label));
-    c.addEventListener("click", () => { void preview.setHdri(name); renderLeftPanel(); });
-    return c;
+/** show the small “Environment” button only on material/texture tabs; it opens the
+ *  HDRI picker for the preview (replaces the old dedicated left environment section). */
+function renderEnvButton(): void {
+  const btn = $("vp-envbtn") as HTMLButtonElement;
+  const kind = tabs.activeKind();
+  const show = kind === "material" || kind === "texture";
+  btn.classList.toggle("on", show);
+  btn.onclick = show ? openEnvPicker : null;
+}
+
+/** modal HDRI picker for the material/texture preview environment (drives the
+ *  visible skybox + the sphere's reflections). Stays open so you can compare. */
+function openEnvPicker(): void {
+  const body = el("div", "env-swatch");
+  modal("Preview environment", body);
+  const draw = (): void => {
+    clear(body);
+    const cur = preview.currentHdri();
+    const card = (name: string | null, label: string): HTMLElement => {
+      const c = el("div", "env-card" + ((name ?? null) === cur ? " on" : ""));
+      const thumb = el("div", "asset-thumb");
+      if (name) { const h = catalog.hdri.find((x) => x.name === name); if (h) void thumbs.hdriThumb(h.file).then((u) => { if (u) { const img = el("img", "thumb-img"); img.src = u; thumb.replaceChildren(img); } }); }
+      else thumb.append(el("div", "asset-icon", "∅"));
+      c.append(thumb, el("div", "env-name", label));
+      c.addEventListener("click", () => { void preview.setHdri(name).then(draw); });
+      return c;
+    };
+    body.append(card(null, "None"));
+    for (const h of catalog.hdri) body.append(card(h.name, h.name));
   };
-  grid.append(card(null, "None"));
-  for (const h of catalog.hdri) grid.append(card(h.name, h.name));
-  host.append(grid);
+  draw();
 }
 
-/** collision-solid authoring for a model tab (only meaningful in Collision view) */
-function renderModelPanel(host: HTMLElement, tab: Tab): void {
-  const name = tab.model!;
-  const meta = liveMeta(name);
-  if ((tab.view ?? "model") !== "collision") {
-    host.append(el("div", "side-note", "Switch the viewport to “Collision” (top-left) to author this model’s collision solids."));
-    return;
-  }
-  if ((meta.collision ?? "auto") !== "manual") {
-    host.append(el("div", "side-note", "This model uses Automatic collision (a single box around the whole mesh)."));
-    host.append(button("Switch to Manual", () => { meta.collision = "manual"; meta.collisionBoxes ??= []; onModelMetaChanged(name); refreshInspector(); renderLeftPanel(); }, "primary"));
-    return;
-  }
-  host.append(el("div", "side-note", "Manual collision: only these solids block the player. Click a solid in the viewport to select it."));
-  host.append(button("＋ Add solid", () => {
-    (meta.collisionBoxes ??= []).push({ at: [0, 0, 0], size: [0.5, 0.5, 0.5] });
-    selBox = meta.collisionBoxes.length - 1;
-    onModelMetaChanged(name); preview.selectBox(selBox); renderLeftPanel();
-  }, "primary"));
+// ── collision authoring (the list lives in the inspector; solids are gizmo-edited
+// directly in the viewport, reusing the same move/scale tools as map objects) ──
+function collSelect(i: number): void { selBox = i; preview.selectBox(i); refreshInspector(); }
 
+function collAdd(): void {
+  const tab = tabs.active(); if (tab?.kind !== "model" || !tab.model) return;
+  const meta = liveMeta(tab.model);
+  (meta.collisionBoxes ??= []).push({ at: [0, 0, 0], size: [0.5, 0.5, 0.5] });
+  selBox = meta.collisionBoxes.length - 1;
+  onModelMetaChanged(tab.model);
+  preview.selectBox(selBox);
+  refreshInspector();
+}
+
+function collDelete(i: number): void {
+  const tab = tabs.active(); if (tab?.kind !== "model" || !tab.model) return;
+  const meta = liveMeta(tab.model);
   const boxes = meta.collisionBoxes ?? [];
-  if (!boxes.length) { host.append(el("div", "side-note", "No solids yet.")); return; }
-  boxes.forEach((_b, i) => {
-    const row = el("div", "cbox-row" + (i === selBox ? " sel" : ""));
-    row.append(el("span", "cbox-name", `Solid ${i + 1}`));
-    const del = el("button", "btn mini", "✕"); del.title = "delete";
-    del.addEventListener("click", (e) => { e.stopPropagation(); boxes.splice(i, 1); if (selBox >= boxes.length) selBox = boxes.length - 1; onModelMetaChanged(name); preview.selectBox(selBox); renderLeftPanel(); });
-    row.append(del);
-    row.addEventListener("click", () => { selBox = i; preview.selectBox(i); renderLeftPanel(); });
-    host.append(row);
-  });
-
-  const sel = boxes[selBox];
-  if (sel) {
-    host.append(el("div", "insp-group", `Solid ${selBox + 1}`));
-    host.append(vec3("position", sel.at, () => onModelMetaChanged(name)));
-    host.append(vec3("size", sel.size, () => onModelMetaChanged(name)));
-  }
+  if (i < 0 || i >= boxes.length) return;
+  boxes.splice(i, 1);
+  if (selBox >= boxes.length) selBox = boxes.length - 1;
+  onModelMetaChanged(tab.model);
+  preview.selectBox(selBox);
+  refreshInspector();
 }
-
-/** a compact 3-input vec3 row for the collision panel (model-local units) */
-function vec3(label: string, tuple: Tuple3, onChange: () => void): HTMLElement {
-  const row = el("div", "field vec3");
-  row.append(el("span", "field-label", label));
-  const box = el("div", "vec3-inputs");
-  for (let i = 0; i < 3; i++) {
-    const inp = el("input", "field-input") as HTMLInputElement;
-    inp.type = "number"; inp.step = "0.05"; inp.value = String(round(tuple[i]));
-    inp.addEventListener("change", () => { const v = parseFloat(inp.value); if (!Number.isNaN(v)) { tuple[i] = v; onChange(); } });
-    box.append(inp);
-  }
-  row.append(box);
-  return row;
-}
-function round(n: number): number { return Math.round(n * 1000) / 1000; }
 
 // ── keyboard: undo/redo · clipboard · delete · grouping ──────────────────────
 let clipboard: Placement[] = [];
+// last pointer position over the map viewport canvas — drives paste-at-cursor
+const cursor: { x: number; y: number; inside: boolean } = { x: 0, y: 0, inside: false };
+function trackCursor(): void {
+  const canvas = $("editor-canvas");
+  const update = (e: PointerEvent | MouseEvent): void => {
+    const rc = canvas.getBoundingClientRect();
+    cursor.x = e.clientX; cursor.y = e.clientY;
+    cursor.inside = rc.width > 0 && e.clientX >= rc.left && e.clientX <= rc.right && e.clientY >= rc.top && e.clientY <= rc.bottom;
+  };
+  window.addEventListener("pointermove", update);
+  canvas.addEventListener("pointerleave", () => { cursor.inside = false; });
+}
 function isTypingTarget(el: EventTarget | null): boolean {
   const n = el as HTMLElement | null;
   return !!n && (n.tagName === "INPUT" || n.tagName === "SELECT" || n.tagName === "TEXTAREA" || n.isContentEditable);
@@ -351,7 +350,15 @@ function copySelection(): void {
 function pasteClipboard(): void {
   if (!clipboard.length) return;
   const copies: Placement[] = JSON.parse(JSON.stringify(clipboard));
-  for (const c of copies) { c.at = [c.at[0] + 2, c.at[1], c.at[2] + 2]; delete c.group; }
+  // paste under the cursor when it's over the map viewport (the first copied
+  // object lands where the cursor is, the rest keep their relative layout);
+  // otherwise offset from the originals so the paste doesn't hide behind them.
+  let delta: Tuple3 = [2, 0, 2];
+  if (cursor.inside) {
+    const target = viewport.dropSurface(cursor.x, cursor.y);
+    if (target) { const a = clipboard[0].at; delta = [target[0] - a[0], target[1] - a[1], target[2] - a[2]]; }
+  }
+  for (const c of copies) { c.at = [c.at[0] + delta[0], c.at[1] + delta[1], c.at[2] + delta[2]]; delete c.group; }
   state.addMany(copies);
 }
 function deleteSelection(): void {
@@ -476,7 +483,7 @@ async function renameMaterial(from: string, to: string): Promise<void> {
   } catch (e) { toast("rename failed: " + e, true); }
 }
 
-function selectTool(t: Tool): void { viewport.setTool(t); highlightTool(t); }
+function selectTool(t: Tool): void { viewport.setTool(t); highlightTool(t); preview.setGizmoTool(t); }
 function highlightTool(t: Tool): void {
   for (const b of Array.from(document.querySelectorAll<HTMLElement>(".btn.tool"))) b.classList.toggle("on", b.dataset.tool === t);
 }
