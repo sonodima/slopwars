@@ -14,6 +14,24 @@ type Listener = () => void;
 interface Snapshot { map: MapDef; sel: number[] }
 const HISTORY_CAP = 200;
 
+/** the per-map-document state the editor swaps in/out as you switch viewport tabs.
+ *  Every open map is a self-contained document: its own MapDef, file id, dirty
+ *  flag, selection and undo/redo history. The active document's fields are mirrored
+ *  onto the EditorState instance (`map`, `selObj`, …) so all existing consumers keep
+ *  reading `state.map`; switching tabs just saves the live fields back into the old
+ *  document and loads the new one's. */
+interface DocState {
+  id: string;
+  map: MapDef;
+  fileId: string;
+  dirty: boolean;
+  selObj: Placement | null;
+  selection: Placement[];
+  selGroup: string | null;
+  history: Snapshot[];
+  hi: number;
+}
+
 class EditorState {
   map: MapDef | null = null;
   /** the map's file id (maps/<id>.json); may differ from meta.id until saved */
@@ -26,22 +44,18 @@ class EditorState {
   /** when a group (not a bare object set) is the active selection, its id — drives
    *  the group inspector. Cleared by any object-level selection change. */
   selGroup: string | null = null;
-  /** when a material is being edited (picked in the asset browser), its name —
-   *  drives the material inspector. An asset, not part of the map; cleared by any
-   *  object/group selection. */
-  selMaterial: string | null = null;
-  /** when a model is being inspected (clicked in the asset browser), its name —
-   *  drives the model inspector (meta.json editing). An asset, not part of the map. */
-  selModel: string | null = null;
-  /** when a texture is being inspected (clicked in the asset browser), its name —
-   *  drives the texture inspector (preview + delete). An asset, not part of the map. */
-  selTexture: string | null = null;
   /** where the last selection came from — lets the viewport reframe (outliner
    *  clicks) and the outliner scroll (viewport clicks). */
   selectSource: "outliner" | "viewport" | "" = "";
 
   private history: Snapshot[] = [];
   private hi = -1;
+
+  // ── open map documents (viewport tabs) ───────────────────────────────────────
+  /** every open map document, keyed by its id (== its viewport tab id) */
+  private docs = new Map<string, DocState>();
+  /** the active document's id ("" when none open) */
+  activeDocId = "";
 
   private changeListeners = new Set<Listener>();   // map data changed → rebuild + trees
   private selListeners = new Set<Listener>();       // selection changed → inspector
@@ -54,30 +68,82 @@ class EditorState {
     return this.map && this.selObj ? this.map.objects.indexOf(this.selObj) : -1;
   }
 
-  setMap(map: MapDef, fileId: string): void {
+  // ── document lifecycle ───────────────────────────────────────────────────────
+  /** capture the live fields back into the active document (before a switch) */
+  private stashActive(): void {
+    const d = this.docs.get(this.activeDocId);
+    if (!d || !this.map) return;
+    d.map = this.map; d.fileId = this.fileId; d.dirty = this.dirty;
+    d.selObj = this.selObj; d.selection = this.selection; d.selGroup = this.selGroup;
+    d.history = this.history; d.hi = this.hi;
+  }
+  /** mirror a document's fields onto the live EditorState (after a switch) */
+  private loadDoc(d: DocState): void {
+    this.activeDocId = d.id;
+    this.map = d.map; this.fileId = d.fileId; this.dirty = d.dirty;
+    this.selObj = d.selObj; this.selection = d.selection; this.selGroup = d.selGroup;
+    this.history = d.history; this.hi = d.hi;
+  }
+
+  documentIds(): string[] { return [...this.docs.keys()]; }
+  hasDocument(id: string): boolean { return this.docs.has(id); }
+  /** the open document whose map has this file id (for "focus if already open") */
+  docIdForFile(fileId: string): string | null {
+    for (const d of this.docs.values()) if (d.fileId && d.fileId === fileId) return d.id;
+    return null;
+  }
+  mapName(id: string): string { return this.docs.get(id)?.map.meta.name ?? "Untitled"; }
+  isDirty(id: string): boolean { return this.docs.get(id)?.dirty ?? false; }
+
+  /** open a map as a new document with the given id, and make it active. */
+  openDocument(id: string, map: MapDef, fileId: string): void {
     migrateGroups(map);   // give legacy (transform-less) groups a pivot + local children
-    this.map = map;
-    this.fileId = fileId;
-    this.dirty = false;
-    this.selObj = null;
-    this.selection = [];
-    this.selGroup = null;
-    this.selMaterial = null;
-    this.selModel = null;
-    this.selTexture = null;
-    this.history = [this.snapshot()];
-    this.hi = 0;
+    this.stashActive();
+    const d: DocState = {
+      id, map, fileId, dirty: false,
+      selObj: null, selection: [], selGroup: null,
+      history: [snapshotOf(map, [])], hi: 0,
+    };
+    this.docs.set(id, d);
+    this.loadDoc(d);
+    this.selectSource = "";
     this.emitChange();
     this.emitSelect();
+  }
+
+  /** switch the active document (no-op if already active or unknown). */
+  activateDocument(id: string): void {
+    if (id === this.activeDocId || !this.docs.has(id)) return;
+    this.stashActive();
+    this.loadDoc(this.docs.get(id)!);
+    this.selectSource = "";
+    this.emitChange();
+    this.emitSelect();
+  }
+
+  /** close a document. Returns the id that became active (or "" if none remain). */
+  closeDocument(id: string): string {
+    if (!this.docs.has(id)) return this.activeDocId;
+    const wasActive = id === this.activeDocId;
+    this.docs.delete(id);
+    if (!wasActive) return this.activeDocId;
+    const next = [...this.docs.keys()].pop() ?? "";
+    if (next) { this.loadDoc(this.docs.get(next)!); }
+    else {
+      this.activeDocId = ""; this.map = null; this.fileId = ""; this.dirty = false;
+      this.selObj = null; this.selection = []; this.selGroup = null;
+      this.history = []; this.hi = -1;
+    }
+    this.selectSource = "";
+    this.emitChange();
+    this.emitSelect();
+    return next;
   }
 
   // ── selection ──────────────────────────────────────────────────────────────
   /** select by index. `additive` toggles membership in a multi-selection. */
   select(index: number, source: "outliner" | "viewport" | "" = "", additive = false): void {
     this.selGroup = null;
-    this.selMaterial = null;
-    this.selModel = null;
-    this.selTexture = null;
     const o = this.map?.objects[index] ?? null;
     if (!o) { this.selection = []; this.selObj = null; }
     else if (additive) {
@@ -92,9 +158,6 @@ class EditorState {
   /** replace the selection with an explicit set (primary = last) */
   selectSet(objs: Placement[], source: "outliner" | "viewport" | "" = ""): void {
     this.selGroup = null;
-    this.selMaterial = null;
-    this.selModel = null;
-    this.selTexture = null;
     this.selection = objs.slice();
     this.selObj = objs[objs.length - 1] ?? null;
     this.selectSource = source;
@@ -108,46 +171,7 @@ class EditorState {
     this.selection = objs.slice();
     this.selObj = objs[objs.length - 1] ?? null;
     this.selGroup = groupId;
-    this.selMaterial = null;
-    this.selModel = null;
-    this.selTexture = null;
     this.selectSource = source;
-    this.emitSelect();
-  }
-
-  /** pick a material to edit (asset browser) — clears the map selection so the
-   *  inspector shows the material editor. */
-  selectMaterial(name: string | null): void {
-    this.selMaterial = name;
-    this.selModel = null;
-    this.selTexture = null;
-    this.selGroup = null;
-    this.selection = [];
-    this.selObj = null;
-    this.emitSelect();
-  }
-
-  /** pick a model to inspect (asset browser) — clears the map selection so the
-   *  inspector shows the model editor (meta.json). */
-  selectModel(name: string | null): void {
-    this.selModel = name;
-    this.selMaterial = null;
-    this.selTexture = null;
-    this.selGroup = null;
-    this.selection = [];
-    this.selObj = null;
-    this.emitSelect();
-  }
-
-  /** pick a texture to inspect (asset browser) — clears the map selection so the
-   *  inspector shows the texture editor (preview + delete). */
-  selectTexture(name: string | null): void {
-    this.selTexture = name;
-    this.selMaterial = null;
-    this.selModel = null;
-    this.selGroup = null;
-    this.selection = [];
-    this.selObj = null;
     this.emitSelect();
   }
 
@@ -284,9 +308,6 @@ class EditorState {
     this.selection = [o];
     this.selObj = o;
     this.selGroup = null;
-    this.selMaterial = null;
-    this.selModel = null;
-    this.selTexture = null;
     // a freshly placed/dropped object is not an outliner pick — don't let the
     // camera reframe onto it (dropping should place where you dropped, not fly).
     this.selectSource = "viewport";
@@ -301,9 +322,6 @@ class EditorState {
     this.selection = objs.slice();
     this.selObj = objs[objs.length - 1] ?? null;
     this.selGroup = null;
-    this.selMaterial = null;
-    this.selModel = null;
-    this.selTexture = null;
     this.selectSource = "viewport";
     this.commit(true);
   }
@@ -316,9 +334,6 @@ class EditorState {
     this.selection = this.selection.filter((o) => !set.has(o));
     this.selObj = this.selection[this.selection.length - 1] ?? null;
     this.selGroup = null;
-    this.selMaterial = null;
-    this.selModel = null;
-    this.selTexture = null;
     this.commit(true);
   }
 
@@ -372,9 +387,6 @@ class EditorState {
     this.map = this.clone(snap.map);
     const objs = this.map.objects;
     this.selGroup = null;
-    this.selMaterial = null;
-    this.selModel = null;
-    this.selTexture = null;
     this.selection = snap.sel.map((i) => objs[i]).filter((o): o is Placement => !!o);
     this.selObj = this.selection[this.selection.length - 1] ?? null;
     this.dirty = true;
@@ -390,13 +402,18 @@ class EditorState {
   }
 
   private snapshot(): Snapshot {
-    const objs = this.map?.objects ?? [];
-    return { map: this.clone(this.map!), sel: this.selection.map((o) => objs.indexOf(o)).filter((i) => i >= 0) };
+    return snapshotOf(this.map!, this.selection);
   }
   private clone(m: MapDef): MapDef { return JSON.parse(JSON.stringify(m)); }
 
   emitChange(): void { for (const fn of this.changeListeners) fn(); }
   emitSelect(): void { for (const fn of this.selListeners) fn(); }
+}
+
+/** a history snapshot: a deep clone of the map + the selection as indices */
+function snapshotOf(map: MapDef, selection: Placement[]): Snapshot {
+  const objs = map.objects;
+  return { map: JSON.parse(JSON.stringify(map)), sel: selection.map((o) => objs.indexOf(o)).filter((i) => i >= 0) };
 }
 
 /** round a tuple to 2 decimals (matches the viewport's transform rounding) */

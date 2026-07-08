@@ -5,14 +5,34 @@
 // and committing it is all it takes to make the asset available — the scanner
 // discovers it, the client loads it, and the editor lists it.
 
+import type { Tuple3 } from "./schema";
+
+/** one authored collision solid for a model, in the model's LOCAL space (native
+ *  glTF units, before the meta `scale`/`base` calibration). `at` is the box centre,
+ *  `size` its full extents. Used only when a model's collision mode is "manual". */
+export interface CollisionBox {
+  at: Tuple3;
+  size: Tuple3;
+}
+
+/** how a model's collision is derived: "auto" = one AABB hugging the whole mesh
+ *  (the classic behaviour); "manual" = only the authored `collisionBoxes` (so e.g.
+ *  a tree's canopy doesn't block the player, only its trunk does). */
+export type CollisionMode = "auto" | "manual";
+
 /** author-tunable per-model defaults, persisted to models/{name}/meta.json. Applied
  *  every time the model is instantiated (props, veg, explodables, drops), so a
- *  model can be calibrated once — sit it on its base, size it, reskin it — instead
- *  of nudging every placement. All optional; omitted fields keep the raw glTF. */
+ *  model can be calibrated once — sit it on its base, size it, reskin it, author its
+ *  collision — instead of nudging every placement. All optional; omitted fields keep
+ *  the raw glTF (and collision defaults to "auto"). */
 export interface ModelMeta {
   base?: number;    // vertical offset (metres) so the model rests on its footing
   scale?: number;   // default uniform scale applied on top of a placement's scale
   material?: string; // material name to override every surface of the model with
+  /** collision derivation mode (default "auto"). "manual" uses `collisionBoxes`. */
+  collision?: CollisionMode;
+  /** authored collision solids (model-local space), honoured when collision="manual" */
+  collisionBoxes?: CollisionBox[];
   [k: string]: unknown;
 }
 

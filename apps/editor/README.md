@@ -73,21 +73,66 @@ When a live command arrives, the editor page shows an "MCP connected" toast.
 | `editor_update_object` / `editor_move_object` | edit transform / name / group / params |
 | `editor_delete_object` / `editor_duplicate_object` / `editor_select_object` | |
 | `editor_import_texture` | PBR set (color/normal/arm) → `public/assets/textures/<name>/` |
-| `editor_import_model` | glTF (+ .bin/textures) → `public/assets/models/<name>/` |
+| `editor_import_model` | glTF geometry (`.glb`, or `.gltf`+`.bin`) → `public/assets/models/<name>/` |
 | `editor_import_audio` / `editor_import_hdri` | → `public/assets/audio` / `hdri` |
+| `editor_list_materials` / `editor_get_material` | inspect materials (name + full def) |
+| `editor_create_material` | create a material (`standard`/`water`/`glass`) |
+| `editor_update_material` / `editor_rename_material` / `editor_delete_material` | edit materials in place |
+| `editor_get_model_meta` / `editor_set_model_meta` | model calibration + **collision** (base/scale/material/mode/solids) |
+| `editor_delete_model` / `editor_delete_texture` | remove an asset folder |
+| `editor_list_tabs` / `editor_open_tab` / `editor_focus_tab` / `editor_close_tab` | drive the viewport tabs (map / material / model / texture) |
+| `editor_set_model_view` | a model tab's sub-view: `model` or `collision` |
 | `editor_camera_focus` / `editor_camera_set` / `editor_camera_move` | drive the viewport camera |
 | `editor_screenshot` | PNG of the current viewport |
 | `editor_save_map` / `editor_load_map` / `editor_new_map` | map management |
 
-Import tools take **local file paths**; the host reads them. All geometry edits
-are undoable in the editor (Ctrl+Z) and saved with `editor_save_map`.
+Import tools take **local file paths**; the host reads them. Material / model-meta
+edits (create/update/collision) run **server-side** (no editor window required);
+tab / camera / object edits are **live** (they need the open page). All geometry
+edits are undoable in the editor (Ctrl+Z) and saved with `editor_save_map`.
+
+## Viewport tabs
+
+The centre viewport is **tabbed** — one tab per open document:
+
+- **map** — a map being edited (scene outliner on the left, object inspector on the
+  right). Several maps can be open at once; New / double-clicking a map in the
+  browser opens (or focuses) a tab.
+- **material** — an interactive lit **sphere** shaded by the material, inside a
+  selectable **HDRI environment** (the left panel picks it). Drag to orbit, scroll
+  to zoom. The inspector holds the material's controls.
+- **model** — the model itself, orbitable, with a **Model / Collision** toggle.
+  Collision view dims the mesh and shows the model's authored collision solids.
+- **texture** — a lit sphere textured with the raw PBR set.
+
+**Double-click** any asset in the bottom browser to open its tab (single-click no
+longer drives the inspector). Selecting an object in the outliner brings its map
+tab back into view.
+
+### Materials, textures & models
+
+A **texture is never applied to a model directly** — you import textures, build a
+**material** from them, then assign that material to the model (in the model tab's
+inspector). Importing a model brings in **geometry only** (no textures), keeping
+the material system generic.
+
+### Collision (per model)
+
+Each model has a collision **mode** (`models/<name>/meta.json`):
+
+- **auto** — one AABB hugs the whole mesh (classic).
+- **manual** — only the **solids you author** block the player. Switch a model tab
+  to *Collision*, add solids, and position/size them — so e.g. only a tree's trunk
+  collides, not its canopy.
 
 ## Editor controls (Unreal-style)
 
 | Input | Action |
 |---|---|
-| **Hold RMB + WASD / Q E** | Fly the camera (mouse to look) |
+| **Hold RMB + WASD / Q E** | Fly the camera (map viewport) |
 | **W / E / R** | Move / Rotate / Scale tool |
 | **Left-click** | Select an object; drag with a tool to transform it |
 | **F** | Frame the selected object |
 | **Drag from browser** | Model → a `prop`; audio → a positional `sound`; object → that type |
+| **Double-click asset** | Open its material / model / texture preview tab |
+| **Drag (preview tab)** | Orbit the camera; scroll to zoom |

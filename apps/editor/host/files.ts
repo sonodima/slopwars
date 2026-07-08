@@ -121,6 +121,18 @@ export function saveModelMeta(root: string, name: string, meta: ModelMeta): { ok
   if (typeof meta.base === "number") clean.base = meta.base;
   if (typeof meta.scale === "number") clean.scale = meta.scale;
   if (typeof meta.material === "string" && meta.material) clean.material = meta.material;
+  // collision: only persist "manual" (auto is the default) + its authored boxes
+  if (meta.collision === "manual") {
+    clean.collision = "manual";
+    if (Array.isArray(meta.collisionBoxes) && meta.collisionBoxes.length) {
+      clean.collisionBoxes = meta.collisionBoxes
+        .filter((b) => b && Array.isArray(b.at) && Array.isArray(b.size))
+        .map((b) => ({
+          at: [b.at[0], b.at[1], b.at[2]] as [number, number, number],
+          size: [b.size[0], b.size[1], b.size[2]] as [number, number, number],
+        }));
+    }
+  }
   if (Object.keys(clean).length === 0) { if (fs.existsSync(p)) fs.rmSync(p); return { ok: true, name: n }; }
   fs.writeFileSync(p, JSON.stringify(clean, null, 2) + "\n");
   return { ok: true, name: n };

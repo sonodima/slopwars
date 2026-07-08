@@ -9,6 +9,7 @@
 import type { AssetCatalog, Placement, Tuple3 } from "@slopwars/shared";
 import { objectCatalog, objectTypeNames } from "@game/objects";
 import { state } from "./state";
+import { tabs, type ModelView } from "./tabs";
 import type { Viewport } from "./viewport";
 import { toast } from "./ui";
 
@@ -110,9 +111,41 @@ async function run(ctx: McpBridgeCtx, cmd: Cmd): Promise<unknown> {
       return { ok: true, index: state.selIndex };
     case "selectObject":
       state.select(cmd.index as number, "outliner");
+      tabs.focusMapDoc(state.activeDocId);   // bring the map into view
       return { ok: true };
     case "listGroups":
       return { groups: state.groups() };
+
+    // ── viewport tabs (map / material / model / texture documents) ──
+    case "listTabs":
+      return {
+        tabs: tabs.tabs.map((t) => ({ id: t.id, kind: t.kind, name: t.material ?? t.model ?? t.texture ?? (t.kind === "map" ? state.mapName(t.id) : ""), view: t.view ?? null, active: t.id === tabs.activeId })),
+        activeId: tabs.activeId,
+      };
+    case "openTab": {
+      const kind = cmd.kind as string;
+      const name = cmd.name as string | undefined;
+      let id: string;
+      if (kind === "material") id = tabs.openMaterial(String(name));
+      else if (kind === "model") id = tabs.openModel(String(name));
+      else if (kind === "texture") id = tabs.openTexture(String(name));
+      else if (kind === "map") { await ctx.loadMap(cmd.file as string); id = tabs.activeId; }
+      else throw new Error(`unknown tab kind: ${kind}`);
+      return { ok: true, id };
+    }
+    case "focusTab":
+      tabs.focus(cmd.id as string);
+      return { ok: true, activeId: tabs.activeId };
+    case "closeTab":
+      tabs.close(cmd.id as string);
+      return { ok: true, activeId: tabs.activeId };
+    case "setModelView": {
+      const view = cmd.view as ModelView;
+      const t = cmd.id ? tabs.find(cmd.id as string) : tabs.active();
+      if (!t || t.kind !== "model") throw new Error("no active model tab");
+      tabs.setModelView(t.id, view);
+      return { ok: true };
+    }
 
     // asset imports run server-side in the host (headless, no editor window
     // required); the host fires this so an open editor refreshes its browser.

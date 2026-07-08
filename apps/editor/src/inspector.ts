@@ -6,17 +6,20 @@
 // model's calibration meta, a texture's preview — each with a Delete action. The
 // "World" row edits the map's sky / lighting / effects. A group is a first-class
 // parent, so its inspector edits the group's own transform.
-import type { AssetCatalog, FogFalloff, MapDef, MaterialDef, MaterialType, ModelMeta, Placement, ShadowQuality, ToneMode, Tuple3 } from "@slopwars/shared";
+import type { AssetCatalog, CollisionMode, FogFalloff, MapDef, MaterialDef, MaterialType, ModelMeta, Placement, ShadowQuality, ToneMode, Tuple3 } from "@slopwars/shared";
 import { MATERIAL_TYPES, defaultMaterialDef, envPost, envShadows } from "@slopwars/shared";
 import { objectDefaults } from "@game/objects";
 import type { ThumbRenderer } from "./preview";
 import { state } from "./state";
+import { tabs } from "./tabs";
 import { assetField } from "./assetfield";
 import { clear, el, numField, vecField, selectField, checkField, textField, colorField, renamable, button, modal } from "./ui";
 
-// hooks the shell wires up so asset editors can persist edits + re-shade
+// hooks the shell wires up so asset editors can persist edits + re-shade. Model
+// editing shares one live working `meta` object with the shell (so the left-panel
+// collision authoring and this inspector mutate the same state).
 interface MaterialHooks { changed: (name: string, def: MaterialDef) => void; renamed: (from: string, to: string) => void; deleted: (name: string) => void }
-interface ModelHooks { changed: (name: string, meta: ModelMeta) => void; deleted: (name: string) => void }
+interface ModelHooks { meta: (name: string) => ModelMeta; changed: (name: string) => void; deleted: (name: string) => void }
 interface TextureHooks { deleted: (name: string) => void }
 let matHooks: MaterialHooks | null = null;
 let modelHooks: ModelHooks | null = null;
@@ -29,21 +32,31 @@ const AXES = ["x+", "x-", "z+", "z-"];
 
 let catalog: AssetCatalog = { models: [], textures: [], materials: [], audio: [], hdri: [] };
 let thumbs: ThumbRenderer | null = null;
+let inspectorHost: HTMLElement | null = null;
 export function setInspectorCatalog(c: AssetCatalog): void { catalog = c; }
 export function setInspectorThumbs(t: ThumbRenderer): void { thumbs = t; }
+/** re-render the inspector in place (used by the shell after collision edits) */
+export function refreshInspector(): void { if (inspectorHost) renderInspector(inspectorHost); }
 
+/** The inspector is driven by the active viewport tab: a material/model/texture tab
+ *  shows that asset's controls; a map tab shows the map selection (object / group /
+ *  world). Asset editing is no longer coupled to the map selection. */
 export function renderInspector(host: HTMLElement): void {
+  inspectorHost = host;
   clear(host);
+  const tab = tabs.active();
+  if (tab?.kind === "material") {
+    const m = catalog.materials.find((x) => x.name === tab.material);
+    if (m) return materialInspector(host, m.name, m.def);
+    host.append(el("div", "empty", "material not found")); return;
+  }
+  if (tab?.kind === "model" && tab.model) return modelInspector(host, tab.model);
+  if (tab?.kind === "texture" && tab.texture) return textureInspector(host, tab.texture);
+
   const map = state.map;
-  if (!map) { host.append(el("div", "empty", "No map loaded")); return; }
+  if (!map) { host.append(el("div", "empty", "No map open")); return; }
   // each inspector edit is a discrete, undoable action → commit (records history)
   const touch = (): void => state.commit();
-  if (state.selMaterial) {
-    const m = catalog.materials.find((x) => x.name === state.selMaterial);
-    if (m) return materialInspector(host, m.name, m.def);
-  }
-  if (state.selModel) return modelInspector(host, state.selModel);
-  if (state.selTexture) return textureInspector(host, state.selTexture);
   if (state.selGroup) {
     const g = state.groupById(state.selGroup);
     if (g) return groupInspector(host, g);
@@ -131,20 +144,17 @@ function materialInspector(host: HTMLElement, name: string, def: MaterialDef): v
 function clampn(v: number): number { return v < 0 ? 0 : v > 1 ? 1 : v; }
 
 // ── model (calibration meta persisted to models/<name>/meta.json) ─────────────
+// Edits the live working meta the shell owns (so the Collision-view left panel and
+// this inspector mutate the same object). Collision authoring (placing solids) lives
+// in the left panel; here you choose the mode and calibrate the model.
 function modelInspector(host: HTMLElement, name: string): void {
   const asset = catalog.models.find((x) => x.name === name);
   host.append(el("h3", "insp-title", name));
   host.append(el("div", "insp-sub", "model"));
-  if (!asset) { host.append(el("div", "empty", "model not found")); return; }
+  if (!asset || !modelHooks) { host.append(el("div", "empty", "model not found")); return; }
 
-  // live preview of the model
-  const prev = el("div", "insp-modelprev");
-  host.append(prev);
-  void thumbs?.modelThumb(asset.gltf).then((url) => { if (url) { const img = el("img", "insp-modelimg"); img.src = url; prev.replaceChildren(img); } });
-
-  // edit a copy of the meta; the hook persists it + re-previews the map
-  const meta: ModelMeta = { ...(asset.meta ?? {}) };
-  const save = (): void => modelHooks?.changed(name, meta);
+  const meta = modelHooks.meta(name);
+  const save = (): void => modelHooks!.changed(name);
 
   group(host, "Placement");
   host.append(el("div", "insp-note", "Calibrate the model once — applies to every placement."));
@@ -152,10 +162,21 @@ function modelInspector(host: HTMLElement, name: string): void {
   host.append(numField("scale", () => meta.scale ?? 1, (v) => (meta.scale = v > 0 ? v : undefined), save, 0.02));
 
   group(host, "Material");
+  host.append(el("div", "insp-note", "Assign a material (with its textures) to skin the model — models carry no textures of their own."));
   host.append(assetField({
     label: "material", kind: "material", catalog, thumbs,
     get: () => meta.material ?? "", set: (v) => { meta.material = v || undefined; }, onChange: save,
   }));
+
+  group(host, "Collision");
+  host.append(selectField("mode", ["auto", "manual"], () => meta.collision ?? "auto",
+    (v) => { meta.collision = v as CollisionMode; if (v === "manual" && !meta.collisionBoxes) meta.collisionBoxes = []; },
+    () => { save(); refreshInspector(); }));
+  if ((meta.collision ?? "auto") === "auto") {
+    host.append(el("div", "insp-note", "Automatic: one box hugs the whole model (classic)."));
+  } else {
+    host.append(el("div", "insp-note", "Manual: only the solids you place block the player. Switch the viewport to “Collision” to author them (e.g. just a tree’s trunk)."));
+  }
 
   deleteButton(host, "🗑 Delete model", `model "${name}"`, () => modelHooks?.deleted(name));
 }

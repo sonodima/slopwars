@@ -58,7 +58,7 @@ function renderList(): void {
   // "World" is always first: selecting it (= nothing selected) shows the map's
   // sky / lighting / effects in the inspector.
   const world = el("div", "sg-row sg-world");
-  if (state.selection.length === 0 && !state.selMaterial && !state.selModel && !state.selTexture) world.classList.add("sel");
+  if (state.selection.length === 0 && !state.selGroup) world.classList.add("sel");
   world.append(el("span", "sg-ico", "🌍"), el("span", "sg-label", "World"));
   world.addEventListener("click", () => state.select(-1, "outliner"));
   // drop an object/group onto World → move it out of its group (to top level)

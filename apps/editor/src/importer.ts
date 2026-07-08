@@ -158,11 +158,11 @@ function importTexture(onDone: () => void): void {
 function importModel(onDone: () => void): void {
   const body = el("div", "imp-body");
   const name = textRow("Name", "e.g. crate_new");
-  const files = dropZone("Files (.gltf/.glb + .bin + textures)", ".gltf,.glb,.bin,image/*", true, (f) => {
+  const files = dropZone("Files (.gltf/.glb + .bin)", ".gltf,.glb,.bin", true, (f) => {
     if (!name.input.value.trim()) { const g = f.find((x) => /\.(gltf|glb)$/i.test(x.name)); if (g) name.input.value = baseName(g.name); }
   });
   body.append(
-    el("div", "imp-hint", "A glTF model → public/assets/models/<name>/. Drop the .gltf/.glb and any .bin / texture files it references (or a single self-contained .glb)."),
+    el("div", "imp-hint", "Geometry only → public/assets/models/<name>/. Drop the .gltf/.glb (+ its .bin). Models carry no textures: import textures separately, build a material from them, then assign that material to the model (in its preview tab)."),
     name.row, files.row,
   );
   const dlg = modal("Import model", body);
