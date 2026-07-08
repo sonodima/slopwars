@@ -93,7 +93,17 @@ class EditorState {
     return null;
   }
   mapName(id: string): string { return this.docs.get(id)?.map.meta.name ?? "Untitled"; }
-  isDirty(id: string): boolean { return this.docs.get(id)?.dirty ?? false; }
+  /** live dirty flag for a document — the active one reads the live field (which the
+   *  doc record only mirrors on a tab switch), so its tab dot updates immediately. */
+  isDirty(id: string): boolean { return id === this.activeDocId ? this.dirty : (this.docs.get(id)?.dirty ?? false); }
+  /** a document's map / file id without activating it (for Save All of background tabs) */
+  docMap(id: string): MapDef | null { return id === this.activeDocId ? this.map : (this.docs.get(id)?.map ?? null); }
+  docFileId(id: string): string { return id === this.activeDocId ? this.fileId : (this.docs.get(id)?.fileId ?? ""); }
+  /** mark a document saved (clears its dirty flag, live + stored) */
+  markDocSaved(id: string): void {
+    const d = this.docs.get(id); if (d) d.dirty = false;
+    if (id === this.activeDocId) this.dirty = false;
+  }
 
   /** open a map as a new document with the given id, and make it active. */
   openDocument(id: string, map: MapDef, fileId: string): void {

@@ -28,10 +28,27 @@ const PLAYER_MASS = 82;      // reference mass the player pushes with
 
 type Axis = "x" | "y" | "z";
 
-export class PhysicsWorld {
+/** the dynamic-prop simulation the game drives each frame. Two implementations: the
+ *  PhysX-backed `PhysxProps` (real rigid bodies — barrels roll & tumble) and this
+ *  lightweight custom `PhysicsWorld` fallback for when PhysX can't initialise. Both
+ *  read/write the same `map.dynBodies` the MapBuilder produces. */
+export interface PropSim {
+  readonly count: number;
+  /** (re)bind to the current map after a (re)build — attach/rebuild colliders */
+  syncFromMap(): void;
+  step(dt: number, player: PlayerBody | null): void;
+  applyExplosion(c: Vec3, radius: number, power: number): void;
+  applyImpulseAt(body: DynBody, point: Vec3, dir: Vec3, power: number): void;
+  raycast(o: Vec3, d: Vec3, maxDist: number): { body: DynBody; dist: number } | null;
+}
+
+export class PhysicsWorld implements PropSim {
   constructor(private map: GameMap) {}
 
   get count(): number { return this.map.dynBodies.length; }
+
+  /** the custom sim reads map.dynBodies live each step — nothing to bind on load */
+  syncFromMap(): void { /* no-op */ }
 
   /** advance every dynamic body one frame. `player`, if given, can shove (and be
    *  blocked by) bodies it overlaps — the "walk into a crate to push it" case. */

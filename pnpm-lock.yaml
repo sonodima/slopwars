@@ -36,6 +36,9 @@ importers:
       '@galacean/engine':
         specifier: ^1.6.13
         version: 1.6.13
+      '@galacean/engine-physics-physx':
+        specifier: 1.6.13
+        version: 1.6.13(@galacean/engine@1.6.13)
       '@slopwars/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -222,6 +225,11 @@ packages:
 
   '@galacean/engine-math@1.6.13':
     resolution: {integrity: sha512-ocliwoWZIS13ZmuOG8q+JaZzXSCutnA1hMrOABkCiJRiqKf6uD39zMgxa9wB8n8DG1SGiREOSUmPlAcEBZJ2Nw==}
+
+  '@galacean/engine-physics-physx@1.6.13':
+    resolution: {integrity: sha512-ijaUa07uaHun/veugeihxKBkxVH02wBCcGh+g3wQv/66y8yaapPaCLV57xCbjopfT3PU+8pjD7c6Ij+0vVdiHg==}
+    peerDependencies:
+      '@galacean/engine': 1.6.13
 
   '@galacean/engine-rhi-webgl@1.6.13':
     resolution: {integrity: sha512-BhEv7Zxrmzcf+cPutNFnF20Iiz+6anr5ZD0GyKjXM9/bxUA3IX/fWKqX6L0nPU4rP7RRmnWXWMqHqycSVBhrgA==}
@@ -576,6 +584,10 @@ snapshots:
       '@galacean/engine-rhi-webgl': 1.6.13
 
   '@galacean/engine-math@1.6.13': {}
+
+  '@galacean/engine-physics-physx@1.6.13(@galacean/engine@1.6.13)':
+    dependencies:
+      '@galacean/engine': 1.6.13
 
   '@galacean/engine-rhi-webgl@1.6.13':
     dependencies:

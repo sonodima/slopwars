@@ -215,6 +215,27 @@ export function modal(title: string, body: HTMLElement): { close: () => void } {
   return { close };
 }
 
+/** a three-way "unsaved changes" dialog. Resolves "save" | "discard" | "cancel"
+ *  (the modal's Escape / backdrop dismissal counts as cancel). */
+export function confirmUnsaved(what: string): Promise<"save" | "discard" | "cancel"> {
+  return new Promise((resolve) => {
+    const body = el("div", "confirm");
+    body.append(el("p", "confirm-msg", `${what} has unsaved changes.`));
+    const row = el("div", "confirm-actions");
+    let done = false;
+    const finish = (r: "save" | "discard" | "cancel"): void => { if (done) return; done = true; dlg.close(); resolve(r); };
+    const dlg = modal("Unsaved changes", body);
+    row.append(
+      button("Cancel", () => finish("cancel")),
+      button("Discard", () => finish("discard"), "danger"),
+      button("Save", () => finish("save"), "primary"),
+    );
+    body.append(row);
+    // modal() already closes on Escape/backdrop; poll for that to resolve as cancel
+    const iv = window.setInterval(() => { if (!document.body.contains(body)) { window.clearInterval(iv); finish("cancel"); } }, 150);
+  });
+}
+
 /** a confirm dialog for an irreversible action; runs `onYes` only if confirmed. */
 export function confirmDelete(what: string, onYes: () => void): void {
   const body = el("div", "confirm");

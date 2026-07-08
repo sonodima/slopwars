@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@galacean/engine": "^1.6.13",
+    "@galacean/engine-physics-physx": "1.6.13",
     "@slopwars/shared": "workspace:*",
     "peerjs": "^1.5.5"
   },

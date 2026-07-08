@@ -3,7 +3,7 @@ import {
   AmbientLight, BackgroundMode, BlinnPhongMaterial, BloomEffect, Camera, Color,
   DirectLight, Engine, Entity, FogMode, MSAASamples, MeshRenderer, PostProcess,
   PrimitiveMesh, Quaternion, ShadowResolution, ShadowType, SkyBoxMaterial,
-  TextureCube, TonemappingEffect, TonemappingMode, UnlitMaterial, Vector3, WebGLEngine,
+  TextureCube, TonemappingEffect, TonemappingMode, UnlitMaterial, Vector3,
 } from "@galacean/engine";
 import { sfx } from "./audio";
 import { loadHDRCube } from "./assets";
@@ -19,7 +19,8 @@ import {
 } from "./maps";
 import { HE_DAMAGE, HE_RADIUS, MOL_RADIUS, MOL_TICK_DMG, NadeKind, Projectiles } from "./nades";
 import { Net } from "./net";
-import { PhysicsWorld } from "./physics";
+import { PhysicsWorld, type PropSim } from "./physics";
+import { PhysxProps, createGameEngine } from "./physxprops";
 import { Input, PlayerBody } from "./player";
 import { RemotePlayer } from "./remote";
 import { MODEL_LOAD_COUNT, loadModels } from "./models";
@@ -51,6 +52,7 @@ interface BotAI {
 
 class Game {
   engine!: Engine;
+  usePhysx = false;   // true once the PhysX rigid-body backend is active
   camera!: Camera;
   camEntity!: Entity;
   map = new GameMap();
@@ -76,7 +78,9 @@ class Game {
   ws!: WeaponSystem;
   tracers!: TracerPool;
   nades!: Projectiles;
-  physics = new PhysicsWorld(this.map);   // dynamic props (reads map.dynBodies, refilled each load)
+  // dynamic-prop simulation — PhysX rigid bodies when available, else the custom
+  // fallback. Starts as the fallback; init() swaps in PhysX after the engine is up.
+  physics: PropSim = new PhysicsWorld(this.map);
   hud = new Hud();
   net = new Net();
   voice = new Voice();
@@ -161,14 +165,18 @@ class Game {
     // on the heavy asset load below, so it works even if a load stalls
     this.registerServiceWorker();
 
-    const engine = await WebGLEngine.create({ canvas: "game-canvas" });
+    const { engine, physx } = await createGameEngine("game-canvas");
     this.engine = engine;
+    this.usePhysx = physx;
     engine.canvas.resizeByClientSize();
     window.addEventListener("resize", () => this.applyResolution());
 
     const scene = engine.sceneManager.activeScene;
     const root = scene.createRootEntity("root");
     this.root = root;
+    // with PhysX available, swap the fallback sim for real rigid bodies (props roll,
+    // tumble, stack); colliders are (re)bound to each map on load via syncFromMap().
+    if (this.usePhysx) this.physics = new PhysxProps(engine, root, this.map);
     // sky (HDRI) + image-based ambient applied per-map by applyEnv(), below
 
     // ── lights (env-specific values set by applyEnv on map load) ──
@@ -1363,6 +1371,7 @@ class Game {
     const def = mapById(id);
     const tex = await resolveTextures(this.engine, mapTextureFolders(def));
     this.map.load(this.engine, this.root, tex, this.models, def);
+    this.physics.syncFromMap();   // (re)bind prop colliders + rebuild static world (PhysX)
     this.currentMapId = id;
     await this.applyEnv(def.env);
     this.buildPickups(this.root);

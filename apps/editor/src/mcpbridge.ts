@@ -61,6 +61,12 @@ function objAt(index: number): Placement {
   if (!o) throw new Error(`no object at index ${index}`);
   return o;
 }
+/** indices (into map.objects) of every object recursively in a group */
+function memberIndicesOf(groupId: string): number[] {
+  const objs = state.map?.objects ?? [];
+  const members = new Set(state.membersOf(groupId, true));
+  return objs.map((o, i) => (members.has(o) ? i : -1)).filter((i) => i >= 0);
+}
 
 async function run(ctx: McpBridgeCtx, cmd: Cmd): Promise<unknown> {
   const vp = ctx.viewport;
@@ -115,6 +121,53 @@ async function run(ctx: McpBridgeCtx, cmd: Cmd): Promise<unknown> {
       return { ok: true };
     case "listGroups":
       return { groups: state.groups() };
+    case "getGroup": {
+      const g = state.groupById(cmd.id as string);
+      if (!g) throw new Error(`no group ${cmd.id as string}`);
+      return { group: g, world: state.groupWorld(g.id), memberIndices: memberIndicesOf(g.id) };
+    }
+    case "createGroup": {
+      // group the given object indices (or the current selection if none given)
+      const idxs = cmd.objects as number[] | undefined;
+      if (Array.isArray(idxs)) {
+        const map = requireMap();
+        const objs = idxs.map((i) => map.objects[i]).filter((o): o is Placement => !!o);
+        if (!objs.length) throw new Error("createGroup: no valid object indices");
+        state.selectSet(objs);
+      }
+      const id = state.createGroup(typeof cmd.name === "string" ? cmd.name : undefined);
+      if (!id) throw new Error("createGroup: nothing selected to group");
+      return { ok: true, id };
+    }
+    case "updateGroup": {
+      const g = state.groupById(cmd.id as string);
+      if (!g) throw new Error(`no group ${cmd.id as string}`);
+      const p = (cmd.patch ?? {}) as Record<string, unknown>;
+      if (typeof p.name === "string") state.renameGroup(g.id, p.name);
+      if (typeof p.parent === "string" || p.parent === null) state.setGroupParent(g.id, (p.parent as string) || undefined);
+      if (p.physics !== undefined || p.mass !== undefined) {
+        if (p.physics !== undefined) g.physics = p.physics ? true : undefined;
+        if (typeof p.mass === "number") g.mass = p.mass;
+        if (g.physics && g.mass == null) g.mass = 8;
+        state.commit(true);
+      }
+      if (p.at || p.rot || p.scale) {
+        const w = state.groupWorld(g.id);
+        state.setGroupWorld(g.id, { at: (p.at as Tuple3) ?? w.at, rot: (p.rot as Tuple3) ?? w.rot, scale: (p.scale as Tuple3) ?? w.scale });
+      }
+      return { ok: true, group: state.groupById(g.id) };
+    }
+    case "deleteGroup":
+      state.deleteGroup(cmd.id as string);
+      return { ok: true };
+    case "ungroup":
+      state.ungroup(cmd.id as string);
+      return { ok: true };
+    case "setObjectGroup": {
+      const o = objAt(cmd.index as number);
+      state.setObjectGroup(o, (cmd.group as string) || undefined);
+      return { ok: true };
+    }
 
     // ── viewport tabs (map / material / model documents) ──
     case "listTabs":

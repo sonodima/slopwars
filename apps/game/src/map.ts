@@ -2,7 +2,7 @@
 // The map is no longer hard-coded here — build() is replaced by load(), which
 // runs a MapDef through the loader. This class now just holds the resulting
 // solids/spawns/objects and answers ray/point queries the game logic needs.
-import { Engine, Entity, Quaternion } from "@galacean/engine";
+import { DynamicCollider, Engine, Entity, Quaternion } from "@galacean/engine";
 import { GameModels } from "./models";
 import { MapTextures } from "./textures";
 import { MapBuilder } from "./mapbuilder";
@@ -56,10 +56,13 @@ export interface DynBody {
   shape?: SolidShape;    // rounds player contact (cylinder/sphere); omit = box
   pos: Vec3;             // entity origin in world (written to the transform each frame)
   vel: Vec3;
-  q: Quaternion;         // current orientation (world), integrated from angVel
+  q: Quaternion;         // current orientation (world), integrated from angVel (fallback sim)
   angVel: Vec3;          // angular velocity (rad/s) about world x/y/z — full tumble/roll/tilt
   onGround: boolean;
   rest: number;          // seconds spent nearly still (→ sleeps to stop jitter)
+  /** PhysX rigid body driving this prop when the PhysX backend is active (else the
+   *  custom fallback sim integrates q/angVel manually). */
+  collider?: DynamicCollider;
 }
 
 export class GameMap {

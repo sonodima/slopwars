@@ -19,7 +19,7 @@ import { mountResizers } from "./layout";
 import { objectDropScale } from "@game/objects";
 import { startMcpBridge } from "./mcpbridge";
 import { api } from "./api";
-import { el, clear, button, iconButton, toast, modal } from "./ui";
+import { el, clear, button, iconButton, toast, modal, confirmUnsaved } from "./ui";
 import { icon, type IconName } from "./icons";
 
 const $ = (id: string): HTMLElement => document.getElementById(id) as HTMLElement;
@@ -59,16 +59,37 @@ async function refreshCatalog(reshade = false): Promise<void> {
   viewport.setModelMetas(catalog.models, reshade);
 }
 
-// debounced material/model-meta writes (a drag mutates the def many times/sec)
-let matSaveTimer = 0;
-function saveMaterialSoon(name: string, def: MaterialDef): void {
-  window.clearTimeout(matSaveTimer);
-  matSaveTimer = window.setTimeout(() => { void api.saveMaterial(name, def).catch((e) => toast("material save failed: " + e, true)); }, 250);
+// ── unsaved-changes tracking (maps + material/model assets) ───────────────────
+// Asset edits are applied LIVE (the map re-shades immediately) but no longer written
+// to disk automatically — instead the asset is marked dirty and the user saves it
+// explicitly (Save / Save All), exactly like a map. A tab shows a dot while dirty;
+// closing a dirty tab or leaving the editor with unsaved work prompts first.
+const dirtyMaterials = new Set<string>();
+const dirtyModels = new Set<string>();
+function markMaterialDirty(name: string): void { dirtyMaterials.add(name); renderTabStrip(); renderSaveButtons(); }
+function markModelDirty(name: string): void { dirtyModels.add(name); renderTabStrip(); renderSaveButtons(); }
+/** is a given tab's document unsaved? (maps track their own dirty flag) */
+function isTabDirty(t: Tab): boolean {
+  if (t.kind === "map") return state.isDirty(t.id);
+  if (t.kind === "material") return t.material ? dirtyMaterials.has(t.material) : false;
+  if (t.kind === "model") return t.model ? dirtyModels.has(t.model) : false;
+  return false;
 }
-let metaSaveTimer = 0;
-function saveModelMetaSoon(name: string, meta: ModelMeta): void {
-  window.clearTimeout(metaSaveTimer);
-  metaSaveTimer = window.setTimeout(() => { void api.saveModelMeta(name, meta).catch((e) => toast("model save failed: " + e, true)); }, 250);
+function anyDirty(): boolean {
+  return dirtyMaterials.size > 0 || dirtyModels.size > 0 || state.documentIds().some((id) => state.isDirty(id));
+}
+
+/** write a material's current def to disk and clear its dirty mark */
+async function saveMaterialFile(name: string): Promise<void> {
+  const def = catalog.materials.find((m) => m.name === name)?.def;
+  if (!def) return;
+  try { await api.saveMaterial(name, def); dirtyMaterials.delete(name); renderTabStrip(); renderSaveButtons(); }
+  catch (e) { toast("material save failed: " + e, true); }
+}
+/** write a model's current meta to disk and clear its dirty mark */
+async function saveModelFile(name: string): Promise<void> {
+  try { await api.saveModelMeta(name, liveMeta(name)); dirtyModels.delete(name); renderTabStrip(); renderSaveButtons(); }
+  catch (e) { toast("model save failed: " + e, true); }
 }
 
 /** the live working meta for a model (seeded from the catalog on first access) */
@@ -103,6 +124,7 @@ async function main(): Promise<void> {
   mountSceneGraph($("scene-graph"));
   buildDock();
   bindUndoRedo();
+  bindSaveShortcuts();
   mountResizers();
 
   // map data / selection → viewport + trees + inspector + tab strip
@@ -195,8 +217,8 @@ function onMaterialChanged(name: string, def: MaterialDef): void {
   applyMaterialEffects(name, def);
 }
 function applyMaterialEffects(name: string, def: MaterialDef): void {
-  viewport.setMaterials(catalog.materials, true);
-  saveMaterialSoon(name, def);
+  viewport.setMaterials(catalog.materials, true);   // live re-shade the map (unsaved is fine)
+  markMaterialDirty(name);
   previewMaterialEdit(name, def);
 }
 
@@ -248,8 +270,8 @@ function onModelMetaChanged(name: string): void {
 function applyModelMetaEffects(name: string): void {
   const meta = liveMeta(name);
   applyLiveModelMeta(name, meta);
-  viewport.setModelMetas(catalog.models, true);   // re-pose/reskin map placements live
-  saveModelMetaSoon(name, meta);
+  viewport.setModelMetas(catalog.models, true);   // re-pose/reskin map placements live (unsaved is fine)
+  markModelDirty(name);
   const tab = tabs.active();
   if (tab?.kind === "model" && tab.model === name) {
     // the collision-mode toggle (top-left) only shows in manual mode, so re-evaluate
@@ -328,18 +350,18 @@ function renderTabStrip(): void {
   clear(bar);
   for (const t of tabs.tabs) {
     const b = el("button", "vp-tab" + (t.id === tabs.activeId ? " on" : ""));
-    if (t.kind === "map" && state.isDirty(t.id)) b.classList.add("dirty");
+    if (isTabDirty(t)) b.classList.add("dirty");   // unsaved (map, material or model)
     const ico = el("span", "vp-tab-ico"); ico.append(icon(TAB_ICON[t.kind]));
     b.append(ico, el("span", "vp-tab-name", tabTitle(t)));
     const x = el("button", "vp-tab-x"); x.append(icon("x"));
     x.title = "close tab";
-    x.addEventListener("click", (e) => { e.stopPropagation(); tabs.close(t.id); });
+    x.addEventListener("click", (e) => { e.stopPropagation(); void requestCloseTab(t.id); });
     b.append(x);
     b.addEventListener("click", () => tabs.focus(t.id));
     // middle-click a tab to close it (Unreal/browser convention); suppress the
     // browser's middle-click autoscroll on press.
     b.addEventListener("mousedown", (e) => { if (e.button === 1) e.preventDefault(); });
-    b.addEventListener("auxclick", (e) => { if (e.button === 1) { e.preventDefault(); e.stopPropagation(); tabs.close(t.id); } });
+    b.addEventListener("auxclick", (e) => { if (e.button === 1) { e.preventDefault(); e.stopPropagation(); void requestCloseTab(t.id); } });
     bar.append(b);
   }
 }
@@ -368,10 +390,56 @@ function renderModes(): void {
 }
 
 // ── left column visibility · preview environment picker · collision authoring ──
-/** Save / Save As belong to map documents only — hide the cluster on preview tabs. */
+/** reflect save state in the toolbar: Save enabled when the active tab is dirty,
+ *  Save As only for maps, Save All enabled when anything is unsaved. */
 function renderSaveButtons(): void {
-  const g = document.getElementById("save-group");
-  if (g) g.style.display = tabs.activeKind() === "map" ? "" : "none";
+  const tab = tabs.active();
+  const saveAs = document.getElementById("saveas-btn") as HTMLButtonElement | null;
+  if (saveAs) saveAs.style.display = tabs.activeKind() === "map" ? "" : "none";
+  const save = document.getElementById("save-btn") as HTMLButtonElement | null;
+  if (save) { const d = !!tab && isTabDirty(tab); save.classList.toggle("on", d); save.disabled = !tab; }
+  const all = document.getElementById("saveall-btn") as HTMLButtonElement | null;
+  if (all) all.classList.toggle("on", anyDirty());
+}
+
+/** save the active tab's document to disk (map → maps/<id>.json; material/model →
+ *  its asset file). No-op for a clean or absent tab. */
+async function saveActiveTab(): Promise<void> {
+  const tab = tabs.active(); if (!tab) return;
+  if (tab.kind === "map") return void saveMap();
+  if (tab.kind === "material" && tab.material) return saveMaterialFile(tab.material);
+  if (tab.kind === "model" && tab.model) return saveModelFile(tab.model);
+}
+
+/** flush every unsaved document (open maps + dirty material/model assets) */
+async function saveAll(): Promise<void> {
+  const jobs: Promise<void>[] = [];
+  for (const id of state.documentIds()) if (state.isDirty(id)) jobs.push(saveMapDoc(id));
+  for (const name of [...dirtyMaterials]) jobs.push(saveMaterialFile(name));
+  for (const name of [...dirtyModels]) jobs.push(saveModelFile(name));
+  if (!jobs.length) { toast("nothing to save"); return; }
+  await Promise.all(jobs);
+  toast(`saved ${jobs.length} document${jobs.length === 1 ? "" : "s"}`);
+}
+
+/** close a tab, prompting first if it has unsaved changes (Save / Discard / Cancel).
+ *  Saving a material/model here also persists it; a map saves via its own flow. */
+async function requestCloseTab(id: string): Promise<void> {
+  const t = tabs.find(id);
+  if (t && isTabDirty(t)) {
+    const what = t.kind === "map" ? `Map "${state.mapName(t.id)}"` : `${t.kind} "${t.material ?? t.model}"`;
+    const choice = await confirmUnsaved(what);
+    if (choice === "cancel") return;
+    if (choice === "save") {
+      if (t.kind === "map") await saveMapDoc(t.id);
+      else if (t.kind === "material" && t.material) await saveMaterialFile(t.material);
+      else if (t.kind === "model" && t.model) await saveModelFile(t.model);
+    } else {   // discard → drop the dirty mark so nothing lingers
+      if (t.kind === "material" && t.material) dirtyMaterials.delete(t.material);
+      if (t.kind === "model" && t.model) dirtyModels.delete(t.model);
+    }
+  }
+  tabs.close(id);
 }
 
 /** the left column (scene outliner) belongs to map tabs; preview tabs hide it
@@ -520,17 +588,35 @@ function ungroupSelection(): void {
   if (o?.group) state.ungroup(o.group);
 }
 
+/** Ctrl/Cmd+S saves the active document; Ctrl/Cmd+Shift+S saves all. A native
+ *  beforeunload prompt guards against leaving the editor with unsaved work. */
+function bindSaveShortcuts(): void {
+  window.addEventListener("keydown", (e) => {
+    const mod = e.ctrlKey || e.metaKey;
+    if (mod && e.key.toLowerCase() === "s") {
+      e.preventDefault();
+      if (e.shiftKey) void saveAll(); else void saveActiveTab();
+    }
+  });
+  window.addEventListener("beforeunload", (e) => {
+    if (!anyDirty()) return;
+    e.preventDefault();
+    e.returnValue = "";   // browsers show their standard "leave site?" prompt
+  });
+}
+
 // ── toolbar ─────────────────────────────────────────────────────────────────
 function buildToolbar(): void {
   const bar = $("toolbar");
   const logo = el("img", "brand-icon") as HTMLImageElement;
   logo.src = `${import.meta.env.BASE_URL}logo.png`; logo.alt = "SlopWars";
-  // Save / Save As act on the active map document, so they only make sense on a map
-  // tab — grouped here so the whole cluster hides on material/model preview tabs.
+  // Save acts on the active document — a map, or a material/model asset. Save As is
+  // map-only (asset names are renamed in-place). Save All flushes every dirty doc.
   const saveGroup = el("span", "save-group"); saveGroup.id = "save-group";
-  saveGroup.append(
-    iconButton("save", "Save", () => void saveMap(), "primary"), button("Save As…", () => void saveMapAs()),
-    el("span", "bar-sep"));
+  const saveBtn = iconButton("save", "Save", () => void saveActiveTab(), "primary"); saveBtn.id = "save-btn";
+  const saveAsBtn = button("Save As…", () => void saveMapAs()); saveAsBtn.id = "saveas-btn";
+  const saveAllBtn = button("Save All", () => void saveAll()); saveAllBtn.id = "saveall-btn";
+  saveGroup.append(saveBtn, saveAsBtn, saveAllBtn, el("span", "bar-sep"));
   bar.append(logo, el("span", "brand", "Editor"), saveGroup);
 
   const tools = el("div", "tool-group");
@@ -595,6 +681,7 @@ async function deleteMaterialFlow(name: string): Promise<void> {
   try {
     const r = await api.deleteMaterial(name);
     if (r.error) { toast("delete failed: " + r.error, true); return; }
+    dirtyMaterials.delete(name); matHistory.delete(name);
     tabs.closeAsset("material", name);
     await refreshCatalog(true);
     await browser?.reload();
@@ -606,7 +693,7 @@ async function deleteModelFlow(name: string): Promise<void> {
   try {
     const r = await api.deleteModel(name);
     if (r.error) { toast("delete failed: " + r.error, true); return; }
-    modelEdits.delete(name);
+    modelEdits.delete(name); dirtyModels.delete(name); metaHistory.delete(name);
     tabs.closeAsset("model", name);
     await refreshCatalog(true);
     await browser?.reload();
@@ -654,6 +741,8 @@ async function renameMaterial(from: string, to: string): Promise<void> {
     for (const o of state.map?.objects ?? []) {
       if ((o.params as { mat?: string } | undefined)?.mat === from) (o.params as { mat: string }).mat = r.name;
     }
+    if (dirtyMaterials.delete(from)) dirtyMaterials.add(r.name);   // carry unsaved state to the new name
+    const h = matHistory.get(from); if (h) { matHistory.delete(from); matHistory.set(r.name, h); }
     tabs.retargetMaterial(from, r.name);
     await refreshCatalog(true);
     await browser?.reload();
@@ -692,7 +781,15 @@ async function openMap(file: string): Promise<void> {
 async function saveMap(): Promise<void> {
   const map = state.map; if (!map) return;
   const id = map.meta.id || state.fileId;
-  try { await api.saveMap(id, map); state.dirty = false; refreshMapName(); renderTabStrip(); browser?.refreshMaps(); toast(`saved maps/${id}.json`); }
+  try { await api.saveMap(id, map); state.dirty = false; refreshMapName(); renderTabStrip(); renderSaveButtons(); browser?.refreshMaps(); toast(`saved maps/${id}.json`); }
+  catch (e) { toast("save failed: " + e, true); }
+}
+
+/** save a specific map document (possibly a background tab) — used by Save All */
+async function saveMapDoc(docId: string): Promise<void> {
+  const map = state.docMap(docId); if (!map) return;
+  const id = map.meta.id || state.docFileId(docId);
+  try { await api.saveMap(id, map); state.markDocSaved(docId); renderTabStrip(); renderSaveButtons(); browser?.refreshMaps(); }
   catch (e) { toast("save failed: " + e, true); }
 }
 

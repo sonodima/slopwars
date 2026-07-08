@@ -96,6 +96,28 @@ export function createMcp({ root, bridge }: Deps): { handle: (msg: any) => Promi
       inputSchema: { type: "object", properties: { index: { type: "number" } }, required: ["index"] },
       run: (a) => live("selectObject", { index: a.index }) },
 
+    // ── groups (a first-class parent with its own transform; can be a physics body) ──
+    { name: "editor_list_groups", description: "List all groups (id, name, parent, transform, physics/mass).", inputSchema: { type: "object", properties: {} },
+      run: () => live("listGroups") },
+    { name: "editor_get_group", description: "Get one group by id, with its world transform and member object indices.",
+      inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
+      run: (a) => live("getGroup", { id: a.id }) },
+    { name: "editor_create_group", description: "Group objects into a new group. Pass `objects` (an array of object indices) or omit to group the current selection. Returns the new group id.",
+      inputSchema: { type: "object", properties: { objects: { type: "array", items: { type: "number" } }, name: { type: "string" } } },
+      run: (a) => live("createGroup", { objects: a.objects, name: a.name }) },
+    { name: "editor_update_group", description: "Edit a group: name, parent (id or null for top level), world transform (at/rot/scale), or physics. Set `physics:true` (+ optional `mass` kg) to simulate the whole group as one movable rigid body.",
+      inputSchema: { type: "object", properties: { id: { type: "string" }, name: { type: "string" }, parent: { type: "string" }, at: V3, rot: V3, scale: V3, physics: { type: "boolean" }, mass: { type: "number" } }, required: ["id"] },
+      run: (a) => live("updateGroup", { id: a.id, patch: { ...(a.name !== undefined ? { name: a.name } : {}), ...(a.parent !== undefined ? { parent: a.parent } : {}), ...(a.at ? { at: a.at } : {}), ...(a.rot ? { rot: a.rot } : {}), ...(a.scale ? { scale: a.scale } : {}), ...(a.physics !== undefined ? { physics: a.physics } : {}), ...(a.mass !== undefined ? { mass: a.mass } : {}) } }) },
+    { name: "editor_delete_group", description: "Delete a group AND every object inside it (recursively).",
+      inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
+      run: (a) => live("deleteGroup", { id: a.id }) },
+    { name: "editor_ungroup", description: "Dissolve a group, keeping its objects (they move up to the parent, world transforms preserved).",
+      inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
+      run: (a) => live("ungroup", { id: a.id }) },
+    { name: "editor_set_object_group", description: "Move an object (by index) into a group (or to top level with null/empty group), preserving its world transform.",
+      inputSchema: { type: "object", properties: { index: { type: "number" }, group: { type: "string" } }, required: ["index"] },
+      run: (a) => live("setObjectGroup", { index: a.index, group: a.group ?? "" }) },
+
     { name: "editor_import_texture", description: "Import a PBR texture set from local files into public/assets/textures/<name>/.",
       inputSchema: { type: "object", properties: { name: { type: "string" }, color: { type: "string", description: "path to color/albedo map" }, normal: { type: "string" }, arm: { type: "string", description: "path to packed AO/rough/metal map" } }, required: ["name", "color"] },
       run: async (a) => {
