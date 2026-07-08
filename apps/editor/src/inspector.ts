@@ -13,16 +13,18 @@ import type { ThumbRenderer } from "./preview";
 import { state } from "./state";
 import { tabs } from "./tabs";
 import { assetField } from "./assetfield";
-import { clear, el, numField, vecField, selectField, checkField, textField, colorField, renamable, button, modal } from "./ui";
+import { clear, el, numField, vecField, selectField, checkField, textField, colorField, renamable } from "./ui";
+import { icon } from "./icons";
 
 // hooks the shell wires up so asset editors can persist edits + re-shade. Model
 // editing shares one live working `meta` object with the shell (so the left-panel
 // collision authoring and this inspector mutate the same state).
-interface MaterialHooks { changed: (name: string, def: MaterialDef) => void; renamed: (from: string, to: string) => void; deleted: (name: string) => void }
+// Asset deletion no longer lives in the inspector — it's a right-click action in the
+// asset browser (Unity-style), so these hooks only carry edit/rename operations.
+interface MaterialHooks { changed: (name: string, def: MaterialDef) => void; renamed: (from: string, to: string) => void }
 interface ModelHooks {
   meta: (name: string) => ModelMeta;
   changed: (name: string) => void;
-  deleted: (name: string) => void;
   /** currently-selected collision solid index (−1 = none) */
   collSel: () => number;
   /** select a collision solid (highlights it + shows its gizmo in the view) */
@@ -32,13 +34,10 @@ interface ModelHooks {
   /** delete collision solid `i` */
   collDelete: (i: number) => void;
 }
-interface TextureHooks { deleted: (name: string) => void }
 let matHooks: MaterialHooks | null = null;
 let modelHooks: ModelHooks | null = null;
-let texHooks: TextureHooks | null = null;
 export function setInspectorMaterialHooks(h: MaterialHooks): void { matHooks = h; }
 export function setInspectorModelHooks(h: ModelHooks): void { modelHooks = h; }
-export function setInspectorTextureHooks(h: TextureHooks): void { texHooks = h; }
 
 const AXES = ["x+", "x-", "z+", "z-"];
 
@@ -63,7 +62,6 @@ export function renderInspector(host: HTMLElement): void {
     host.append(el("div", "empty", "material not found")); return;
   }
   if (tab?.kind === "model" && tab.model) return modelInspector(host, tab.model);
-  if (tab?.kind === "texture" && tab.texture) return textureInspector(host, tab.texture);
 
   const map = state.map;
   if (!map) { host.append(el("div", "empty", "No map open")); return; }
@@ -76,24 +74,6 @@ export function renderInspector(host: HTMLElement): void {
   const o = state.selected();
   if (!o) return worldInspector(host, map, touch);
   objectInspector(host, o, touch);
-}
-
-/** a red Delete button that confirms before firing (irreversible file deletes) */
-function deleteButton(host: HTMLElement, label: string, what: string, onYes: () => void): void {
-  const b = button(label, () => confirmDelete(what, onYes), "danger");
-  b.classList.add("insp-delete");
-  host.append(b);
-}
-function confirmDelete(what: string, onYes: () => void): void {
-  const body = el("div", "confirm");
-  body.append(el("p", "confirm-msg", `Delete ${what}? This cannot be undone.`));
-  const row = el("div", "confirm-actions");
-  const dlg = modal("Confirm delete", body);
-  row.append(
-    button("Cancel", () => dlg.close()),
-    button("Delete", () => { dlg.close(); onYes(); }, "danger"),
-  );
-  body.append(row);
 }
 
 // ── material ──────────────────────────────────────────────────────────────────
@@ -149,8 +129,6 @@ function materialInspector(host: HTMLElement, name: string, def: MaterialDef): v
     host.append(numField("thickness", () => d.thickness ?? g.thickness!, (v) => (d.thickness = Math.max(0, v)), edited, 0.05));
     host.append(numField("ior", () => d.ior ?? g.ior!, (v) => (d.ior = Math.max(1, v)), edited, 0.01));
   }
-
-  deleteButton(host, "🗑 Delete material", `material "${name}"`, () => matHooks?.deleted(name));
 }
 
 function clampn(v: number): number { return v < 0 ? 0 : v > 1 ? 1 : v; }
@@ -169,9 +147,17 @@ function modelInspector(host: HTMLElement, name: string): void {
   const save = (): void => modelHooks!.changed(name);
 
   group(host, "Placement");
-  host.append(el("div", "insp-note", "Calibrate the model once — applies to every placement."));
+  host.append(el("div", "insp-note", "Calibrate the model once — applies to every placement. The white cross-hair + grid in the preview mark the root (0,0,0): tune “base” until the model rests on the grid."));
   host.append(numField("base", () => meta.base ?? 0, (v) => (meta.base = v || undefined), save, 0.02));
   host.append(numField("scale", () => meta.scale ?? 1, (v) => (meta.scale = v > 0 ? v : undefined), save, 0.02));
+  // base orientation: a per-axis euler baked into the model so it faces the right
+  // way once (composed under every placement's own rotation). Cleared to undefined
+  // when back at zero so a neutral model carries no baseRot.
+  const baseRot = (meta.baseRot ?? [0, 0, 0]).slice() as number[];
+  host.append(vecField("base rot", baseRot, () => {
+    meta.baseRot = (baseRot[0] || baseRot[1] || baseRot[2]) ? [baseRot[0], baseRot[1], baseRot[2]] as Tuple3 : undefined;
+    save();
+  }, 1));
 
   group(host, "Material");
   host.append(el("div", "insp-note", "Assign a material (with its textures) to skin the model — models carry no textures of their own."));
@@ -189,8 +175,6 @@ function modelInspector(host: HTMLElement, name: string): void {
   } else {
     collisionList(host, meta, modelHooks);
   }
-
-  deleteButton(host, "🗑 Delete model", `model "${name}"`, () => modelHooks?.deleted(name));
 }
 
 /** the list of manual collision solids. Position/size is authored directly in the
@@ -198,41 +182,24 @@ function modelInspector(host: HTMLElement, name: string): void {
  *  only adds, selects and deletes them (as the redesign asks: solids are placed &
  *  sized in 3D, the inspector just lists them). */
 function collisionList(host: HTMLElement, meta: ModelMeta, hooks: ModelHooks): void {
-  host.append(el("div", "insp-note", "Manual: only these solids block the player. Open the “Collision” view (top-left) and move/scale each solid with the gizmo, like any object."));
-  const add = button("＋ Add solid", () => hooks.collAdd(), "primary");
-  add.classList.add("insp-addbtn");
+  host.append(el("div", "insp-note", "Manual: only these solids block the player. Switch to the “Collision” view (top-left), then move/scale each solid with the gizmo — right in the view, like any object."));
+  const add = el("button", "btn primary insp-addbtn");
+  add.append(icon("plus"), el("span", "btn-label", "Add solid"));
+  add.addEventListener("click", () => hooks.collAdd());
   host.append(add);
 
   const boxes = meta.collisionBoxes ?? [];
-  if (!boxes.length) { host.append(el("div", "side-note", "No solids yet — add one, then drag it in the view.")); return; }
+  if (!boxes.length) { host.append(el("div", "side-note", "No solids yet — “Add solid” drops one at the model centre, already selected so you can drag it straight away.")); return; }
   const sel = hooks.collSel();
   boxes.forEach((_b, i) => {
     const row = el("div", "cbox-row" + (i === sel ? " sel" : ""));
     row.append(el("span", "cbox-name", `Solid ${i + 1}`));
-    const del = el("button", "btn mini", "✕"); del.title = "delete solid";
+    const del = el("button", "btn mini"); del.title = "delete solid"; del.append(icon("trash"));
     del.addEventListener("click", (e) => { e.stopPropagation(); hooks.collDelete(i); });
     row.append(del);
     row.addEventListener("click", () => hooks.collSelect(i));
     host.append(row);
   });
-}
-
-// ── texture (preview + delete) ────────────────────────────────────────────────
-function textureInspector(host: HTMLElement, name: string): void {
-  const t = catalog.textures.find((x) => x.name === name);
-  host.append(el("h3", "insp-title", name));
-  host.append(el("div", "insp-sub", "texture"));
-  if (!t) { host.append(el("div", "empty", "texture not found")); return; }
-  if (t.maps.color) {
-    const prev = el("div", "insp-modelprev");
-    const img = el("img", "insp-modelimg"); img.src = `${import.meta.env.BASE_URL}assets/${t.maps.color}`;
-    prev.append(img); host.append(prev);
-  }
-  group(host, "Maps");
-  for (const slot of ["color", "normal", "arm"] as const) {
-    host.append(el("div", "insp-note", `${slot}: ${t.maps[slot] ? "✓" : "—"}`));
-  }
-  deleteButton(host, "🗑 Delete texture", `texture "${name}"`, () => texHooks?.deleted(name));
 }
 
 // ── group (a first-class parent — edit its own transform) ─────────────────────

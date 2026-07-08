@@ -4,7 +4,7 @@
 // Both brush interpretation (loader) and named object types (objects.ts) build
 // exclusively through this, so there is one place that knows how to make a wall.
 import {
-  BoundingBox, Engine, Entity, MeshRenderer, PrimitiveMesh,
+  BoundingBox, Engine, Entity, MeshRenderer, PrimitiveMesh, Quaternion,
 } from "@galacean/engine";
 import catalog from "virtual:asset-catalog";
 import { GameModels, instantiate } from "./models";
@@ -133,7 +133,13 @@ export class MapBuilder {
     const base = typeof meta.base === "number" ? meta.base : 0;
     e.transform.setScale(sx, sy, sz);
     e.transform.setPosition(at[0], at[1] + base * sy, at[2]);   // base is a local offset → scales with the model
-    e.transform.setRotation(rot[0], rot[1], rot[2]);
+    // compose the placement rotation over the model's baked baseRot (base applied
+    // first, in the model's own frame) so a model can be oriented once in its meta.
+    if (meta.baseRot && (meta.baseRot[0] || meta.baseRot[1] || meta.baseRot[2])) {
+      e.transform.rotationQuaternion = composeRot(rot, meta.baseRot);
+    } else {
+      e.transform.setRotation(rot[0], rot[1], rot[2]);
+    }
     if (typeof meta.material === "string" && meta.material) {
       const m = this.lib.build(meta.material);
       for (const r of e.getComponentsIncludeChildren(MeshRenderer, [])) r.setMaterial(m);
@@ -156,10 +162,13 @@ export class MapBuilder {
       const base = typeof meta.base === "number" ? meta.base : 0;
       const sx = scale[0] * ms, sy = scale[1] * ms, sz = scale[2] * ms;
       const rotT: [number, number, number] = [rot[0], rot[1], rot[2]];
+      const baseRot = meta.baseRot;
       for (const box of boxes) {
         // box centre in model-local space, scaled then rotated into world (extents
         // stay axis-aligned — collision is AABB-only, matching the box object type).
-        const local: [number, number, number] = [box.at[0] * sx, box.at[1] * sy, box.at[2] * sz];
+        // baseRot (if any) reorients the box in the model frame first, then placement.
+        let local: [number, number, number] = [box.at[0] * sx, box.at[1] * sy, box.at[2] * sz];
+        if (baseRot && (baseRot[0] || baseRot[1] || baseRot[2])) local = rotateEuler(local, [baseRot[0], baseRot[1], baseRot[2]]);
         const [rx, ry, rz] = rotateEuler(local, rotT);
         const cx = at[0] + rx, cy = at[1] + base * sy + ry, cz = at[2] + rz;
         const hx = Math.abs(box.size[0] * sx) / 2, hy = Math.abs(box.size[1] * sy) / 2, hz = Math.abs(box.size[2] * sz) / 2;
@@ -188,3 +197,15 @@ export class MapBuilder {
   }
 
 }
+
+/** compose an outer euler rotation over an inner (base) one: R = R_outer · R_base,
+ *  i.e. the base orientation is applied first in the model's local frame, then the
+ *  placement rotation. Returns the combined quaternion. */
+function composeRot(outer: Vec3T, base: Vec3T): Quaternion {
+  const qo = new Quaternion(), qb = new Quaternion(), out = new Quaternion();
+  Quaternion.rotationEuler(outer[0] * DEG, outer[1] * DEG, outer[2] * DEG, qo);
+  Quaternion.rotationEuler(base[0] * DEG, base[1] * DEG, base[2] * DEG, qb);
+  Quaternion.multiply(qo, qb, out);
+  return out;
+}
+const DEG = Math.PI / 180;

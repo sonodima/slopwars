@@ -121,19 +121,31 @@ export class MaterialLibrary {
   }
 
   private buildGlass(d: GlassMaterialDef): PBRMaterial {
-    const m = new PBRMaterial(this.engine);
-    const color = d.color ?? [0.85, 0.92, 0.95];
-    const tint = d.tint ?? [0.9, 0.96, 0.98];
-    m.baseColor = new Color(color[0], color[1], color[2], d.opacity ?? 0.16);
-    m.roughness = d.roughness ?? 0.02;
-    m.metallic = 0.0;
-    m.ior = d.ior ?? 1.5;
-    m.isTransparent = true;
-    m.refractionMode = RefractionMode.Planar;   // refract the scene behind (opaque texture)
-    m.transmission = 1.0;
-    m.attenuationColor = new Color(tint[0], tint[1], tint[2], 1);
-    m.attenuationDistance = 1.5;
-    m.thickness = d.thickness ?? 0.4;
-    return m;
+    return buildGlassMaterial(this.engine, d);
   }
+}
+
+/** Build a refractive glass PBR material from a def. Shared by the game's material
+ *  library and the editor's isolated preview so both refract the scene behind a
+ *  window identically. Uses screen-space planar refraction (needs the camera's
+ *  opaque texture enabled) with thickness-driven refraction depth + an absorption
+ *  tint that accumulates through the glass — so what's behind is bent and tinted,
+ *  not just alpha-blended. */
+export function buildGlassMaterial(engine: Engine, d: GlassMaterialDef): PBRMaterial {
+  const m = new PBRMaterial(engine);
+  const color = d.color ?? [0.85, 0.92, 0.95];
+  const tint = d.tint ?? [0.9, 0.96, 0.98];
+  m.baseColor = new Color(color[0], color[1], color[2], d.opacity ?? 0.16);
+  m.roughness = d.roughness ?? 0.02;
+  m.metallic = 0.0;
+  m.ior = d.ior ?? 1.5;
+  m.isTransparent = true;
+  m.refractionMode = RefractionMode.Planar;   // refract the scene behind (opaque texture)
+  m.transmission = 1.0;
+  m.attenuationColor = new Color(tint[0], tint[1], tint[2], 1);
+  // absorption over distance: thicker glass tints + darkens what's behind more, so
+  // the refraction reads as real material depth rather than a flat overlay.
+  m.attenuationDistance = Math.max(0.05, (d.thickness ?? 0.4) * 3.2);
+  m.thickness = d.thickness ?? 0.4;
+  return m;
 }

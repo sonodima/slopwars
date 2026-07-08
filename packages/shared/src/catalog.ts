@@ -27,6 +27,9 @@ export type CollisionMode = "auto" | "manual";
  *  the raw glTF (and collision defaults to "auto"). */
 export interface ModelMeta {
   base?: number;    // vertical offset (metres) so the model rests on its footing
+  /** default orientation (euler degrees) baked into the model so it faces the right
+   *  way once, composed under every placement's own rotation. Omit → no reorient. */
+  baseRot?: Tuple3;
   scale?: number;   // default uniform scale applied on top of a placement's scale
   material?: string; // material name to override every surface of the model with
   /** collision derivation mode (default "auto"). "manual" uses `collisionBoxes`. */

@@ -1621,47 +1621,51 @@
 			}
 		},
 		{
-			"type": "veg",
+			"type": "prop",
 			"at": [
 				-20,
 				0,
 				-6
 			],
 			"params": {
-				"model": "didelta_spinosa"
+				"model": "didelta_spinosa",
+				"solid": false
 			}
 		},
 		{
-			"type": "veg",
+			"type": "prop",
 			"at": [
 				20,
 				0,
 				-6
 			],
 			"params": {
-				"model": "didelta_spinosa"
+				"model": "didelta_spinosa",
+				"solid": false
 			}
 		},
 		{
-			"type": "veg",
+			"type": "prop",
 			"at": [
 				-7,
 				0,
 				-6
 			],
 			"params": {
-				"model": "cheiridopsis_succulent"
+				"model": "cheiridopsis_succulent",
+				"solid": false
 			}
 		},
 		{
-			"type": "veg",
+			"type": "prop",
 			"at": [
 				8,
 				0,
 				-5
 			],
 			"params": {
-				"model": "cheiridopsis_succulent"
+				"model": "cheiridopsis_succulent",
+				"solid": false
 			}
 		},
 		{
@@ -1697,27 +1701,61 @@
 			}
 		},
 		{
-			"type": "lantern",
+			"type": "prop",
 			"at": [
 				-16,
 				3.4,
 				-15
 			],
 			"params": {
-				"color": 10475680,
-				"distance": 11
+				"model": "Lantern_01",
+				"solid": false
 			}
 		},
 		{
-			"type": "lantern",
+			"type": "pointlight",
+			"at": [
+				-16,
+				3.4,
+				-15
+			],
+			"params": {
+				"color": [
+					0.624,
+					0.847,
+					0.627
+				],
+				"intensity": 1,
+				"range": 11
+			}
+		},
+		{
+			"type": "prop",
 			"at": [
 				16,
 				3.4,
 				-15
 			],
 			"params": {
-				"color": 10475680,
-				"distance": 11
+				"model": "Lantern_01",
+				"solid": false
+			}
+		},
+		{
+			"type": "pointlight",
+			"at": [
+				16,
+				3.4,
+				-15
+			],
+			"params": {
+				"color": [
+					0.624,
+					0.847,
+					0.627
+				],
+				"intensity": 1,
+				"range": 11
 			}
 		},
 		{

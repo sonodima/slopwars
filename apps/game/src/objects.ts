@@ -6,7 +6,6 @@
 // editor `category`, and a build() that turns a transform (position/rotation/
 // scale) + params into geometry/collision/behaviour. New behaviours = one
 // defineObject() call; the loader and the editor pick them up for free.
-import { Color, PointLight } from "@galacean/engine";
 import catalog from "virtual:asset-catalog";
 import type { MapBuilder } from "./mapbuilder";
 import { AABB } from "./map";
@@ -273,111 +272,7 @@ defineObject<SpotLightLook>("spotlight", {
   build(b, t, p) { b.track(buildSpotLight(b.root, t.at, t.rot, p)); },
 });
 
-/** hanging/standing lantern that also casts a warm point light. Kept for existing
- *  maps and one-drop convenience — the modern way is a plain lantern `prop` grouped
- *  with a `pointlight`, but this bundles both for a quick warm glow. */
-defineObject<{ color: number; distance: number; scale?: number }>("lantern", {
-  defaults: { color: 0xe69e52, distance: 8 },
-  category: "light",
-  build(b, t, p) {
-    const [x, y, z] = t.at;
-    const m = p.scale ?? 1;
-    // placeModelTf already tracks the model entity for editor picking; only the
-    // (rare) fallback lamp — created when the model fails to load — needs tracking.
-    const model = b.placeModelTf("Lantern_01", [x, y, z], [0, t.rot[1], 0], [t.scale[0] * m, t.scale[1] * m, t.scale[2] * m]);
-    const e = model ?? b.track(b.root.createChild("lamp"));
-    e.transform.setPosition(x, y, z);
-    const l = e.addComponent(PointLight);
-    l.color = new Color(((p.color >> 16) & 255) / 255, ((p.color >> 8) & 255) / 255, (p.color & 255) / 255, 1);
-    l.distance = p.distance;
-  },
-});
-
-/** planter box with a plant on top + collision */
-defineObject<{ scale?: number; top: number; radius: number; plant: string }>("planter", {
-  defaults: { top: 0.5, radius: 0.8, plant: "cheiridopsis_succulent" },
-  category: "prop",
-  build(b, t, p) {
-    const [x, y, z] = t.at;
-    const m = p.scale ?? 1;
-    const sv: [number, number, number] = [t.scale[0] * m, t.scale[1] * m, t.scale[2] * m];
-    b.placeModelTf("planter_box_01", [x, y, z], [0, 0, 0], sv);
-    b.placeModelTf(p.plant, [x, y + p.top, z], [0, t.rot[1], 0], [t.scale[0], t.scale[1], t.scale[2]]);
-    b.pushSolid({ min: { x: x - p.radius, y, z: z - p.radius }, max: { x: x + p.radius, y: y + 0.7, z: z + p.radius } });
-  },
-});
-
-/** ground vegetation (visual only) — rests on the floor. `model` is a model
- *  folder name; drop any plant/shrub/succulent model in to place it snapped to the
- *  floor (that's all shrub/succulent ever were — a `veg` with a model pre-filled). */
-defineObject<{ scale?: number; model: string }>("veg", {
-  defaults: { model: "" }, category: "prop",
-  build(b, t, p) {
-    if (!p.model) return;
-    const [x, , z] = t.at;
-    const m = p.scale ?? 1;
-    b.placeModelTf(p.model, [x, b.map.floorY(x, z), z], [0, t.rot[1], 0], [t.scale[0] * m, t.scale[1] * m, t.scale[2] * m]);
-  },
-});
-
-// ─── code-built structures (no model) ─────────────────────────────────────────
-
-/** low wooden pallet (visual+solid, short) */
-defineObject<{ mat: string }>("pallet", {
-  defaults: { mat: "crate" }, category: "structure",
-  build(b, t, p) { const [x, y, z] = t.at; b.box(x, y + 0.08, z, 1.3, 0.16, 1.1, p.mat, 0.8, 0.7); },
-});
-
-/** stack of sandbags; rot 1 = rotate footprint 90° */
-defineObject<{ rot: 0 | 1; mat: string }>("sandbags", {
-  defaults: { rot: 0, mat: "wall" }, category: "structure",
-  build(b, t, p) {
-    const [x, y, z] = t.at;
-    const w = p.rot ? 0.65 : 1.5, d = p.rot ? 1.5 : 0.65;
-    b.box(x, y + 0.28, z, w, 0.56, d, p.mat, 0.6, 0.3);
-    b.box(x + (p.rot ? 0 : 0.1), y + 0.72, z + (p.rot ? 0.1 : 0), w * 0.8, 0.34, d * 0.8, p.mat, 0.5, 0.2);
-  },
-});
-
-/** market stall: counter + 4 poles + a jumpable canopy */
-defineObject<{ mat: string }>("stall", {
-  defaults: { mat: "crate" }, category: "structure",
-  build(b, t, p) {
-    const [x, y, z] = t.at;
-    b.box(x, y + 0.5, z, 2.6, 1.0, 1.1, p.mat, 1.4, 0.6);
-    for (const [dx, dz] of [[-1.2, -0.9], [1.2, -0.9], [-1.2, 0.9], [1.2, 0.9]]) {
-      b.box(x + dx, y + 1.2, z + dz, 0.14, 2.4, 0.14, p.mat, 0.1, 1.4);
-    }
-    b.box(x, y + 2.45, z, 3.1, 0.14, 2.4, "metal", 1.4, 1);
-    b.box(x - 0.5, y + 0.08, z + 1.7, 1.3, 0.16, 1.1, p.mat, 0.8, 0.7); // pallet beside
-  },
-});
-
-/** stone column with capital + base (cylinder shaft) */
-defineObject<{ height: number; radius: number; mat: string }>("column", {
-  defaults: { height: 2.9, radius: 0.32, mat: "stone" }, category: "structure",
-  build(b, t, p) {
-    const [x, y, z] = t.at;
-    b.cylinder(x, y + 1.45, z, p.radius, p.radius, p.height, p.mat, 0.6, 1.4, 10);
-    b.box(x, y + 3.05, z, 0.85, 0.3, 0.85, p.mat, 0.3, 0.15); // capital
-    b.box(x, y + 0.15, z, 0.85, 0.3, 0.85, p.mat, 0.3, 0.15); // base
-    b.pushSolid({ min: { x: x - p.radius, y, z: z - p.radius }, max: { x: x + p.radius, y: y + p.height, z: z + p.radius } });
-  },
-});
-
-/** window opening in an x-facing wall: sill + header fills around a 1.6-wide hole */
-defineObject<{ ledge: boolean; mat: string }>("window", {
-  defaults: { ledge: true, mat: "wall" }, category: "structure",
-  build(b, t, p) {
-    const [x, y, z] = t.at;
-    b.box(x, y + 0.55, z, 0.9, 1.1, 1.6, p.mat, 0.5, 0.4);   // sill fill
-    b.box(x, y + 2.85, z, 0.9, 1.1, 1.6, p.mat, 0.5, 0.4);   // header fill
-    if (p.ledge) b.box(x, y + 1.12, z, 1.1, 0.14, 1.9, "stone", 0.6, 0.08); // sill ledge
-  },
-});
-
-/** metal awning slab jutting from a wall (visual+solid) */
-defineObject<{ w: number; d: number; mat: string }>("awning", {
-  defaults: { w: 2.6, d: 1.3, mat: "metal" }, category: "structure",
-  build(b, t, p) { const [x, y, z] = t.at; b.box(x, y + 0.06, z, p.d, 0.12, p.w, p.mat, 0.6, 1); },
-});
+// NOTE: the old bespoke decoration/structure object types (lantern, planter, veg,
+// pallet, sandbags, stall, column, window, awning) were removed — each was just a
+// bundle of `prop`/`box`/`pointlight` placements, so they're authored directly from
+// those primitives now (existing maps were migrated to the equivalent placements).

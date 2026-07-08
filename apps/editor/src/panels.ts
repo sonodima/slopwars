@@ -3,11 +3,13 @@
 // Audio · Maps) instead of one long scroll. The active tab shows a search box + a
 // context action: Import (models/textures/skyboxes/audio bring files into the
 // project), or Create (materials are *created* not imported; maps too). Cards are
-// draggable onto the viewport / inspector slots. Double-clicking an asset opens (or
-// focuses) its viewport tab: a material/model/texture preview, or a loaded map.
+// draggable onto the viewport / inspector slots. Double-clicking a model/material
+// opens its preview tab (or a map loads it); textures show as flat bitmaps with no
+// preview tab. Right-clicking any card opens Unity-style context actions (Delete…).
 import type { AssetCatalog, MapCatalogEntry } from "@slopwars/shared";
 import { objectCatalog } from "@game/objects";
-import { clear, el } from "./ui";
+import { clear, el, contextMenu, confirmDelete, type MenuItem } from "./ui";
+import { icon, type IconName } from "./icons";
 import { ThumbRenderer } from "./preview";
 import { openImport, type ImportKind } from "./importer";
 
@@ -18,17 +20,29 @@ export interface PanelCtx {
   listMaps: () => Promise<MapCatalogEntry[]>;
   onOpenMaterial: (name: string) => void;
   onOpenModel: (name: string) => void;
-  onOpenTexture: (name: string) => void;
   onCreateMaterial: () => void;
   onLoadMap: (file: string) => void;
   onCreateMap: () => void;
+  // right-click deletes (Unity-style context actions; delete is no longer an
+  // inspector button). Each returns once the catalog has been refreshed.
+  onDeleteModel: (name: string) => void;
+  onDeleteMaterial: (name: string) => void;
+  onDeleteTexture: (name: string) => void;
+  onDeleteHdri: (file: string) => void;
+  onDeleteAudio: (file: string) => void;
+  onDeleteMap: (file: string) => void;
 }
 
 const ASSET = (p: string): string => `${import.meta.env.BASE_URL}assets/${p}`;
 
-const CAT_ICON: Record<string, string> = {
-  geometry: "◼", marker: "⚑", sound: "♪", light: "💡", entity: "◈", structure: "▤", prop: "◆",
+const CAT_ICON: Record<string, IconName> = {
+  geometry: "box", marker: "flag", sound: "volume", light: "bulb", entity: "zap", structure: "building", prop: "package",
 };
+
+/** attach a right-click context menu (Unity-style) to an asset card */
+function ctxMenu(card: HTMLElement, items: () => MenuItem[]): void {
+  card.addEventListener("contextmenu", (e) => { e.preventDefault(); e.stopPropagation(); contextMenu(e.clientX, e.clientY, items()); });
+}
 
 type Tab = "Objects" | "Models" | "Materials" | "Textures" | "Skyboxes" | "Audio" | "Maps";
 const TABS: Tab[] = ["Objects", "Models", "Materials", "Textures", "Skyboxes", "Audio", "Maps"];
@@ -69,10 +83,14 @@ export function renderBrowser(host: HTMLElement, ctx: PanelCtx): BrowserControl 
   const grid = el("div", "asset-grid");
   const draw = (): void => {
     // context action button (Import files / Create in place / hidden)
+    const setAction = (ic: IconName, label: string, fn: () => void): void => {
+      clear(action); action.append(icon(ic), el("span", "btn-label", label));
+      action.style.display = ""; action.onclick = fn;
+    };
     const imp = IMPORT_KIND[active];
-    if (imp) { action.textContent = "＋ Import"; action.style.display = ""; action.onclick = () => openImport(imp, () => void reload()); }
-    else if (active === "Materials") { action.textContent = "＋ New"; action.style.display = ""; action.onclick = ctx.onCreateMaterial; }
-    else if (active === "Maps") { action.textContent = "＋ New"; action.style.display = ""; action.onclick = ctx.onCreateMap; }
+    if (imp) setAction("download", "Import", () => openImport(imp, () => void reload()));
+    else if (active === "Materials") setAction("plus", "New", ctx.onCreateMaterial);
+    else if (active === "Maps") setAction("plus", "New", ctx.onCreateMap);
     else { action.style.display = "none"; action.onclick = null; }
 
     clear(grid);
@@ -89,7 +107,8 @@ export function renderBrowser(host: HTMLElement, ctx: PanelCtx): BrowserControl 
   const drawObjects = (): void => {
     for (const o of objectCatalog()) {
       if (!match(o.name)) continue;
-      const c = card(o.name, CAT_ICON[o.category] ?? "◆", () => ({ kind: "object", name: o.name }));
+      const c = card(o.name, CAT_ICON[o.category] ?? "package", () => ({ kind: "object", name: o.name }));
+      c.title = "drag into the viewport to place";
       fillThumb(c, ctx.thumbs.objectThumb(o.name, o.category));
       grid.append(c);
     }
@@ -97,9 +116,14 @@ export function renderBrowser(host: HTMLElement, ctx: PanelCtx): BrowserControl 
   const drawModels = (): void => {
     for (const m of ctx.catalog.models) {
       if (!match(m.name)) continue;
-      const c = card(m.name, "▣", () => ({ kind: "model", name: m.name }));
-      c.title = "double-click to open · drag into the viewport to place";
+      const c = card(m.name, "box", () => ({ kind: "model", name: m.name }));
+      c.title = "double-click to open · drag into the viewport to place · right-click for actions";
       c.addEventListener("dblclick", () => ctx.onOpenModel(m.name));
+      ctxMenu(c, () => [
+        { label: "Open", icon: "eye", onClick: () => ctx.onOpenModel(m.name) },
+        { sep: true },
+        { label: "Delete", icon: "trash", danger: true, onClick: () => confirmDelete(`model "${m.name}"`, () => ctx.onDeleteModel(m.name)) },
+      ]);
       fillThumb(c, ctx.thumbs.modelThumb(m.gltf));
       grid.append(c);
     }
@@ -107,9 +131,14 @@ export function renderBrowser(host: HTMLElement, ctx: PanelCtx): BrowserControl 
   const drawMaterials = (): void => {
     for (const mt of ctx.catalog.materials) {
       if (!match(mt.name)) continue;
-      const c = card(mt.name, "◆", () => ({ kind: "material", name: mt.name }));
-      c.title = "double-click to open";
+      const c = card(mt.name, "material", () => ({ kind: "material", name: mt.name }));
+      c.title = "double-click to open · right-click for actions";
       c.addEventListener("dblclick", () => ctx.onOpenMaterial(mt.name));
+      ctxMenu(c, () => [
+        { label: "Open", icon: "eye", onClick: () => ctx.onOpenMaterial(mt.name) },
+        { sep: true },
+        { label: "Delete", icon: "trash", danger: true, onClick: () => confirmDelete(`material "${mt.name}"`, () => ctx.onDeleteMaterial(mt.name)) },
+      ]);
       fillThumb(c, ctx.thumbs.materialThumb(mt.name, mt.def, ctx.catalog));
       grid.append(c);
     }
@@ -119,9 +148,11 @@ export function renderBrowser(host: HTMLElement, ctx: PanelCtx): BrowserControl 
   const drawTextures = (): void => {
     for (const t of ctx.catalog.textures) {
       if (!match(t.name)) continue;
-      const c = card(t.name, "▦", () => ({ kind: "texture", name: t.name }));
-      c.title = "double-click to open";
-      c.addEventListener("dblclick", () => ctx.onOpenTexture(t.name));
+      const c = card(t.name, "image", () => ({ kind: "texture", name: t.name }));
+      c.title = "drag onto a material's texture slot · right-click for actions";
+      ctxMenu(c, () => [
+        { label: "Delete", icon: "trash", danger: true, onClick: () => confirmDelete(`texture "${t.name}"`, () => ctx.onDeleteTexture(t.name)) },
+      ]);
       if (t.maps.color) fillImg(c, ASSET(t.maps.color));
       grid.append(c);
     }
@@ -129,7 +160,11 @@ export function renderBrowser(host: HTMLElement, ctx: PanelCtx): BrowserControl 
   const drawSkyboxes = (): void => {
     for (const h of ctx.catalog.hdri) {
       if (!match(h.name)) continue;
-      const c = card(h.name, "🌅", () => ({ kind: "hdri", name: h.name }));
+      const c = card(h.name, "mountain", () => ({ kind: "hdri", name: h.name }));
+      c.title = "drag onto the world's sky slot · right-click for actions";
+      ctxMenu(c, () => [
+        { label: "Delete", icon: "trash", danger: true, onClick: () => confirmDelete(`skybox "${h.name}"`, () => ctx.onDeleteHdri(h.file)) },
+      ]);
       fillThumb(c, ctx.thumbs.hdriThumb(h.file));
       grid.append(c);
     }
@@ -137,7 +172,11 @@ export function renderBrowser(host: HTMLElement, ctx: PanelCtx): BrowserControl 
   const drawAudio = (): void => {
     for (const a of ctx.catalog.audio) {
       if (!match(a.name)) continue;
-      const c = card(a.name, "♪", () => ({ kind: "audio", name: a.name }));
+      const c = card(a.name, "volume", () => ({ kind: "audio", name: a.name }));
+      c.title = "drag into the viewport to place a sound · right-click for actions";
+      ctxMenu(c, () => [
+        { label: "Delete", icon: "trash", danger: true, onClick: () => confirmDelete(`audio "${a.name}"`, () => ctx.onDeleteAudio(a.file)) },
+      ]);
       c.append(audioControls(ASSET(a.file)));
       grid.append(c);
     }
@@ -146,9 +185,15 @@ export function renderBrowser(host: HTMLElement, ctx: PanelCtx): BrowserControl 
     for (const m of maps) {
       if (!match(m.name) && !match(m.id)) continue;
       const c = el("div", "asset-card map-card");
-      c.append(el("div", "asset-thumb", "🗺"), el("div", "asset-name", m.name), el("div", "asset-sub", m.id));
-      c.title = "double-click to load";
+      const thumb = el("div", "asset-thumb"); thumb.append(icon("map", "asset-icon-svg"));
+      c.append(thumb, el("div", "asset-name", m.name), el("div", "asset-sub", m.id));
+      c.title = "double-click to load · right-click for actions";
       c.addEventListener("dblclick", () => ctx.onLoadMap(m.file));
+      ctxMenu(c, () => [
+        { label: "Load", icon: "map", onClick: () => ctx.onLoadMap(m.file) },
+        { sep: true },
+        { label: "Delete", icon: "trash", danger: true, onClick: () => confirmDelete(`map "${m.name}"`, () => ctx.onDeleteMap(m.file)) },
+      ]);
       grid.append(c);
     }
   };
@@ -167,9 +212,9 @@ export function renderBrowser(host: HTMLElement, ctx: PanelCtx): BrowserControl 
 }
 
 /** a draggable asset card carrying a placement payload */
-function card(name: string, icon: string, payload: () => Payload): HTMLElement {
+function card(name: string, ic: IconName, payload: () => Payload): HTMLElement {
   const c = el("div", "asset-card grab");
-  const thumb = el("div", "asset-thumb"); thumb.append(el("div", "asset-icon", icon));
+  const thumb = el("div", "asset-thumb"); thumb.append(icon(ic, "asset-icon-svg"));
   c.append(thumb, el("div", "asset-name", name));
   c.draggable = true;
   c.addEventListener("dragstart", (e) => { e.dataTransfer?.setData("application/x-slop", JSON.stringify(payload())); });
@@ -179,8 +224,8 @@ function card(name: string, icon: string, payload: () => Payload): HTMLElement {
 function audioControls(src: string): HTMLElement {
   const audio = new Audio(src); audio.preload = "none";
   const box = el("div", "asset-audioctl");
-  const play = el("button", "btn", "▶ Play");
-  const stop = el("button", "btn", "■ Stop");
+  const play = el("button", "btn"); play.append(icon("play"), el("span", "btn-label", "Play"));
+  const stop = el("button", "btn"); stop.append(icon("stop"), el("span", "btn-label", "Stop"));
   play.addEventListener("click", (e) => { e.stopPropagation(); void audio.play().catch(() => { /* needs gesture */ }); });
   stop.addEventListener("click", (e) => { e.stopPropagation(); audio.pause(); audio.currentTime = 0; });
   box.append(play, stop);
