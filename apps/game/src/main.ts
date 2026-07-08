@@ -19,6 +19,7 @@ import {
 } from "./maps";
 import { HE_DAMAGE, HE_RADIUS, MOL_RADIUS, MOL_TICK_DMG, NadeKind, Projectiles } from "./nades";
 import { Net } from "./net";
+import { PhysicsWorld } from "./physics";
 import { Input, PlayerBody } from "./player";
 import { RemotePlayer } from "./remote";
 import { MODEL_LOAD_COUNT, loadModels } from "./models";
@@ -75,6 +76,7 @@ class Game {
   ws!: WeaponSystem;
   tracers!: TracerPool;
   nades!: Projectiles;
+  physics = new PhysicsWorld(this.map);   // dynamic props (reads map.dynBodies, refilled each load)
   hud = new Hud();
   net = new Net();
   voice = new Voice();
@@ -254,7 +256,7 @@ class Game {
     this.tracers = new TracerPool(engine, root);
     this.nades = new Projectiles(engine, root, this.map);
     this.nades.onBounce = (p) => { const r = this.relAudio(p); sfx.nadeBounce(r.pan, r.dist); };
-    this.nades.onBoom = (p) => { const r = this.relAudio(p); sfx.explosion(r.pan, r.dist); };
+    this.nades.onBoom = (p) => { const r = this.relAudio(p); sfx.explosion(r.pan, r.dist); this.physics.applyExplosion(p, HE_RADIUS, 42); };
     this.nades.onBreak = (p) => { const r = this.relAudio(p); sfx.shatter(r.pan, r.dist); };
     this.nades.onIgnite = (p, dur) => { const r = this.relAudio(p); sfx.fire(dur, r.pan, r.dist); };
     this.nades.onExplode = (c, _owner, local) => { if (local) this.explodeDamage(c); };
@@ -749,6 +751,9 @@ class Game {
       this.ws.update(dt, moving, this.body.onGround);
       this.tracers.update(dt);
       this.nades.update(dt, now);
+      // dynamic props: integrate after the player has moved so walking into a light
+      // prop can shove it (and a heavy one blocks). No-op when the map has none.
+      this.physics.step(dt, this.alive ? this.body : null);
 
       // camera transform (first- or third-person)
       const eye = this.body.eyeY;
@@ -921,6 +926,20 @@ class Game {
 
     // explosive barrel closer than any victim/wall → it takes the hit and stops the ray
     const bh = this.map.raycastBarrel(o, d, vDist);
+    // a dynamic physics prop the ray reaches (before a barrel) stops it too, and gets
+    // shoved. Applied on every client (not just the shooter) so each local sim agrees.
+    const pbh = this.physics.raycast(o, d, bh ? Math.min(vDist, bh.dist) : vDist);
+    if (pbh && (!bh || pbh.dist < bh.dist)) {
+      const pp: Vec3 = { x: o.x + d.x * pbh.dist, y: o.y + d.y * pbh.dist, z: o.z + d.z * pbh.dist };
+      this.physics.applyImpulseAt(pbh.body, pp, d, def.melee ? 6 : 9);
+      if (localShooter) {
+        if (!def.melee) this.tracers.spawn({ x: o.x + d.x * 0.8, y: o.y - 0.12, z: o.z + d.z * 0.8 }, pp);
+        this.tracers.impact(pp);
+        const rel = this.relAudio(pp);
+        sfx.impact(rel.pan, rel.dist);
+      }
+      return;
+    }
     if (bh) {
       const bp: Vec3 = { x: o.x + d.x * bh.dist, y: o.y + d.y * bh.dist, z: o.z + d.z * bh.dist };
       if (localShooter) {
@@ -1061,6 +1080,7 @@ class Game {
 
   spawnBarrelFx(c: Vec3): void {
     this.nades.explodeFx(c);
+    this.physics.applyExplosion(c, HE_RADIUS, 52);   // barrels fling nearby props harder
   }
 
   // ─── host authority ─────────────────────────────────────────────────────────

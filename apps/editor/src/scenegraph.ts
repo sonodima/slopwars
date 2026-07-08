@@ -7,11 +7,16 @@
 // groups the current selection.
 import type { GroupDef, Placement } from "@slopwars/shared";
 import { state } from "./state";
-import { clear, el, renamable, contextMenu, type MenuItem } from "./ui";
+import { clear, el, renamable, contextMenu, confirmDelete, type MenuItem } from "./ui";
 import { icon } from "./icons";
 
 let query = "";
 let listHost: HTMLElement | null = null;
+/** a rename requested from a context menu: applied on the next render once the
+ *  row's (freshly rebuilt) label element exists. Selecting an item re-renders the
+ *  list and detaches the old label, so a right-click "Rename" can't act on the
+ *  captured node — it re-targets the live one by id/ref here instead. */
+let renameTarget: { kind: "group"; id: string } | { kind: "obj"; o: Placement } | null = null;
 /** what a row drag is currently carrying (object ref or group id) */
 let dragItem: { kind: "obj"; o: Placement } | { kind: "group"; id: string } | null = null;
 
@@ -115,19 +120,31 @@ function groupRow(g: GroupDef, depth: number): HTMLElement {
   const lbl = el("span", "sg-label", g.name);
   renamable(lbl, () => g.name, (v) => state.renameGroup(g.id, v || g.name), () => { /* renameGroup commits */ });
   r.append(caret, sgIcon("folder"), lbl);
+  if (renameTarget?.kind === "group" && renameTarget.id === g.id) { renameTarget = null; queueMicrotask(() => startRename(lbl)); }
 
+  // row actions mirror an object row's (duplicate · delete), plus ungroup
+  const dup = el("button", "btn mini"); dup.append(icon("copy"));
+  dup.title = "duplicate group";
+  dup.addEventListener("click", (e) => { e.stopPropagation(); const id = state.duplicateGroup(g.id); if (id) state.selectGroup(id, "outliner"); });
   const ungr = el("button", "btn mini"); ungr.append(icon("ungroup"));
-  ungr.title = "ungroup";
+  ungr.title = "ungroup (keep contents)";
   ungr.addEventListener("click", (e) => { e.stopPropagation(); state.ungroup(g.id); });
-  r.append(ungr);
+  const del = el("button", "btn mini"); del.append(icon("trash"));
+  del.title = "delete group + contents";
+  del.addEventListener("click", (e) => { e.stopPropagation(); confirmDeleteGroup(g); });
+  r.append(dup, ungr, del);
 
   r.addEventListener("click", () => state.selectGroup(g.id, "outliner"));
   r.addEventListener("contextmenu", (e) => {
     e.preventDefault(); e.stopPropagation();
     state.selectGroup(g.id, "outliner");
     contextMenu(e.clientX, e.clientY, [
-      { label: "Rename", icon: "pencil", onClick: () => startRename(lbl) },
+      { label: "Rename", icon: "pencil", onClick: () => { renameTarget = { kind: "group", id: g.id }; renderList(); } },
+      { label: "Duplicate", icon: "copy", onClick: () => { const id = state.duplicateGroup(g.id); if (id) state.selectGroup(id, "outliner"); } },
+      { sep: true },
       { label: "Ungroup", icon: "ungroup", onClick: () => state.ungroup(g.id) },
+      { sep: true },
+      { label: "Delete", icon: "trash", danger: true, onClick: () => confirmDeleteGroup(g) },
     ]);
   });
 
@@ -149,6 +166,7 @@ function objectRow(o: Placement, depth: number): HTMLElement {
   const lbl = el("span", "sg-label", label(o));
   renamable(lbl, () => o.name ?? "", (v) => { o.name = v || undefined; }, () => { selectObj(o, false); state.commit(true); });
   r.append(lbl);
+  if (renameTarget?.kind === "obj" && renameTarget.o === o) { renameTarget = null; queueMicrotask(() => startRename(lbl)); }
   r.addEventListener("click", (e) => selectObj(o, e.ctrlKey || e.metaKey || e.shiftKey));
 
   const dup = el("button", "btn mini"); dup.append(icon("copy"));
@@ -164,7 +182,7 @@ function objectRow(o: Placement, depth: number): HTMLElement {
     if (!state.isSelected(o)) selectObj(o, false);
     const multi = state.selectedObjects().length > 1;
     const items: MenuItem[] = [
-      { label: "Rename", icon: "pencil", onClick: () => startRename(lbl) },
+      { label: "Rename", icon: "pencil", onClick: () => { renameTarget = { kind: "obj", o }; renderList(); } },
       { label: "Duplicate", icon: "copy", onClick: () => { const i = idxOf(o); if (i >= 0) state.duplicate(i); } },
       { sep: true },
       { label: multi ? "Group selection" : "Group", icon: "group", onClick: () => { const id = state.createGroup(); if (id) state.selectGroup(id, "outliner"); } },
@@ -183,6 +201,13 @@ function objectRow(o: Placement, depth: number): HTMLElement {
 function sgIcon(name: string): HTMLElement { const s = el("span", "sg-ico"); s.append(icon(name)); return s; }
 /** trigger a renamable label's inline edit (used by the context menu) */
 function startRename(span: HTMLElement): void { span.dispatchEvent(new MouseEvent("dblclick")); }
+
+/** confirm + delete a group and everything inside it (objects + nested groups) */
+function confirmDeleteGroup(g: GroupDef): void {
+  const n = state.membersOf(g.id, true).length;
+  const what = `group "${g.name}"` + (n ? ` and its ${n} object${n === 1 ? "" : "s"}` : "");
+  confirmDelete(what, () => state.deleteGroup(g.id));
+}
 
 function idxOf(o: Placement): number { return state.map ? state.map.objects.indexOf(o) : -1; }
 

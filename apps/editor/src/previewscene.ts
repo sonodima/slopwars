@@ -330,7 +330,11 @@ export class PreviewScene {
     e.transform.setPosition(b.at[0], b.at[1], b.at[2]);
     e.transform.setScale(Math.max(0.001, b.size[0]), Math.max(0.001, b.size[1]), Math.max(0.001, b.size[2]));
     const r = e.addComponent(MeshRenderer);
-    r.mesh = PrimitiveMesh.createCuboid(this.engine, 1, 1, 1);
+    // a unit primitive (fits a 1³ box) so the shared per-solid scale sizes it: a
+    // cylinder is upright along Y (radius ½ in x/z), a sphere is inscribed likewise.
+    r.mesh = b.shape === "cylinder" ? PrimitiveMesh.createCylinder(this.engine, 0.5, 0.5, 1, 24)
+      : b.shape === "sphere" ? PrimitiveMesh.createSphere(this.engine, 0.5, 24)
+      : PrimitiveMesh.createCuboid(this.engine, 1, 1, 1);
     r.setMaterial(this.boxMaterial(false));
     return e;
   }

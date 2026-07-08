@@ -7,12 +7,20 @@
 
 import type { Tuple3 } from "./schema";
 
+/** the primitive a collision solid is shaped from. A "box" fills its `size` bounds;
+ *  a "cylinder" is upright along Y (radius = size.x/2 = size.z/2, height = size.y);
+ *  a "sphere" is centred (radius = size.x/2). Cylinders/spheres let round props
+ *  (barrels, balls) collide and tumble roundly instead of as a blocky box. */
+export type CollisionShape = "box" | "cylinder" | "sphere";
+
 /** one authored collision solid for a model, in the model's LOCAL space (native
- *  glTF units, before the meta `scale`/`base` calibration). `at` is the box centre,
- *  `size` its full extents. Used only when a model's collision mode is "manual". */
+ *  glTF units, before the meta `scale`/`base` calibration). `at` is the solid's
+ *  centre, `size` its full extents (also the bounds a non-box shape is inscribed in).
+ *  `shape` defaults to "box". Used only when a model's collision mode is "manual". */
 export interface CollisionBox {
   at: Tuple3;
   size: Tuple3;
+  shape?: CollisionShape;
 }
 
 /** how a model's collision is derived: "auto" = one AABB hugging the whole mesh

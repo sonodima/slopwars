@@ -185,14 +185,18 @@ defineObject<{ clip: string; radius: number; volume: number; loop: boolean; spat
 // ─── generic model prop — the drag-a-model target ─────────────────────────────
 // Places ANY model by folder name with a full transform; collision is derived
 // from the model's actual mesh bounds. Dropping a model in the editor creates
-// one of these with { model } set.
-defineObject<{ model: string; solid: boolean }>("prop", {
-  defaults: { model: "", solid: true },
+// one of these with { model } set. Flip `physics` on to make it a movable rigid
+// body (mass in kg): light props (a crate, a can) get shoved when you shoot, blast
+// or walk into them; heavy ones barely budge. Physics props are dynamic, so they
+// don't contribute static collision — the PhysicsWorld drives them at runtime.
+defineObject<{ model: string; solid: boolean; physics: boolean; mass: number }>("prop", {
+  defaults: { model: "", solid: true, physics: false, mass: 5 },
   category: "prop",
   build(b, t, p) {
     if (!p.model) return;
     const e = b.placeModelTf(p.model, t.at, t.rot, t.scale);
     if (!e) return;
+    if (p.physics) { b.pushDynamicBody(p.model, e, t.at, t.rot, t.scale, p.mass); return; }
     if (p.solid) b.pushModelSolids(p.model, e, t.at, t.rot, t.scale);
   },
 });
