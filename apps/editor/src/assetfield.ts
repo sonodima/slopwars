@@ -60,10 +60,19 @@ export function assetField(o: AssetFieldOpts): HTMLElement {
   const prev = el("div", "af-prevwrap");
   const nameEl = el("span", "af-name");
 
+  const warn = el("span", "af-warn", "⚠");
+  warn.title = "missing asset — falls back to a default; pick another or clear it";
   const refresh = (): void => {
     const v = o.get();
+    // a reference to an asset that no longer exists (deleted) is dangling: keep the
+    // name but flag it red. The engine + game fall back gracefully (default material,
+    // default texture, no model), so the map still loads.
+    const missing = !!v && !names(o.catalog, o.kind).includes(v);
     nameEl.textContent = v || "none";
     nameEl.classList.toggle("empty", !v);
+    nameEl.classList.toggle("dangling", missing);
+    box.classList.toggle("dangling", missing);
+    warn.style.display = missing ? "" : "none";
     preview(prev, o, v);
   };
 
@@ -88,7 +97,7 @@ export function assetField(o: AssetFieldOpts): HTMLElement {
   clearBtn.title = "clear";
   clearBtn.addEventListener("click", (e) => { e.stopPropagation(); apply(""); });
 
-  box.append(prev, nameEl, clearBtn);
+  box.append(prev, nameEl, warn, clearBtn);
   row.append(box);
   refresh();
   return row;

@@ -1,7 +1,8 @@
 // ─── Object registry: every placeable thing in a map is a registered object ───
 // Following modern game-engine convention, a map is just a list of object
-// placements — geometry (box/water), props, spawns, pickups, power-ups,
-// sounds and lights are ALL object types. Each type declares DEFAULT params, an
+// placements — geometry (boxes; a water/glass material makes one a liquid surface
+// or a window), props, spawns, pickups, power-ups, sounds and lights are ALL object
+// types. Each type declares DEFAULT params, an
 // editor `category`, and a build() that turns a transform (position/rotation/
 // scale) + params into geometry/collision/behaviour. New behaviours = one
 // defineObject() call; the loader and the editor pick them up for free.
@@ -10,7 +11,6 @@ import catalog from "virtual:asset-catalog";
 import type { MapBuilder } from "./mapbuilder";
 import { AABB } from "./map";
 import { assetUrl } from "./assets";
-import { buildWater } from "./water";
 import { DEFAULT_MATERIAL, materialTextureFolders } from "./materials";
 import { buildParticles, PARTICLE_LOOK, type ParticleLook } from "./particles";
 import {
@@ -133,8 +133,10 @@ export function mapTextureFolders(def: MapDef, matDefs?: Map<string, MaterialDef
 
 /** cuboid shaded by a material — the structural workhorse. scale IS its w/h/d
  *  (scale gizmo resizes it). `mat` is a material name (drop one on the inspector
- *  slot); `tile` scales its UVs. A transmissive material (glass) makes it a window
- *  — geometry and shading are decoupled. solid=false → decoration. */
+ *  slot); `tile` scales its UVs. Shading is fully decoupled from geometry: a glass
+ *  material makes the box a window, a water material makes it a rippling liquid
+ *  surface (drop it thin + wide for a pool). solid=false → decoration you pass
+ *  through (water pools and window panes are usually solid=false). */
 defineObject<{ mat: string; tile: [number, number]; solid: boolean }>("box", {
   defaults: { mat: DEFAULT_MATERIAL, tile: [1, 1], solid: true },
   category: "geometry",
@@ -144,25 +146,6 @@ defineObject<{ mat: string; tile: [number, number]; solid: boolean }>("box", {
     const [rx, ry, rz] = t.rot;
     if (rx || ry || rz) e.transform.setRotation(rx, ry, rz);   // visual only (collision stays AABB)
     if (p.solid !== false) b.pushSolid({ min: { x: x - w / 2, y: y - h / 2, z: z - d / 2 }, max: { x: x + w / 2, y: y + h / 2, z: z + d / 2 } });
-  },
-});
-
-/** glass = a box carrying a glass material (a preset, not a bespoke type): the
- *  material owns the refraction, the box owns the geometry. Drop it thin for a
- *  window pane; give it any glass-type material for tinted/frosted variants. */
-definePreset<{ mat: string; tile: [number, number]; solid: boolean }>("glass", "box", { mat: "glass" });
-
-/** flat animated water surface (visual only); scale.x = size. `mat` names a
- *  `water`-type material (its WaterLook drives the look). Water is a surface
- *  *system* — a plane + a flow script — so it stays its own object rather than a
- *  material you paint on arbitrary geometry (see water.ts / materials.ts). */
-defineObject<{ mat: string }>("water", {
-  defaults: { mat: "water" }, category: "geometry",
-  build(b, t, p) {
-    const [x, y, z] = t.at;
-    const e = buildWater(b.engine, b.root, x, y, z, t.scale[0], b.lib.waterLook(p.mat));
-    b.map.tris += 12;
-    b.track(e);
   },
 });
 
@@ -250,21 +233,29 @@ definePreset<ParticleLook & { tex: string }>("smoke", "particles", {
 
 // ─── gameplay entities ────────────────────────────────────────────────────────
 
-/** explosive barrel — host tracks hp, explodes at 0 */
-DROP_SCALE.set("barrel", 1.15);
-defineObject<{ hp: number; scale?: number; radius: number; height: number }>("barrel", {
-  defaults: { hp: BARREL_HP, radius: 0.45, height: 1.1 },
+/** generic explodable prop — any `model` that takes damage and explodes at 0 hp
+ *  (host-tracked, reusing the barrel gameplay path). Drop one and point `model` at
+ *  a barrel, crate, gas tank… to make it shootable+explosive. `radius`/`height`
+ *  size its collision + blast cylinder. `barrel` below is just this with the barrel
+ *  model pre-filled (object wrapping — no duplicated logic). */
+defineObject<{ model: string; hp: number; scale?: number; radius: number; height: number }>("explodable", {
+  defaults: { model: "", hp: BARREL_HP, radius: 0.45, height: 1.1 },
   category: "entity",
   build(b, t, p) {
+    if (!p.model) return;
     const [x, y, z] = t.at;
-    const m = p.scale ?? 1;   // legacy multiplier; drop scale is 1.15 (transform)
-    const e = b.placeModelTf("Barrel_01", [x, y, z], [0, t.rot[1], 0], [t.scale[0] * m, t.scale[1] * m, t.scale[2] * m]);
-    // collision stays authored radius/height (as before) — barrels aren't resized
+    const m = p.scale ?? 1;   // legacy multiplier; drop scale carries the native size
+    const e = b.placeModelTf(p.model, [x, y, z], [0, t.rot[1], 0], [t.scale[0] * m, t.scale[1] * m, t.scale[2] * m]);
+    // collision stays authored radius/height (explodables aren't resized by scale)
     const solid: AABB = { min: { x: x - p.radius, y, z: z - p.radius }, max: { x: x + p.radius, y: y + p.height, z: z + p.radius } };
     b.pushSolid(solid);
     b.map.barrels.push({ pos: { x, y: y + p.height / 2, z }, entity: e, solid, hp: p.hp, dead: false });
   },
 });
+
+/** explosive barrel — the classic explodable, with the barrel model pre-filled */
+DROP_SCALE.set("barrel", 1.15);
+definePreset<{ model: string; hp: number; scale?: number; radius: number; height: number }>("barrel", "explodable", { model: "Barrel_01" });
 
 // ─── standalone light sources (point / directional / spot) ────────────────────
 // Pure lights, no model — the Unity-style building block. Group one with any prop

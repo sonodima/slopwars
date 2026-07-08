@@ -1,22 +1,29 @@
-// ─── Inspector: edit the selected object's transform + params, or the world ──
+// ─── Inspector: edit the selected object/group/asset, or the world ───────────
 // Object params get a generic UI derived from the type's declared defaults, with
-// smart widgets for well-known keys: model/clip/tex become drag-droppable asset
-// fields with an inline preview. The "World" row edits the map's sky / lighting
-// / effects.
-import type { AssetCatalog, FogFalloff, MapDef, MaterialDef, Placement, ShadowQuality, ToneMode, Tuple3 } from "@slopwars/shared";
-import { defaultMaterialDef, envPost, envShadows, placeRot, placeScale } from "@slopwars/shared";
+// smart widgets for well-known keys: model/clip/tex/mat become drag-droppable asset
+// fields with an inline preview. Assets picked in the browser (material / model /
+// texture) get their own editors here — a material's shading model + params, a
+// model's calibration meta, a texture's preview — each with a Delete action. The
+// "World" row edits the map's sky / lighting / effects. A group is a first-class
+// parent, so its inspector edits the group's own transform.
+import type { AssetCatalog, FogFalloff, MapDef, MaterialDef, MaterialType, ModelMeta, Placement, ShadowQuality, ToneMode, Tuple3 } from "@slopwars/shared";
+import { MATERIAL_TYPES, defaultMaterialDef, envPost, envShadows } from "@slopwars/shared";
 import { objectDefaults } from "@game/objects";
 import type { ThumbRenderer } from "./preview";
 import { state } from "./state";
 import { assetField } from "./assetfield";
-import { clear, el, numField, vecField, selectField, checkField, textField, colorField, renamable } from "./ui";
+import { clear, el, numField, vecField, selectField, checkField, textField, colorField, renamable, button, modal } from "./ui";
 
-// hooks the shell wires up so the material inspector can persist edits + re-shade
-let onMaterialChanged: ((name: string, def: MaterialDef) => void) | null = null;
-let onMaterialRenamed: ((from: string, to: string) => void) | null = null;
-export function setInspectorMaterialHooks(h: { changed: (name: string, def: MaterialDef) => void; renamed: (from: string, to: string) => void }): void {
-  onMaterialChanged = h.changed; onMaterialRenamed = h.renamed;
-}
+// hooks the shell wires up so asset editors can persist edits + re-shade
+interface MaterialHooks { changed: (name: string, def: MaterialDef) => void; renamed: (from: string, to: string) => void; deleted: (name: string) => void }
+interface ModelHooks { changed: (name: string, meta: ModelMeta) => void; deleted: (name: string) => void }
+interface TextureHooks { deleted: (name: string) => void }
+let matHooks: MaterialHooks | null = null;
+let modelHooks: ModelHooks | null = null;
+let texHooks: TextureHooks | null = null;
+export function setInspectorMaterialHooks(h: MaterialHooks): void { matHooks = h; }
+export function setInspectorModelHooks(h: ModelHooks): void { modelHooks = h; }
+export function setInspectorTextureHooks(h: TextureHooks): void { texHooks = h; }
 
 const AXES = ["x+", "x-", "z+", "z-"];
 
@@ -35,6 +42,8 @@ export function renderInspector(host: HTMLElement): void {
     const m = catalog.materials.find((x) => x.name === state.selMaterial);
     if (m) return materialInspector(host, m.name, m.def);
   }
+  if (state.selModel) return modelInspector(host, state.selModel);
+  if (state.selTexture) return textureInspector(host, state.selTexture);
   if (state.selGroup) {
     const g = state.groupById(state.selGroup);
     if (g) return groupInspector(host, g);
@@ -44,13 +53,42 @@ export function renderInspector(host: HTMLElement): void {
   objectInspector(host, o, touch);
 }
 
+/** a red Delete button that confirms before firing (irreversible file deletes) */
+function deleteButton(host: HTMLElement, label: string, what: string, onYes: () => void): void {
+  const b = button(label, () => confirmDelete(what, onYes), "danger");
+  b.classList.add("insp-delete");
+  host.append(b);
+}
+function confirmDelete(what: string, onYes: () => void): void {
+  const body = el("div", "confirm");
+  body.append(el("p", "confirm-msg", `Delete ${what}? This cannot be undone.`));
+  const row = el("div", "confirm-actions");
+  const dlg = modal("Confirm delete", body);
+  row.append(
+    button("Cancel", () => dlg.close()),
+    button("Delete", () => { dlg.close(); onYes(); }, "danger"),
+  );
+  body.append(row);
+}
+
 // ── material ──────────────────────────────────────────────────────────────────
 function materialInspector(host: HTMLElement, name: string, def: MaterialDef): void {
   const title = el("h3", "insp-title", name);
-  renamable(title, () => name, (v) => { if (v && v !== name) onMaterialRenamed?.(name, v); }, () => { /* rename persists */ });
+  renamable(title, () => name, (v) => { if (v && v !== name) matHooks?.renamed(name, v); }, () => { /* rename persists */ });
   host.append(title);
   host.append(el("div", "insp-sub", `material · ${def.type}`));
-  const edited = (): void => onMaterialChanged?.(name, def);
+  const edited = (): void => matHooks?.changed(name, def);
+
+  // shading model picker — switching a material's kind is non-destructive to its
+  // file (the def is replaced with that kind's defaults and re-persisted), and the
+  // param list below re-renders for the new kind.
+  group(host, "Type");
+  host.append(selectField("type", MATERIAL_TYPES, () => def.type, (v) => {
+    if (v === def.type) return;
+    const nd = defaultMaterialDef(v as MaterialType);
+    for (const k of Object.keys(def)) delete (def as unknown as Record<string, unknown>)[k];
+    Object.assign(def, nd);
+  }, () => { edited(); state.emitSelect(); /* re-render with the new kind's params */ }));
 
   if (def.type === "standard") {
     const d = def;
@@ -86,39 +124,77 @@ function materialInspector(host: HTMLElement, name: string, def: MaterialDef): v
     host.append(numField("thickness", () => d.thickness ?? g.thickness!, (v) => (d.thickness = Math.max(0, v)), edited, 0.05));
     host.append(numField("ior", () => d.ior ?? g.ior!, (v) => (d.ior = Math.max(1, v)), edited, 0.01));
   }
+
+  deleteButton(host, "🗑 Delete material", `material "${name}"`, () => matHooks?.deleted(name));
 }
 
 function clampn(v: number): number { return v < 0 ? 0 : v > 1 ? 1 : v; }
 
-// ── group ───────────────────────────────────────────────────────────────────
+// ── model (calibration meta persisted to models/<name>/meta.json) ─────────────
+function modelInspector(host: HTMLElement, name: string): void {
+  const asset = catalog.models.find((x) => x.name === name);
+  host.append(el("h3", "insp-title", name));
+  host.append(el("div", "insp-sub", "model"));
+  if (!asset) { host.append(el("div", "empty", "model not found")); return; }
+
+  // live preview of the model
+  const prev = el("div", "insp-modelprev");
+  host.append(prev);
+  void thumbs?.modelThumb(asset.gltf).then((url) => { if (url) { const img = el("img", "insp-modelimg"); img.src = url; prev.replaceChildren(img); } });
+
+  // edit a copy of the meta; the hook persists it + re-previews the map
+  const meta: ModelMeta = { ...(asset.meta ?? {}) };
+  const save = (): void => modelHooks?.changed(name, meta);
+
+  group(host, "Placement");
+  host.append(el("div", "insp-note", "Calibrate the model once — applies to every placement."));
+  host.append(numField("base", () => meta.base ?? 0, (v) => (meta.base = v || undefined), save, 0.02));
+  host.append(numField("scale", () => meta.scale ?? 1, (v) => (meta.scale = v > 0 ? v : undefined), save, 0.02));
+
+  group(host, "Material");
+  host.append(assetField({
+    label: "material", kind: "material", catalog, thumbs,
+    get: () => meta.material ?? "", set: (v) => { meta.material = v || undefined; }, onChange: save,
+  }));
+
+  deleteButton(host, "🗑 Delete model", `model "${name}"`, () => modelHooks?.deleted(name));
+}
+
+// ── texture (preview + delete) ────────────────────────────────────────────────
+function textureInspector(host: HTMLElement, name: string): void {
+  const t = catalog.textures.find((x) => x.name === name);
+  host.append(el("h3", "insp-title", name));
+  host.append(el("div", "insp-sub", "texture"));
+  if (!t) { host.append(el("div", "empty", "texture not found")); return; }
+  if (t.maps.color) {
+    const prev = el("div", "insp-modelprev");
+    const img = el("img", "insp-modelimg"); img.src = `${import.meta.env.BASE_URL}assets/${t.maps.color}`;
+    prev.append(img); host.append(prev);
+  }
+  group(host, "Maps");
+  for (const slot of ["color", "normal", "arm"] as const) {
+    host.append(el("div", "insp-note", `${slot}: ${t.maps[slot] ? "✓" : "—"}`));
+  }
+  deleteButton(host, "🗑 Delete texture", `texture "${name}"`, () => texHooks?.deleted(name));
+}
+
+// ── group (a first-class parent — edit its own transform) ─────────────────────
 function groupInspector(host: HTMLElement, g: { id: string; name: string }): void {
   const title = el("h3", "insp-title", g.name || "Group");
-  renamable(title, () => g.name, (v) => { g.name = v || g.name; }, () => state.commit(true));
+  renamable(title, () => g.name, (v) => state.renameGroup(g.id, v || g.name), () => { /* renameGroup commits */ });
   host.append(title);
   const members = state.membersOf(g.id, true);
   host.append(el("div", "insp-sub", `group · ${members.length} object${members.length === 1 ? "" : "s"}`));
 
+  // A group owns a transform like any object; its members are stored relative to it,
+  // so editing these moves/rotates/scales the whole group as a unit.
   group(host, "Transform");
-  // Groups store no transform of their own — members keep absolute transforms — so
-  // these fields apply *relative* operations about the group's centroid: Location
-  // is the centroid (moves members by the delta); Rotation/Scale start at identity
-  // and each edit applies the change since the last (the same math as the gizmo).
-  const loc = (state.groupCentroid(g.id) ?? [0, 0, 0]).slice() as Tuple3;
-  host.append(vecField("Location", loc, () => {
-    const c = state.groupCentroid(g.id) ?? [0, 0, 0];
-    state.moveGroup(g.id, loc[0] - c[0], loc[1] - c[1], loc[2] - c[2]);
-  }, 0.1));
-  const rot: Tuple3 = [0, 0, 0]; let lastRot: Tuple3 = [0, 0, 0];
-  host.append(vecField("Rotation", rot, () => {
-    state.rotateGroup(g.id, rot[0] - lastRot[0], rot[1] - lastRot[1], rot[2] - lastRot[2]);
-    lastRot = rot.slice() as Tuple3;
-  }, 1));
-  const scl: Tuple3 = [1, 1, 1]; let lastScl: Tuple3 = [1, 1, 1];
-  host.append(vecField("Scale", scl, () => {
-    const f = (a: number, b: number): number => (b === 0 ? 1 : a / b);
-    state.scaleGroup(g.id, f(scl[0], lastScl[0]), f(scl[1], lastScl[1]), f(scl[2], lastScl[2]));
-    lastScl = scl.slice() as Tuple3;
-  }, 0.05));
+  const w = state.groupWorld(g.id);
+  const at = w.at.slice() as Tuple3, rot = w.rot.slice() as Tuple3, scl = w.scale.slice() as Tuple3;
+  const push = (): void => state.setGroupWorld(g.id, { at, rot, scale: scl });
+  host.append(vecField("Location", at, push, 0.1));
+  host.append(vecField("Rotation", rot, push, 1));
+  host.append(vecField("Scale", scl, push, 0.05));
 }
 
 function head(host: HTMLElement, title: string, sub?: string): void {
@@ -137,9 +213,9 @@ function objectInspector(host: HTMLElement, o: Placement, touch: () => void): vo
 
   group(host, "Transform");
   host.append(vecField("Location", o.at, touch, 0.1));
-  if (!o.rot) o.rot = placeRot(o).slice() as Tuple3;
+  if (!o.rot) o.rot = [0, 0, 0];
   host.append(vecField("Rotation", o.rot, touch, 1));
-  if (!o.scale) o.scale = placeScale(o).slice() as Tuple3;
+  if (!o.scale) o.scale = [1, 1, 1];
   host.append(vecField("Scale", o.scale, touch, 0.05));
 
   const schema = objectDefaults(o.type);
@@ -212,15 +288,15 @@ function worldInspector(host: HTMLElement, map: MapDef, touch: () => void): void
     onChange: () => state.commit(true),
   }));
   if (!e.sky.solid) e.sky.solid = [0.05, 0.06, 0.08];
-  host.append(vecField("solid rgb", e.sky.solid, touch, 0.02));
+  host.append(colorField("solid", e.sky.solid, touch));
 
   group(host, "Sun");
   host.append(vecField("direction", e.sun.rot, touch, 1));
-  host.append(vecField("color", e.sun.color, touch, 0.02));
+  host.append(colorField("color", e.sun.color, touch));
   host.append(numField("brightness", () => e.sun.intensity ?? 1, (v) => (e.sun.intensity = Math.max(0, v)), touch, 0.05));
 
   group(host, "Ambient");
-  host.append(vecField("color", e.ambient.color, touch, 0.02));
+  host.append(colorField("color", e.ambient.color, touch));
   host.append(numField("intensity", () => e.ambient.intensity, (v) => (e.ambient.intensity = Math.max(0, v)), touch, 0.05));
   host.append(numField("reflections", () => e.ambient.specular ?? 0.85, (v) => (e.ambient.specular = Math.max(0, v)), touch, 0.05));
 
@@ -242,7 +318,7 @@ function worldInspector(host: HTMLElement, map: MapDef, touch: () => void): void
     const fog = e.fog;
     host.append(selectField("falloff", ["linear", "exp", "exp2"], () => fog.falloff ?? "linear",
       (v) => (fog.falloff = v as FogFalloff), () => state.commit(true)));
-    host.append(vecField("color", fog.color, touch, 0.02));
+    host.append(colorField("color", fog.color, touch));
     if ((fog.falloff ?? "linear") === "linear") {
       host.append(numField("start", () => fog.start, (v) => (fog.start = v), touch, 1));
       host.append(numField("end", () => fog.end, (v) => (fog.end = v), touch, 1));

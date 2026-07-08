@@ -1,13 +1,16 @@
 // ─── Realistic water: PBR transmission/refraction + animated waves ────────────
-// The water surface reuses the engine's physically-based transmission so it
-// refracts the scene behind it (needs `camera.opaqueTextureEnabled`), reflects
-// the sky/IBL through a low roughness, and tints depth via attenuation. Movement
-// comes from a cheap procedural wave normal whose UVs scroll every frame — no
-// custom GLSL, one small texture cached per engine, one Vector4 update per frame,
-// so it's cheap while looking convincingly liquid. Falls back gracefully to a
-// tinted transparent surface when the opaque texture isn't available.
+// Water is a *material*, not a bespoke object: any box carrying a `water`-type
+// material becomes an animated liquid surface. This module owns the shading — it
+// reuses the engine's physically-based transmission so the surface refracts the
+// scene behind it (needs `camera.opaqueTextureEnabled`), reflects the sky/IBL
+// through a low roughness, and tints depth via attenuation. Movement comes from a
+// cheap procedural wave normal whose UVs scroll every frame — no custom GLSL, one
+// small texture cached per engine, one Vector4 update per frame, so it's cheap
+// while looking convincingly liquid. The material factory (materials.ts) calls
+// applyWaterLook() to build the PBRMaterial; the map builder attaches a WaterAnim
+// to the box entity so the ripples scroll.
 import {
-  Color, Engine, Entity, MeshRenderer, PBRMaterial, PrimitiveMesh, RefractionMode,
+  Color, Engine, Entity, PBRMaterial, RefractionMode,
   Script, Texture2D, TextureFormat, TextureWrapMode, Vector4,
 } from "@galacean/engine";
 
@@ -84,7 +87,7 @@ function waveNormal(engine: Engine): Texture2D {
 }
 
 /** scrolls the wave normal's UVs each frame so the surface visibly flows */
-class WaterAnim extends Script {
+export class WaterAnim extends Script {
   mat!: PBRMaterial;
   tiling = 1;
   speed = 0.04;
@@ -99,7 +102,7 @@ class WaterAnim extends Script {
 }
 
 /** per-surface look controls (all optional; omitted fields keep the default look).
- *  Exposed as params on the `water` object so each pool/river can be tuned. */
+ *  These are the tunable fields of a `water`-type material. */
 export interface WaterLook {
   color: [number, number, number];    // surface tint (base color rgb)
   opacity: number;                     // base alpha (thin/edge transparency)
@@ -117,19 +120,11 @@ export const WATER_LOOK: WaterLook = {
   flow: 0.04, waves: 0.7, depthColor: [0.16, 0.46, 0.5], depth: 6, clarity: 1.0,
 };
 
-/** build a realistic animated water surface of side `s` centred at (x,y,z),
- *  styled by an optional partial `look` (falls back to WATER_LOOK per field). */
-export function buildWater(
-  engine: Engine, root: Entity, x: number, y: number, z: number, s: number,
-  look: Partial<WaterLook> = {},
-): Entity {
-  const L = { ...WATER_LOOK, ...look };
-  const e = root.createChild("water");
-  e.transform.setPosition(x, y, z);
-  const r = e.addComponent(MeshRenderer);
-  r.mesh = PrimitiveMesh.createCuboid(engine, s, 0.08, s);
-
-  const m = new PBRMaterial(engine);
+/** shade a PBRMaterial as a `water` surface from a WaterLook. `tiling` is the UV
+ *  repeat across the surface (larger surfaces tile more so ripples keep a
+ *  consistent size); the WaterAnim then scrolls it. Called by the material factory
+ *  so a `water`-type material is a normal, cacheable PBRMaterial. */
+export function applyWaterLook(engine: Engine, m: PBRMaterial, L: WaterLook, tiling = 1): void {
   m.baseColor = new Color(L.color[0], L.color[1], L.color[2], L.opacity);
   m.roughness = L.roughness;   // glossy → crisp sky/IBL reflection
   m.metallic = 0.0;
@@ -142,14 +137,14 @@ export function buildWater(
   m.attenuationColor = new Color(L.depthColor[0], L.depthColor[1], L.depthColor[2], 1);
   m.attenuationDistance = L.depth;  // deeper → more teal
   m.thickness = 1.2;
-  const tiling = Math.max(1, s / 6);   // larger ripples, fewer repeats across the plane
   m.tilingOffset = new Vector4(tiling, tiling, 0, 0);
-  r.setMaterial(m);
-  r.receiveShadows = true;
+}
 
-  const anim = e.addComponent(WaterAnim);
+/** attach the flow animation to a box entity carrying a water material, so its
+ *  ripples scroll. `tiling` must match the material's UV repeat; `flow` the speed. */
+export function attachWaterAnim(entity: Entity, m: PBRMaterial, tiling: number, flow: number): void {
+  const anim = entity.addComponent(WaterAnim);
   anim.mat = m;
   anim.tiling = tiling;
-  anim.speed = L.flow;
-  return e;
+  anim.speed = flow;
 }

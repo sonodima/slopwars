@@ -114,9 +114,19 @@
   .asset-sub{font-size:10px;color:var(--dim);font-family:var(--mono);word-break:break-word}
   .map-card{cursor:pointer}
   .map-card:hover{border-color:var(--accent)}
-  .kind-menu{background:var(--panel);border:1px solid var(--line2);border-radius:6px;padding:4px;display:flex;flex-direction:column;gap:2px;z-index:50;box-shadow:0 6px 20px rgba(0,0,0,.5)}
-  .kind-item{background:transparent;border:none;color:var(--text);text-align:left;padding:6px 16px;border-radius:4px;cursor:pointer;font-family:var(--font);text-transform:capitalize;font-size:12px}
-  .kind-item:hover{background:var(--accent);color:#fff}
+  /* asset delete + dangling-reference + model/texture inspector previews */
+  .btn.danger{background:transparent;color:#e5484d;border-color:#5a2b2d}
+  .btn.danger:hover{background:#e5484d;color:#fff;border-color:#e5484d}
+  .insp-delete{width:100%;margin-top:16px}
+  .insp-note{color:var(--dim);font-size:11px;margin:2px 0 6px;line-height:1.4}
+  .insp-modelprev{width:100%;height:120px;background:#0e0f10;border:1px solid var(--line2);border-radius:5px;margin:6px 0;display:flex;align-items:center;justify-content:center;overflow:hidden}
+  .insp-modelimg{max-width:100%;max-height:100%;object-fit:contain}
+  .assetfield .af-warn{flex:0 0 auto;color:#e5a23a;font-size:13px}
+  .assetfield.dangling{border-color:#7a4a1a;background:#241a10}
+  .assetfield .af-name.dangling{color:#e5a23a;font-style:normal}
+  .confirm{padding:4px 2px}
+  .confirm-msg{color:var(--text);font-size:13px;margin:0 0 14px;line-height:1.5}
+  .confirm-actions{display:flex;justify-content:flex-end;gap:8px}
   .browser-body{overflow:auto;padding:8px}
   .asset-section{margin-bottom:10px}
   .section-head{display:flex;align-items:center;gap:8px;margin:2px 2px 6px;position:sticky;top:-8px;background:var(--panel);padding:4px 0;z-index:1}

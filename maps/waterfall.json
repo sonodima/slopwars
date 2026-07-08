@@ -1014,7 +1014,7 @@
 			}
 		},
 		{
-			"type": "water",
+			"type": "box",
 			"at": [
 				0,
 				0.12,
@@ -1022,9 +1022,13 @@
 			],
 			"scale": [
 				15,
-				1,
+				0.08,
 				15
-			]
+			],
+			"params": {
+				"mat": "water",
+				"solid": false
+			}
 		},
 		{
 			"type": "box",

@@ -2,15 +2,17 @@
 // The one place that knows how to build a Galacean material from a MaterialDef.
 // Geometry references a material by *name* (an object's `mat` param); this library
 // resolves the name to its def (from the scanned catalog) and builds/caches the
-// PBRMaterial. `standard` and `glass` both produce a PBRMaterial (glass just adds
-// transmission); `water` is a surface *system* (an animated plane), so the water
-// object builds it from the def's WaterLook — see water.ts. Textures are inputs a
-// standard material consumes, never applied to geometry directly.
-import { Color, Engine, PBRMaterial, RefractionMode, Vector4 } from "@galacean/engine";
+// PBRMaterial. All three kinds — `standard`, `glass`, `water` — produce a
+// PBRMaterial: glass adds transmission, water adds an animated wave normal + depth
+// attenuation (see water.ts). A water material animates because the map builder
+// attaches a WaterAnim to the entity (via `animate` below) — so *any box* with a
+// water material becomes a rippling liquid surface, no bespoke object. Textures are
+// inputs a standard material consumes, never applied to geometry directly.
+import { Color, Engine, Entity, PBRMaterial, RefractionMode, Vector4 } from "@galacean/engine";
 import catalog from "virtual:asset-catalog";
-import type { MaterialDef, StandardMaterialDef, GlassMaterialDef } from "@slopwars/shared";
+import type { MaterialDef, StandardMaterialDef, GlassMaterialDef, WaterMaterialDef } from "@slopwars/shared";
 import { MapTextures, PbrSet, DEFAULT_FOLDER } from "./textures";
-import { WATER_LOOK, type WaterLook } from "./water";
+import { WATER_LOOK, applyWaterLook, attachWaterAnim, type WaterLook } from "./water";
 
 /** the scanned material defs (file-based). The editor can pass a live override
  *  map into a MaterialLibrary so unsaved edits preview in the viewport. */
@@ -52,10 +54,8 @@ export class MaterialLibrary {
   def(name: string): MaterialDef { return materialDef(name, this.defs); }
   isWater(name: string): boolean { return this.def(name).type === "water"; }
 
-  /** WaterLook for a `water` material (defaults for any missing field) */
-  waterLook(name: string): WaterLook {
-    const d = this.def(name);
-    if (d.type !== "water") return { ...WATER_LOOK };
+  /** WaterLook for a `water` material def (defaults for any missing field) */
+  private lookOf(d: WaterMaterialDef): WaterLook {
     return {
       color: d.color ?? WATER_LOOK.color, opacity: d.opacity ?? WATER_LOOK.opacity,
       roughness: d.roughness ?? WATER_LOOK.roughness, ior: d.ior ?? WATER_LOOK.ior,
@@ -65,16 +65,36 @@ export class MaterialLibrary {
     };
   }
 
-  /** build (or fetch the cached) opaque/transparent material for a surface at the
-   *  given per-instance tiling. `water` materials have no mesh material — the
-   *  caller builds a water surface instead — so they resolve to the default. */
+  /** WaterLook for a `water` material by name (defaults for any missing field) */
+  waterLook(name: string): WaterLook {
+    const d = this.def(name);
+    return d.type === "water" ? this.lookOf(d) : { ...WATER_LOOK };
+  }
+
+  /** build (or fetch the cached) material for a surface at the given per-instance
+   *  tiling. Water materials bake in the wave normal + attenuation here; the caller
+   *  must also call `animate()` to make them flow. */
   build(name: string, tu = 1, tv = 1): PBRMaterial {
     const key = `${name}:${tu}:${tv}`;
     let m = this.cache.get(key);
     if (m) return m;
     const d = this.def(name);
-    m = d.type === "glass" ? this.buildGlass(d) : this.buildStandard(d.type === "standard" ? d : { type: "standard" }, tu, tv);
+    m = d.type === "glass" ? this.buildGlass(d)
+      : d.type === "water" ? this.buildWater(d, tu)
+      : this.buildStandard(d.type === "standard" ? d : { type: "standard" }, tu, tv);
     this.cache.set(key, m);
+    return m;
+  }
+
+  /** attach any per-entity animation the material needs (water ripple flow). Call
+   *  right after setMaterial with the same tiling `build()` used; no-op otherwise. */
+  animate(entity: Entity, name: string, material: PBRMaterial, tiling: number): void {
+    if (this.isWater(name)) attachWaterAnim(entity, material, tiling, this.waterLook(name).flow);
+  }
+
+  private buildWater(d: WaterMaterialDef, tiling: number): PBRMaterial {
+    const m = new PBRMaterial(this.engine);
+    applyWaterLook(this.engine, m, this.lookOf(d), tiling);
     return m;
   }
 

@@ -1,8 +1,9 @@
 // ─── `.map` format schema (shared by game + editor) ──────────────────────────
 // A map is a self-contained, declarative data object (a "MapDef"). Following the
 // convention of modern game-engine editors, *everything placed in a map is an
-// object* — geometry (box/water), props, spawns, pickups, power-ups,
-// sounds and lights are all `Placement`s of a registered object `type` with a
+// object* — geometry (boxes, which a water/glass material turns into a liquid
+// surface or a window), props, spawns, pickups, power-ups, sounds and lights are
+// all `Placement`s of a registered object `type` with a
 // full transform (position / rotation / scale) and per-type params. The game's
 // loader interprets it; object types (game/objects.ts) turn placements into
 // entities/collision/behaviour. Maps live as JSON under `maps/` and are fetched
@@ -25,14 +26,25 @@ export interface Placement {
   group?: string;
 }
 
-/** editor-only grouping node. Groups nest (via `parent`) and let the editor move/
- *  rotate/scale their members together. The game loader ignores groups entirely —
- *  they carry no geometry and every object keeps its absolute transform. */
+/** a grouping node with its OWN transform — a first-class parent, like an empty in
+ *  Unity/Blender. Its members' stored transforms are *relative to the group* (its
+ *  local space), so moving/rotating/scaling the group transforms every child as a
+ *  unit while their own stored transforms stay put. Groups nest via `parent`. Both
+ *  the editor and the game compose a placement's world transform up its group chain
+ *  (see resolveWorld). Transform fields are optional and default to identity, so a
+ *  legacy group with no transform composes to the child's absolute transform — old
+ *  maps render unchanged. */
 export interface GroupDef {
   id: string;
   name: string;
   parent?: string;     // parent group id (undefined = top level)
   collapsed?: boolean; // outliner fold state
+  /** group origin/pivot in its parent's space (default [0,0,0]) */
+  at?: Tuple3;
+  /** group euler rotation in degrees (default [0,0,0]) */
+  rot?: Tuple3;
+  /** group scale (default [1,1,1]) */
+  scale?: Tuple3;
 }
 
 /** shadow-map quality tier (drives resolution + softness); "off" disables shadows */
@@ -122,6 +134,82 @@ export interface MapDef {
 export function placeAt(o: Placement): Tuple3 { return o.at; }
 export function placeRot(o: Placement): Tuple3 { return o.rot ?? [0, 0, 0]; }
 export function placeScale(o: Placement): Tuple3 { return o.scale ?? [1, 1, 1]; }
+
+// ── group / world transform composition ──────────────────────────────────────
+// A placement (or a nested group) stores its transform in its parent group's local
+// space. To render or collide it we compose that up the chain of groups. Rotation
+// is composed as component-wise euler addition (the same approximation the editor's
+// group gizmo has always used — fine for this game's mostly-yaw rotations); scale
+// is multiplied per-axis; position is the child's local position scaled+rotated by
+// the group then offset by the group origin.
+
+/** a resolved transform (all fields present) */
+export interface WorldTf { at: Tuple3; rot: Tuple3; scale: Tuple3 }
+
+/** rotate a vector by an euler-degree triple, applying X then Y then Z */
+function rotateEuler(v: Tuple3, deg: Tuple3): Tuple3 {
+  const D = Math.PI / 180;
+  let [x, y, z] = v;
+  if (deg[0]) { const c = Math.cos(deg[0] * D), s = Math.sin(deg[0] * D); const ny = y * c - z * s, nz = y * s + z * c; y = ny; z = nz; }
+  if (deg[1]) { const c = Math.cos(deg[1] * D), s = Math.sin(deg[1] * D); const nx = x * c + z * s, nz = -x * s + z * c; x = nx; z = nz; }
+  if (deg[2]) { const c = Math.cos(deg[2] * D), s = Math.sin(deg[2] * D); const nx = x * c - y * s, ny = x * s + y * c; x = nx; y = ny; }
+  return [x, y, z];
+}
+
+/** inverse of rotateEuler: undo an X→Y→Z rotation (apply −Z, −Y, −X) */
+function rotateEulerInv(v: Tuple3, deg: Tuple3): Tuple3 {
+  const D = Math.PI / 180;
+  let [x, y, z] = v;
+  if (deg[2]) { const c = Math.cos(-deg[2] * D), s = Math.sin(-deg[2] * D); const nx = x * c - y * s, ny = x * s + y * c; x = nx; y = ny; }
+  if (deg[1]) { const c = Math.cos(-deg[1] * D), s = Math.sin(-deg[1] * D); const nx = x * c + z * s, nz = -x * s + z * c; x = nx; z = nz; }
+  if (deg[0]) { const c = Math.cos(-deg[0] * D), s = Math.sin(-deg[0] * D); const ny = y * c - z * s, nz = y * s + z * c; y = ny; z = nz; }
+  return [x, y, z];
+}
+
+/** apply a parent transform to a child (local) transform → world transform */
+export function composeTf(parent: WorldTf, child: WorldTf): WorldTf {
+  const scaled: Tuple3 = [child.at[0] * parent.scale[0], child.at[1] * parent.scale[1], child.at[2] * parent.scale[2]];
+  const rp = rotateEuler(scaled, parent.rot);
+  return {
+    at: [parent.at[0] + rp[0], parent.at[1] + rp[1], parent.at[2] + rp[2]],
+    rot: [parent.rot[0] + child.rot[0], parent.rot[1] + child.rot[1], parent.rot[2] + child.rot[2]],
+    scale: [parent.scale[0] * child.scale[0], parent.scale[1] * child.scale[1], parent.scale[2] * child.scale[2]],
+  };
+}
+
+/** a group's own (local) transform, defaulting missing fields to identity */
+export function groupLocalTf(g: GroupDef): WorldTf {
+  return { at: g.at ?? [0, 0, 0], rot: g.rot ?? [0, 0, 0], scale: g.scale ?? [1, 1, 1] };
+}
+
+/** a group's world transform (composed up its parent chain) */
+export function groupWorldTf(def: MapDef, groupId: string | undefined): WorldTf {
+  if (!groupId) return { at: [0, 0, 0], rot: [0, 0, 0], scale: [1, 1, 1] };
+  const g = def.groups?.find((x) => x.id === groupId);
+  if (!g) return { at: [0, 0, 0], rot: [0, 0, 0], scale: [1, 1, 1] };
+  return composeTf(groupWorldTf(def, g.parent), groupLocalTf(g));
+}
+
+/** a placement's world transform — its stored (group-local) transform composed
+ *  with its group chain. Ungrouped objects return their stored transform as-is. */
+export function resolveWorld(def: MapDef, o: Placement): WorldTf {
+  const local: WorldTf = { at: o.at, rot: placeRot(o), scale: placeScale(o) };
+  if (!o.group) return local;
+  return composeTf(groupWorldTf(def, o.group), local);
+}
+
+/** inverse of composeTf: express a world transform in a parent's local space (so a
+ *  world-placed object can be stored relative to a group it's dropped into). */
+export function invComposeTf(parent: WorldTf, world: WorldTf): WorldTf {
+  const rel: Tuple3 = [world.at[0] - parent.at[0], world.at[1] - parent.at[1], world.at[2] - parent.at[2]];
+  const unr = rotateEulerInv(rel, parent.rot);
+  const div = (a: number, b: number): number => (Math.abs(b) < 1e-6 ? a : a / b);
+  return {
+    at: [div(unr[0], parent.scale[0]), div(unr[1], parent.scale[1]), div(unr[2], parent.scale[2])],
+    rot: [world.rot[0] - parent.rot[0], world.rot[1] - parent.rot[1], world.rot[2] - parent.rot[2]],
+    scale: [div(world.scale[0], parent.scale[0]), div(world.scale[1], parent.scale[1]), div(world.scale[2], parent.scale[2])],
+  };
+}
 
 /** an empty, valid map — the starting point for "New Map" in the editor */
 export function emptyMap(id: string, name: string): MapDef {

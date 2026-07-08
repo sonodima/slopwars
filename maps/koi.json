@@ -795,7 +795,7 @@
 			"group": "grp-wzmmri"
 		},
 		{
-			"type": "water",
+			"type": "box",
 			"at": [
 				0,
 				0.42,
@@ -803,7 +803,7 @@
 			],
 			"scale": [
 				3.3,
-				1,
+				0.08,
 				3.3
 			],
 			"rot": [
@@ -812,7 +812,8 @@
 				0
 			],
 			"params": {
-				"mat": "water"
+				"mat": "water",
+				"solid": false
 			},
 			"group": "grp-wzmmri"
 		},

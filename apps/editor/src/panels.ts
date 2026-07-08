@@ -5,8 +5,7 @@
 // project), or Create (materials are *created* not imported; maps too). Cards are
 // draggable onto the viewport / inspector slots. Clicking a Material selects it
 // for editing in the inspector; double-clicking a Map loads it.
-import type { AssetCatalog, MapCatalogEntry, MaterialType } from "@slopwars/shared";
-import { MATERIAL_TYPES } from "@slopwars/shared";
+import type { AssetCatalog, MapCatalogEntry } from "@slopwars/shared";
 import { objectCatalog } from "@game/objects";
 import { clear, el } from "./ui";
 import { state } from "./state";
@@ -19,7 +18,9 @@ export interface PanelCtx {
   reloadCatalog: () => Promise<AssetCatalog>;
   listMaps: () => Promise<MapCatalogEntry[]>;
   onSelectMaterial: (name: string) => void;
-  onCreateMaterial: (type: MaterialType) => void;
+  onSelectModel: (name: string) => void;
+  onSelectTexture: (name: string) => void;
+  onCreateMaterial: () => void;
   onLoadMap: (file: string) => void;
   onCreateMap: () => void;
 }
@@ -71,7 +72,7 @@ export function renderBrowser(host: HTMLElement, ctx: PanelCtx): BrowserControl 
     // context action button (Import files / Create in place / hidden)
     const imp = IMPORT_KIND[active];
     if (imp) { action.textContent = "＋ Import"; action.style.display = ""; action.onclick = () => openImport(imp, () => void reload()); }
-    else if (active === "Materials") { action.textContent = "＋ New"; action.style.display = ""; action.onclick = () => pickMaterialKind(action, ctx.onCreateMaterial); }
+    else if (active === "Materials") { action.textContent = "＋ New"; action.style.display = ""; action.onclick = ctx.onCreateMaterial; }
     else if (active === "Maps") { action.textContent = "＋ New"; action.style.display = ""; action.onclick = ctx.onCreateMap; }
     else { action.style.display = "none"; action.onclick = null; }
 
@@ -98,6 +99,8 @@ export function renderBrowser(host: HTMLElement, ctx: PanelCtx): BrowserControl 
     for (const m of ctx.catalog.models) {
       if (!match(m.name)) continue;
       const c = card(m.name, "▣", () => ({ kind: "model", name: m.name }));
+      if (state.selModel === m.name) c.classList.add("sel");
+      c.addEventListener("click", () => ctx.onSelectModel(m.name));
       fillThumb(c, ctx.thumbs.modelThumb(m.gltf));
       grid.append(c);
     }
@@ -118,6 +121,8 @@ export function renderBrowser(host: HTMLElement, ctx: PanelCtx): BrowserControl 
     for (const t of ctx.catalog.textures) {
       if (!match(t.name)) continue;
       const c = card(t.name, "▦", () => ({ kind: "texture", name: t.name }));
+      if (state.selTexture === t.name) c.classList.add("sel");
+      c.addEventListener("click", () => ctx.onSelectTexture(t.name));
       if (t.maps.color) fillImg(c, ASSET(t.maps.color));
       grid.append(c);
     }
@@ -152,8 +157,8 @@ export function renderBrowser(host: HTMLElement, ctx: PanelCtx): BrowserControl 
   body.append(grid);
   syncTabs();
   draw();
-  // keep the Materials tab highlight fresh as the selection changes
-  state.onSelect(() => { if (active === "Materials") draw(); });
+  // keep the asset-tab selection highlight fresh as the selection changes
+  state.onSelect(() => { if (active === "Materials" || active === "Models" || active === "Textures") draw(); });
   const refreshMaps = (): void => void ctx.listMaps().then((m) => { maps = m; if (active === "Maps") draw(); });
   refreshMaps();
 
@@ -162,21 +167,6 @@ export function renderBrowser(host: HTMLElement, ctx: PanelCtx): BrowserControl 
     refreshMaps,
     showMaterials: () => { active = "Materials"; query = ""; search.value = ""; syncTabs(); draw(); },
   };
-}
-
-/** small popover to choose the kind of a new material (standard/water/glass) */
-function pickMaterialKind(anchor: HTMLElement, onPick: (t: MaterialType) => void): void {
-  const menu = el("div", "kind-menu");
-  for (const t of MATERIAL_TYPES) {
-    const b = el("button", "kind-item", t);
-    b.addEventListener("click", () => { menu.remove(); onPick(t); });
-    menu.append(b);
-  }
-  const r = anchor.getBoundingClientRect();
-  menu.style.position = "fixed"; menu.style.top = `${r.bottom + 4}px`; menu.style.right = `${window.innerWidth - r.right}px`;
-  document.body.append(menu);
-  const close = (e: MouseEvent): void => { if (!menu.contains(e.target as Node)) { menu.remove(); document.removeEventListener("mousedown", close); } };
-  setTimeout(() => document.addEventListener("mousedown", close), 0);
 }
 
 /** a draggable asset card carrying a placement payload */

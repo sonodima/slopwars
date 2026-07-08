@@ -6,11 +6,17 @@
 import {
   BoundingBox, Engine, Entity, MeshRenderer, PrimitiveMesh,
 } from "@galacean/engine";
+import catalog from "virtual:asset-catalog";
 import { GameModels, instantiate } from "./models";
 import { MapTextures, PbrSet, DEFAULT_FOLDER } from "./textures";
 import { MaterialLibrary } from "./materials";
-import type { MaterialDef } from "@slopwars/shared";
+import type { MaterialDef, ModelMeta } from "@slopwars/shared";
 import type { AABB, GameMap } from "./map";
+
+/** author-tuned per-model defaults (base offset / scale / material override),
+ *  discovered from models/{name}/meta.json by the asset scanner. Applied to every
+ *  instantiation so a model is calibrated once, not per placement. */
+const MODEL_META = new Map<string, ModelMeta>(catalog.models.map((m) => [m.name, m.meta ?? {}]));
 
 type Vec3T = readonly [number, number, number];
 
@@ -30,6 +36,11 @@ export class MapBuilder {
     return (this.unitCubeMesh ??= PrimitiveMesh.createCuboid(this.engine, 1, 1, 1));
   }
 
+  /** per-model calibration used when instantiating; the editor passes its live
+   *  (possibly unsaved) metas so a meta edit previews immediately, the game omits it
+   *  and the scanned catalog metas apply. */
+  private readonly modelMeta: Map<string, ModelMeta>;
+
   constructor(
     public engine: Engine,
     public root: Entity,
@@ -37,8 +48,10 @@ export class MapBuilder {
     public models: GameModels,
     public map: GameMap,
     matDefs?: Map<string, MaterialDef>,
+    modelMeta?: Map<string, ModelMeta>,
   ) {
     this.lib = new MaterialLibrary(engine, tex, matDefs);
+    this.modelMeta = modelMeta ?? MODEL_META;
   }
 
   pushSolid(a: AABB): void { this.map.solids.push(a); }
@@ -55,15 +68,22 @@ export class MapBuilder {
    *  register them for editor picking/highlighting the same way. */
   track(e: Entity): Entity { this.map.onBuildEntity?.(this.buildIndex, e); return e; }
 
-  /** cuboid mesh shaded by a named material (visual only) */
+  /** cuboid mesh shaded by a named material (visual only). A `water` material makes
+   *  the box a rippling liquid surface: its UVs tile with the box's horizontal size
+   *  (so ripples keep a consistent scale) and a WaterAnim scrolls them. */
   mesh(x: number, y: number, z: number, w: number, h: number, d: number, mat: string, tu = 1, tv = 1): Entity {
     const e = this.root.createChild("b");
     e.transform.setPosition(x, y, z);
     e.transform.setScale(w, h, d);
     const r = e.addComponent(MeshRenderer);
     r.mesh = this.unitCube();
-    r.setMaterial(this.lib.build(mat, tu, tv));
-    r.castShadows = true;
+    const water = this.lib.isWater(mat);
+    let tuu = tu, tvv = tv;
+    if (water) { const t = Math.max(1, Math.max(w, d) / 6); tuu = tvv = t; }
+    const m = this.lib.build(mat, tuu, tvv);
+    r.setMaterial(m);
+    if (water) this.lib.animate(e, mat, m, tuu);
+    r.castShadows = !water;   // a transparent liquid surface shouldn't cast a hard shadow
     r.receiveShadows = true;
     this.map.tris += 12;
     return this.track(e);
@@ -98,14 +118,25 @@ export class MapBuilder {
     return this.track(e);
   }
 
-  /** instantiate a model with a full transform (per-axis scale + euler rotation).
-   *  used by the generic "prop" object so any model can be dropped in and posed. */
+  /** instantiate a model with a full transform (per-axis scale + euler rotation),
+   *  applying the model's calibrated meta (models/<id>/meta.json): a uniform `scale`
+   *  multiplier, a `base` vertical offset so it rests on its footing, and a
+   *  `material` override that reskins every surface. Used by every model placement
+   *  (props, veg, explodables, lanterns) so a model is tuned once. */
   placeModelTf(id: string, at: Vec3T, rot: Vec3T, scale: Vec3T): Entity | null {
     const e = instantiate(this.models[id]);
     if (!e) return null;
-    e.transform.setPosition(at[0], at[1], at[2]);
-    e.transform.setScale(scale[0], scale[1], scale[2]);
+    const meta = this.modelMeta.get(id) ?? {};
+    const ms = typeof meta.scale === "number" && meta.scale > 0 ? meta.scale : 1;
+    const sx = scale[0] * ms, sy = scale[1] * ms, sz = scale[2] * ms;
+    const base = typeof meta.base === "number" ? meta.base : 0;
+    e.transform.setScale(sx, sy, sz);
+    e.transform.setPosition(at[0], at[1] + base * sy, at[2]);   // base is a local offset → scales with the model
     e.transform.setRotation(rot[0], rot[1], rot[2]);
+    if (typeof meta.material === "string" && meta.material) {
+      const m = this.lib.build(meta.material);
+      for (const r of e.getComponentsIncludeChildren(MeshRenderer, [])) r.setMaterial(m);
+    }
     this.root.addChild(e);
     this.map.tris += 500;
     return this.track(e);
