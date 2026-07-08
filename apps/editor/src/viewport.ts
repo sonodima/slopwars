@@ -9,7 +9,7 @@ import {
   FogMode, MeshRenderer, MSAASamples, PostProcess, PrimitiveMesh, RenderFace,
   SkyBoxMaterial, TextureCube, TonemappingEffect, TonemappingMode, UnlitMaterial, Vector3, WebGLEngine,
 } from "@galacean/engine";
-import type { MapDef, Placement, ShadowQuality, Tuple3 } from "@slopwars/shared";
+import type { MapDef, MaterialAsset, MaterialDef, Placement, ShadowQuality, Tuple3 } from "@slopwars/shared";
 import { envSunColor, placeRot, placeScale } from "@slopwars/shared";
 import { applyFogFalloff, applyPost, applyShadows } from "@game/rendersettings";
 import { GameMap } from "@game/map";
@@ -70,6 +70,9 @@ export class Viewport {
   // cached resolved textures so a live drag can rebuild synchronously each frame
   private texCache: MapTextures | null = null;
   private texKey = "";
+  // live material defs (from the editor catalog + unsaved edits) so tweaking a
+  // material re-shades the viewport immediately, before it's saved to a file.
+  private matDefs = new Map<string, MaterialDef>();
   // set while a transform drag mutates the map; consumed in the frame loop so the
   // rebuild is throttled to one per frame (the object follows the cursor live)
   private liveDirty = false;
@@ -179,9 +182,17 @@ export class Viewport {
     window.addEventListener("resize", resize);
   }
 
+  /** update the material defs used to shade the viewport (from the editor catalog
+   *  and any unsaved material edits). Pass `rebuild` to re-shade immediately. */
+  setMaterials(materials: MaterialAsset[], rebuild = false): void {
+    this.matDefs = new Map(materials.map((m) => [m.name, m.def]));
+    this.texKey = "";   // force a texture re-resolve (a material may point at a new folder)
+    if (rebuild && this.ready && state.map) void this.render(state.map);
+  }
+
   async render(def: MapDef): Promise<void> {
     if (!this.ready) return;
-    const folders = mapTextureFolders(def);
+    const folders = mapTextureFolders(def, this.matDefs);
     const key = folders.slice().sort().join(",");
     if (key !== this.texKey || !this.texCache) {
       this.texCache = await resolveTextures(this.engine, folders);
@@ -195,7 +206,7 @@ export class Viewport {
     this.objEntities = [];
     this.outlineEntities = [];   // torn down with the old map root; drop stale refs
     this.map.onBuildEntity = (i, e) => { (this.objEntities[i] ??= []).push(e); };
-    this.map.load(this.engine, this.root, tex, this.models, def);
+    this.map.load(this.engine, this.root, tex, this.models, def, this.matDefs);
     this.applyEnv(def);
     this.refreshHighlight();     // re-attach the selection outline to fresh entities
   }

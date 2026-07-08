@@ -41,7 +41,12 @@ function preview(slot: HTMLElement, o: AssetFieldOpts, name: string): void {
   const t = o.thumbs; if (!t) return;
   let p: Promise<string | null> | null = null;
   if (o.kind === "model") { const m = o.catalog.models.find((x) => x.name === name); if (m) p = t.modelThumb(m.gltf); }
-  else if (o.kind === "texture") { const tx = o.catalog.textures.find((x) => x.name === name); if (tx) p = t.textureThumb(tx.name, tx.maps); }
+  else if (o.kind === "texture") {
+    // textures show their flat bitmap, not a lit sphere — you're picking raw image data
+    const tx = o.catalog.textures.find((x) => x.name === name);
+    if (tx?.maps.color) { clear(slot); const img = el("img", "af-prev"); img.src = `${import.meta.env.BASE_URL}assets/${tx.maps.color}`; slot.append(img); }
+    return;
+  }
   else if (o.kind === "material") { const mt = o.catalog.materials.find((x) => x.name === name); if (mt) p = t.materialThumb(mt.name, mt.def, o.catalog); }
   else if (o.kind === "hdri") { const h = o.catalog.hdri.find((x) => x.name === name); if (h) p = t.hdriThumb(h.file); }
   if (!p) return;

@@ -24,6 +24,10 @@ class EditorState {
   /** when a group (not a bare object set) is the active selection, its id — drives
    *  the group inspector. Cleared by any object-level selection change. */
   selGroup: string | null = null;
+  /** when a material is being edited (picked in the asset browser), its name —
+   *  drives the material inspector. An asset, not part of the map; cleared by any
+   *  object/group selection. */
+  selMaterial: string | null = null;
   /** where the last selection came from — lets the viewport reframe (outliner
    *  clicks) and the outliner scroll (viewport clicks). */
   selectSource: "outliner" | "viewport" | "" = "";
@@ -49,6 +53,7 @@ class EditorState {
     this.selObj = null;
     this.selection = [];
     this.selGroup = null;
+    this.selMaterial = null;
     this.history = [this.snapshot()];
     this.hi = 0;
     this.emitChange();
@@ -59,6 +64,7 @@ class EditorState {
   /** select by index. `additive` toggles membership in a multi-selection. */
   select(index: number, source: "outliner" | "viewport" | "" = "", additive = false): void {
     this.selGroup = null;
+    this.selMaterial = null;
     const o = this.map?.objects[index] ?? null;
     if (!o) { this.selection = []; this.selObj = null; }
     else if (additive) {
@@ -73,6 +79,7 @@ class EditorState {
   /** replace the selection with an explicit set (primary = last) */
   selectSet(objs: Placement[], source: "outliner" | "viewport" | "" = ""): void {
     this.selGroup = null;
+    this.selMaterial = null;
     this.selection = objs.slice();
     this.selObj = objs[objs.length - 1] ?? null;
     this.selectSource = source;
@@ -86,7 +93,18 @@ class EditorState {
     this.selection = objs.slice();
     this.selObj = objs[objs.length - 1] ?? null;
     this.selGroup = groupId;
+    this.selMaterial = null;
     this.selectSource = source;
+    this.emitSelect();
+  }
+
+  /** pick a material to edit (asset browser) — clears the map selection so the
+   *  inspector shows the material editor. */
+  selectMaterial(name: string | null): void {
+    this.selMaterial = name;
+    this.selGroup = null;
+    this.selection = [];
+    this.selObj = null;
     this.emitSelect();
   }
 
@@ -175,6 +193,7 @@ class EditorState {
     this.selection = [o];
     this.selObj = o;
     this.selGroup = null;
+    this.selMaterial = null;
     // a freshly placed/dropped object is not an outliner pick — don't let the
     // camera reframe onto it (dropping should place where you dropped, not fly).
     this.selectSource = "viewport";
@@ -189,6 +208,7 @@ class EditorState {
     this.selection = objs.slice();
     this.selObj = objs[objs.length - 1] ?? null;
     this.selGroup = null;
+    this.selMaterial = null;
     this.selectSource = "viewport";
     this.commit(true);
   }
@@ -199,6 +219,38 @@ class EditorState {
     if (!dx && !dy && !dz) return;
     for (const o of this.membersOf(groupId, true)) {
       o.at = [o.at[0] + dx, o.at[1] + dy, o.at[2] + dz];
+    }
+    this.commit();
+  }
+
+  /** rotate a group's members about its centroid by a euler-degree delta (members
+   *  orbit the pivot and spin in place) — the inspector's group Rotation field. */
+  rotateGroup(groupId: string, dx: number, dy: number, dz: number): void {
+    if (!dx && !dy && !dz) return;
+    const c = this.groupCentroid(groupId); if (!c) return;
+    const members = this.membersOf(groupId, true);
+    for (const o of members) {
+      let rel: [number, number, number] = [o.at[0] - c[0], o.at[1] - c[1], o.at[2] - c[2]];
+      const rot = (o.rot ?? [0, 0, 0]).slice() as [number, number, number];
+      const D = Math.PI / 180;
+      if (dx) { rel = rotAxis(rel, 0, dx * D); rot[0] += dx; }
+      if (dy) { rel = rotAxis(rel, 1, dy * D); rot[1] += dy; }
+      if (dz) { rel = rotAxis(rel, 2, dz * D); rot[2] += dz; }
+      o.at = [r2(c[0] + rel[0]), r2(c[1] + rel[1]), r2(c[2] + rel[2])];
+      o.rot = [r2(rot[0]), r2(rot[1]), r2(rot[2])];
+    }
+    this.commit();
+  }
+
+  /** scale a group's members about its centroid by a per-axis factor — the
+   *  inspector's group Scale field. */
+  scaleGroup(groupId: string, fx: number, fy: number, fz: number): void {
+    if (fx === 1 && fy === 1 && fz === 1) return;
+    const c = this.groupCentroid(groupId); if (!c) return;
+    for (const o of this.membersOf(groupId, true)) {
+      const s = (o.scale ?? [1, 1, 1]).slice() as [number, number, number];
+      o.scale = [r2(Math.max(0.02, s[0] * fx)), r2(Math.max(0.02, s[1] * fy)), r2(Math.max(0.02, s[2] * fz))];
+      o.at = [r2(c[0] + (o.at[0] - c[0]) * fx), r2(c[1] + (o.at[1] - c[1]) * fy), r2(c[2] + (o.at[2] - c[2]) * fz)];
     }
     this.commit();
   }
@@ -220,6 +272,7 @@ class EditorState {
     this.selection = this.selection.filter((o) => !set.has(o));
     this.selObj = this.selection[this.selection.length - 1] ?? null;
     this.selGroup = null;
+    this.selMaterial = null;
     this.commit(true);
   }
 
@@ -273,6 +326,7 @@ class EditorState {
     this.map = this.clone(snap.map);
     const objs = this.map.objects;
     this.selGroup = null;
+    this.selMaterial = null;
     this.selection = snap.sel.map((i) => objs[i]).filter((o): o is Placement => !!o);
     this.selObj = this.selection[this.selection.length - 1] ?? null;
     this.dirty = true;
@@ -295,6 +349,16 @@ class EditorState {
 
   emitChange(): void { for (const fn of this.changeListeners) fn(); }
   emitSelect(): void { for (const fn of this.selListeners) fn(); }
+}
+
+/** round to 2 decimals (matches the viewport's transform rounding) */
+function r2(n: number): number { return Math.round(n * 100) / 100; }
+/** rotate a vector about world axis idx (0=x,1=y,2=z) by rad (right-handed) */
+function rotAxis(v: [number, number, number], idx: number, rad: number): [number, number, number] {
+  const c = Math.cos(rad), s = Math.sin(rad);
+  if (idx === 0) return [v[0], v[1] * c - v[2] * s, v[1] * s + v[2] * c];
+  if (idx === 1) return [v[0] * c + v[2] * s, v[1], -v[0] * s + v[2] * c];
+  return [v[0] * c - v[1] * s, v[0] * s + v[1] * c, v[2]];
 }
 
 export const state = new EditorState();

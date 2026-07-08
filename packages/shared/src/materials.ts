@@ -51,46 +51,33 @@ export interface WaterMaterialDef {
 
 export type MaterialDef = StandardMaterialDef | GlassMaterialDef | WaterMaterialDef;
 
-/** a material — either discovered under public/assets/materials/{name}.json, or
- *  one of the code-registered built-ins below. */
+/** a material discovered under public/assets/materials/{name}.json */
 export interface MaterialAsset {
   name: string;                     // file name (minus .json) = canonical key
   def: MaterialDef;
-  /** true for the code-registered built-ins (water/glass): not editable, not a
-   *  file, always present. The editor renders these read-only. */
-  builtin?: boolean;
 }
 
-// ── code-registered built-in materials ───────────────────────────────────────
-// The special shading types (`water`, `glass`) are singletons defined in code,
-// not per-map JSON: there is exactly one water and one glass look for the whole
-// project. They always exist, can't be renamed/deleted, and their look lives here
-// as the single source of truth (the game builds the engine material from it, the
-// editor previews it). Standard materials, by contrast, are user-created files.
-export const BUILTIN_MATERIALS: MaterialAsset[] = [
-  {
-    name: "water", builtin: true,
-    def: {
+/** the material kinds a user can create (the editor's "New material" picker) */
+export const MATERIAL_TYPES: MaterialType[] = ["standard", "water", "glass"];
+
+/** a fresh default def for a newly-created material of a given kind. Water and
+ *  glass share their engine logic (animated surface / refraction) and only differ
+ *  by these tunable params, so "create → kind=water → tune → name" yields as many
+ *  distinct water/glass materials as you like. */
+export function defaultMaterialDef(type: MaterialType): MaterialDef {
+  if (type === "water") {
+    return {
       type: "water",
       color: [0.015, 0.06, 0.08], opacity: 0.96, roughness: 0.12, ior: 1.33,
       flow: 0.05, waves: 0.6, depthColor: [0.04, 0.18, 0.22], depth: 1.6, clarity: 0.4,
-    },
-  },
-  {
-    name: "glass", builtin: true,
-    def: {
+    };
+  }
+  if (type === "glass") {
+    return {
       type: "glass",
       color: [0.85, 0.92, 0.95], opacity: 0.16, roughness: 0.02, ior: 1.5,
       thickness: 0.4, tint: [0.9, 0.96, 0.98],
-    },
-  },
-];
-
-/** merge the code built-ins with file materials (built-ins win + sort by name) —
- *  the full material list every consumer (game library, editor browser) sees. */
-export function mergeBuiltinMaterials(fileMaterials: MaterialAsset[]): MaterialAsset[] {
-  const byName = new Map<string, MaterialAsset>();
-  for (const m of fileMaterials) byName.set(m.name, m);
-  for (const b of BUILTIN_MATERIALS) byName.set(b.name, b);
-  return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
+    };
+  }
+  return { type: "standard", color: [0.7, 0.7, 0.72], roughness: 0.85, metallic: 0 };
 }

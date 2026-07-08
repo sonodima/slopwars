@@ -3,13 +3,20 @@
 // smart widgets for well-known keys: model/clip/tex become drag-droppable asset
 // fields with an inline preview. The "World" row edits the map's sky / lighting
 // / effects.
-import type { AssetCatalog, FogFalloff, MapDef, Placement, ShadowQuality, ToneMode, Tuple3 } from "@slopwars/shared";
-import { envPost, envShadows, placeRot, placeScale } from "@slopwars/shared";
+import type { AssetCatalog, FogFalloff, MapDef, MaterialDef, Placement, ShadowQuality, ToneMode, Tuple3 } from "@slopwars/shared";
+import { defaultMaterialDef, envPost, envShadows, placeRot, placeScale } from "@slopwars/shared";
 import { objectDefaults } from "@game/objects";
 import type { ThumbRenderer } from "./preview";
 import { state } from "./state";
 import { assetField } from "./assetfield";
 import { clear, el, numField, vecField, selectField, checkField, textField, colorField, renamable } from "./ui";
+
+// hooks the shell wires up so the material inspector can persist edits + re-shade
+let onMaterialChanged: ((name: string, def: MaterialDef) => void) | null = null;
+let onMaterialRenamed: ((from: string, to: string) => void) | null = null;
+export function setInspectorMaterialHooks(h: { changed: (name: string, def: MaterialDef) => void; renamed: (from: string, to: string) => void }): void {
+  onMaterialChanged = h.changed; onMaterialRenamed = h.renamed;
+}
 
 const AXES = ["x+", "x-", "z+", "z-"];
 
@@ -24,6 +31,10 @@ export function renderInspector(host: HTMLElement): void {
   if (!map) { host.append(el("div", "empty", "No map loaded")); return; }
   // each inspector edit is a discrete, undoable action → commit (records history)
   const touch = (): void => state.commit();
+  if (state.selMaterial) {
+    const m = catalog.materials.find((x) => x.name === state.selMaterial);
+    if (m) return materialInspector(host, m.name, m.def);
+  }
   if (state.selGroup) {
     const g = state.groupById(state.selGroup);
     if (g) return groupInspector(host, g);
@@ -32,6 +43,52 @@ export function renderInspector(host: HTMLElement): void {
   if (!o) return worldInspector(host, map, touch);
   objectInspector(host, o, touch);
 }
+
+// ── material ──────────────────────────────────────────────────────────────────
+function materialInspector(host: HTMLElement, name: string, def: MaterialDef): void {
+  const title = el("h3", "insp-title", name);
+  renamable(title, () => name, (v) => { if (v && v !== name) onMaterialRenamed?.(name, v); }, () => { /* rename persists */ });
+  host.append(title);
+  host.append(el("div", "insp-sub", `material · ${def.type}`));
+  const edited = (): void => onMaterialChanged?.(name, def);
+
+  if (def.type === "standard") {
+    const d = def;
+    group(host, "Surface");
+    // base color texture (a texture folder) — drop one, or clear for a solid colour
+    host.append(assetField({
+      label: "texture", kind: "texture", catalog, thumbs,
+      get: () => d.texture ?? "", set: (v) => { d.texture = v || undefined; }, onChange: edited,
+    }));
+    host.append(colorField("color", (d.color ??= [0.7, 0.7, 0.72]), edited));
+    host.append(numField("roughness", () => d.roughness ?? 0.85, (v) => (d.roughness = clampn(v)), edited, 0.02));
+    host.append(numField("metallic", () => d.metallic ?? 0, (v) => (d.metallic = clampn(v)), edited, 0.02));
+    host.append(colorField("emissive", (d.emissive ??= [0, 0, 0]), edited));
+  } else if (def.type === "water") {
+    const d = def; const w = defaultMaterialDef("water") as typeof def;
+    group(host, "Water");
+    host.append(colorField("color", (d.color ??= w.color!), edited));
+    host.append(colorField("depthColor", (d.depthColor ??= w.depthColor!), edited));
+    host.append(numField("opacity", () => d.opacity ?? w.opacity!, (v) => (d.opacity = clampn(v)), edited, 0.02));
+    host.append(numField("clarity", () => d.clarity ?? w.clarity!, (v) => (d.clarity = clampn(v)), edited, 0.02));
+    host.append(numField("depth", () => d.depth ?? w.depth!, (v) => (d.depth = Math.max(0.1, v)), edited, 0.1));
+    host.append(numField("roughness", () => d.roughness ?? w.roughness!, (v) => (d.roughness = clampn(v)), edited, 0.02));
+    host.append(numField("waves", () => d.waves ?? w.waves!, (v) => (d.waves = Math.max(0, v)), edited, 0.05));
+    host.append(numField("flow", () => d.flow ?? w.flow!, (v) => (d.flow = Math.max(0, v)), edited, 0.01));
+    host.append(numField("ior", () => d.ior ?? w.ior!, (v) => (d.ior = Math.max(1, v)), edited, 0.01));
+  } else {
+    const d = def; const g = defaultMaterialDef("glass") as typeof def;
+    group(host, "Glass");
+    host.append(colorField("color", (d.color ??= g.color!), edited));
+    host.append(colorField("tint", (d.tint ??= g.tint!), edited));
+    host.append(numField("opacity", () => d.opacity ?? g.opacity!, (v) => (d.opacity = clampn(v)), edited, 0.02));
+    host.append(numField("roughness", () => d.roughness ?? g.roughness!, (v) => (d.roughness = clampn(v)), edited, 0.01));
+    host.append(numField("thickness", () => d.thickness ?? g.thickness!, (v) => (d.thickness = Math.max(0, v)), edited, 0.05));
+    host.append(numField("ior", () => d.ior ?? g.ior!, (v) => (d.ior = Math.max(1, v)), edited, 0.01));
+  }
+}
+
+function clampn(v: number): number { return v < 0 ? 0 : v > 1 ? 1 : v; }
 
 // ── group ───────────────────────────────────────────────────────────────────
 function groupInspector(host: HTMLElement, g: { id: string; name: string }): void {
@@ -42,14 +99,26 @@ function groupInspector(host: HTMLElement, g: { id: string; name: string }): voi
   host.append(el("div", "insp-sub", `group · ${members.length} object${members.length === 1 ? "" : "s"}`));
 
   group(host, "Transform");
-  // Location edits the group's centroid; changing it translates every member by
-  // the delta (rotate/scale a group with the viewport gizmo). Purely a convenience
-  // — groups store no transform of their own, members keep absolute transforms.
+  // Groups store no transform of their own — members keep absolute transforms — so
+  // these fields apply *relative* operations about the group's centroid: Location
+  // is the centroid (moves members by the delta); Rotation/Scale start at identity
+  // and each edit applies the change since the last (the same math as the gizmo).
   const loc = (state.groupCentroid(g.id) ?? [0, 0, 0]).slice() as Tuple3;
   host.append(vecField("Location", loc, () => {
     const c = state.groupCentroid(g.id) ?? [0, 0, 0];
     state.moveGroup(g.id, loc[0] - c[0], loc[1] - c[1], loc[2] - c[2]);
   }, 0.1));
+  const rot: Tuple3 = [0, 0, 0]; let lastRot: Tuple3 = [0, 0, 0];
+  host.append(vecField("Rotation", rot, () => {
+    state.rotateGroup(g.id, rot[0] - lastRot[0], rot[1] - lastRot[1], rot[2] - lastRot[2]);
+    lastRot = rot.slice() as Tuple3;
+  }, 1));
+  const scl: Tuple3 = [1, 1, 1]; let lastScl: Tuple3 = [1, 1, 1];
+  host.append(vecField("Scale", scl, () => {
+    const f = (a: number, b: number): number => (b === 0 ? 1 : a / b);
+    state.scaleGroup(g.id, f(scl[0], lastScl[0]), f(scl[1], lastScl[1]), f(scl[2], lastScl[2]));
+    lastScl = scl.slice() as Tuple3;
+  }, 0.05));
 }
 
 function head(host: HTMLElement, title: string, sub?: string): void {

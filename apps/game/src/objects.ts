@@ -17,7 +17,7 @@ import {
   buildPointLight, buildDirLight, buildSpotLight, POINT_LIGHT, DIR_LIGHT, SPOT_LIGHT,
   type PointLightLook, type DirLightLook, type SpotLightLook,
 } from "./lights";
-import type { MapDef, Placement } from "./maps/schema";
+import type { MapDef, Placement, MaterialDef } from "./maps/schema";
 
 export const BARREL_HP = 120;
 
@@ -116,9 +116,10 @@ export function mapMaterials(def: MapDef): string[] {
 
 /** every texture folder the renderer must load for a map: the textures its
  *  referenced materials consume, plus particle-sprite `tex` folders (particles
- *  consume a raw sprite texture, not a surface material). */
-export function mapTextureFolders(def: MapDef): string[] {
-  const set = new Set<string>(materialTextureFolders(mapMaterials(def)));
+ *  consume a raw sprite texture, not a surface material). `matDefs` may be the
+ *  editor's live material defs so a just-assigned texture loads before rebuild. */
+export function mapTextureFolders(def: MapDef, matDefs?: Map<string, MaterialDef>): string[] {
+  const set = new Set<string>(materialTextureFolders(mapMaterials(def), matDefs));
   for (const o of def.objects) {
     const t = REGISTRY.get(o.type);
     if (!t) continue;

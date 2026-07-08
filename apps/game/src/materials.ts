@@ -8,28 +8,28 @@
 // standard material consumes, never applied to geometry directly.
 import { Color, Engine, PBRMaterial, RefractionMode, Vector4 } from "@galacean/engine";
 import catalog from "virtual:asset-catalog";
-import { BUILTIN_MATERIALS, type MaterialDef, type StandardMaterialDef, type GlassMaterialDef } from "@slopwars/shared";
+import type { MaterialDef, StandardMaterialDef, GlassMaterialDef } from "@slopwars/shared";
 import { MapTextures, PbrSet, DEFAULT_FOLDER } from "./textures";
 import { WATER_LOOK, type WaterLook } from "./water";
 
-// file materials (from the scanned catalog) + the code-registered built-ins
-// (water/glass). Built-ins win, so no map JSON can shadow the special types.
-const DEFS = new Map<string, MaterialDef>(catalog.materials.map((m) => [m.name, m.def]));
-for (const b of BUILTIN_MATERIALS) DEFS.set(b.name, b.def);
+/** the scanned material defs (file-based). The editor can pass a live override
+ *  map into a MaterialLibrary so unsaved edits preview in the viewport. */
+const CATALOG_DEFS = new Map<string, MaterialDef>(catalog.materials.map((m) => [m.name, m.def]));
 /** a material guaranteed to exist — the fallback for an object that names a gap */
-export const DEFAULT_MATERIAL = DEFS.has("gray") ? "gray" : (catalog.materials[0]?.name ?? "gray");
+export const DEFAULT_MATERIAL = CATALOG_DEFS.has("gray") ? "gray" : (catalog.materials[0]?.name ?? "gray");
 
 /** look up a material def by name (falls back to the default material) */
-export function materialDef(name: string): MaterialDef {
-  return DEFS.get(name) ?? DEFS.get(DEFAULT_MATERIAL) ?? { type: "standard" };
+export function materialDef(name: string, defs: Map<string, MaterialDef> = CATALOG_DEFS): MaterialDef {
+  return defs.get(name) ?? defs.get(DEFAULT_MATERIAL) ?? CATALOG_DEFS.get(DEFAULT_MATERIAL) ?? { type: "standard" };
 }
 
 /** the texture folders a set of materials need loaded (only `standard` materials
- *  with a texture; glass/water carry no textures). */
-export function materialTextureFolders(names: Iterable<string>): string[] {
+ *  with a texture; glass/water carry no textures). `defs` may be an editor-live
+ *  override so a just-assigned texture is loaded before the rebuild. */
+export function materialTextureFolders(names: Iterable<string>, defs: Map<string, MaterialDef> = CATALOG_DEFS): string[] {
   const set = new Set<string>();
   for (const n of names) {
-    const d = DEFS.get(n);
+    const d = defs.get(n);
     if (d?.type === "standard" && d.texture) set.add(d.texture);
   }
   return [...set];
@@ -45,9 +45,11 @@ export class MaterialLibrary {
   // share one material — the whole point of the abstraction (edit once, reuse).
   private cache = new Map<string, PBRMaterial>();
 
-  constructor(private engine: Engine, private tex: MapTextures) {}
+  /** `defs` overrides the scanned catalog (the editor passes its live, possibly
+   *  unsaved, material defs so edits preview immediately); the game omits it. */
+  constructor(private engine: Engine, private tex: MapTextures, private defs: Map<string, MaterialDef> = CATALOG_DEFS) {}
 
-  def(name: string): MaterialDef { return materialDef(name); }
+  def(name: string): MaterialDef { return materialDef(name, this.defs); }
   isWater(name: string): boolean { return this.def(name).type === "water"; }
 
   /** WaterLook for a `water` material (defaults for any missing field) */

@@ -18,7 +18,7 @@ import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { Bridge } from "./bridge";
 import { createMcp } from "./mcp";
-import { importAsset, loadMap, saveMap, scanAssets, scanMaps } from "./files";
+import { createMaterial, deleteMaterial, importAsset, loadMap, renameMaterial, saveMap, saveMaterial, scanAssets, scanMaps } from "./files";
 
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -68,6 +68,19 @@ export function editorHostPlugin(opts: Options = {}): Plugin {
           readBody(req).then((body) => {
             const { id, def } = JSON.parse(body);
             json(res, 200, saveMap(root, id, def));
+          }).catch((e) => json(res, 500, { error: String(e) }));
+          return;
+        }
+
+        // ── materials: create / save / rename / delete (browser UI) ──
+        if (method === "POST" && url === "/__editor/material") {
+          readBody(req).then((body) => {
+            const b = JSON.parse(body);
+            const r = b.op === "create" ? createMaterial(root, b.type)
+              : b.op === "rename" ? renameMaterial(root, b.from, b.to)
+              : b.op === "delete" ? deleteMaterial(root, b.name)
+              : saveMaterial(root, b.name, b.def);
+            json(res, (r as { error?: string }).error ? 400 : 200, r);
           }).catch((e) => json(res, 500, { error: String(e) }));
           return;
         }

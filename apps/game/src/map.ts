@@ -7,7 +7,7 @@ import { GameModels } from "./models";
 import { MapTextures } from "./textures";
 import { MapBuilder } from "./mapbuilder";
 import { loadMapDef } from "./maps/loader";
-import { MapDef, MapEnv, MapMeta } from "./maps/schema";
+import { MapDef, MapEnv, MapMeta, MaterialDef } from "./maps/schema";
 import { Vec3 } from "./types";
 
 export interface AABB { min: Vec3; max: Vec3 }
@@ -35,7 +35,7 @@ export class GameMap {
 
   /** build (or rebuild) the world from a MapDef under `parent`. Safe to call
    *  repeatedly — the previous map's entities are torn down first. */
-  load(engine: Engine, parent: Entity, tex: MapTextures, models: GameModels, def: MapDef): void {
+  load(engine: Engine, parent: Entity, tex: MapTextures, models: GameModels, def: MapDef, matDefs?: Map<string, MaterialDef>): void {
     if (this.root) this.root.destroy();
     for (const s of this.sounds) { try { s.el.pause(); } catch { /* ignore */ } }
     this.solids = [];
@@ -48,7 +48,7 @@ export class GameMap {
     this.root = parent.createChild("map");
     this.meta = def.meta;
     this.env = def.env;
-    loadMapDef(new MapBuilder(engine, this.root, tex, models, this), def);
+    loadMapDef(new MapBuilder(engine, this.root, tex, models, this, matDefs), def);
   }
 
   /** per-frame: fade each spatial sound by the listener's distance to it.

@@ -9,6 +9,7 @@ import {
 import { GameModels, instantiate } from "./models";
 import { MapTextures, PbrSet, DEFAULT_FOLDER } from "./textures";
 import { MaterialLibrary } from "./materials";
+import type { MaterialDef } from "@slopwars/shared";
 import type { AABB, GameMap } from "./map";
 
 type Vec3T = readonly [number, number, number];
@@ -35,8 +36,9 @@ export class MapBuilder {
     public tex: MapTextures,
     public models: GameModels,
     public map: GameMap,
+    matDefs?: Map<string, MaterialDef>,
   ) {
-    this.lib = new MaterialLibrary(engine, tex);
+    this.lib = new MaterialLibrary(engine, tex, matDefs);
   }
 
   pushSolid(a: AABB): void { this.map.solids.push(a); }
