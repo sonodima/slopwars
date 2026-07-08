@@ -1,4 +1,5 @@
 // ─── Tiny DOM helpers (no framework — matches the game's vanilla approach) ────
+import { icon, type IconName } from "./icons";
 
 export function el<K extends keyof HTMLElementTagNameMap>(
   tag: K, cls?: string, text?: string,
@@ -140,6 +141,59 @@ export function button(label: string, onClick: () => void, cls = ""): HTMLButton
   return b;
 }
 
+/** a button with a leading icon + label (label optional for icon-only buttons) */
+export function iconButton(ic: IconName, label: string, onClick: () => void, cls = ""): HTMLButtonElement {
+  const b = el("button", `btn ${cls}`.trim());
+  b.append(icon(ic));
+  if (label) b.append(el("span", "btn-label", label));
+  b.addEventListener("click", onClick);
+  return b;
+}
+
+// ── context menu (Unity-style right-click actions) ──────────────────────────
+/** one entry in a context menu: an action, or a divider (`{ sep: true }`) */
+export type MenuItem =
+  | { sep: true }
+  | { label: string; icon?: IconName; danger?: boolean; disabled?: boolean; onClick: () => void };
+
+let openMenu: HTMLElement | null = null;
+/** close whatever context menu is open (also called globally on click/scroll/esc) */
+export function closeContextMenu(): void {
+  if (openMenu) { openMenu.remove(); openMenu = null; }
+}
+
+/** pop a context menu at client coordinates (clamped to the viewport). Dismisses on
+ *  outside click, scroll, resize, Escape, or after any item fires. Pass this an
+ *  event's clientX/clientY (right-click handlers should preventDefault first). */
+export function contextMenu(x: number, y: number, items: MenuItem[]): void {
+  closeContextMenu();
+  const menu = el("div", "ctx-menu");
+  for (const it of items) {
+    if ("sep" in it) { menu.append(el("div", "ctx-sep")); continue; }
+    const row = el("button", "ctx-item" + (it.danger ? " danger" : "") + (it.disabled ? " disabled" : ""));
+    if (it.icon) row.append(icon(it.icon, "ctx-ico")); else row.append(el("span", "ctx-ico"));
+    row.append(el("span", "ctx-label", it.label));
+    if (!it.disabled) row.addEventListener("click", (e) => { e.stopPropagation(); closeContextMenu(); it.onClick(); });
+    menu.append(row);
+  }
+  menu.style.visibility = "hidden";
+  document.body.append(menu);
+  // clamp so the menu never spills off-screen
+  const r = menu.getBoundingClientRect();
+  const px = Math.min(x, window.innerWidth - r.width - 6);
+  const py = Math.min(y, window.innerHeight - r.height - 6);
+  menu.style.left = `${Math.max(4, px)}px`;
+  menu.style.top = `${Math.max(4, py)}px`;
+  menu.style.visibility = "";
+  openMenu = menu;
+}
+
+// global dismissers (registered once)
+window.addEventListener("pointerdown", (e) => { if (openMenu && !openMenu.contains(e.target as Node)) closeContextMenu(); }, true);
+window.addEventListener("keydown", (e) => { if (e.key === "Escape") closeContextMenu(); });
+window.addEventListener("resize", closeContextMenu);
+window.addEventListener("wheel", () => closeContextMenu(), true);
+
 /** centred modal dialog with a titled card; returns a close() fn. Click the
  *  backdrop or press Escape to dismiss. */
 export function modal(title: string, body: HTMLElement): { close: () => void } {
@@ -147,7 +201,8 @@ export function modal(title: string, body: HTMLElement): { close: () => void } {
   const card = el("div", "modal-card");
   const head = el("div", "modal-head");
   head.append(el("span", "modal-title", title));
-  const x = el("button", "btn mini", "✕");
+  const x = el("button", "btn mini");
+  x.append(icon("x"));
   head.append(x);
   card.append(head, body);
   back.append(card);
@@ -158,6 +213,19 @@ export function modal(title: string, body: HTMLElement): { close: () => void } {
   x.addEventListener("click", close);
   window.addEventListener("keydown", onKey);
   return { close };
+}
+
+/** a confirm dialog for an irreversible action; runs `onYes` only if confirmed. */
+export function confirmDelete(what: string, onYes: () => void): void {
+  const body = el("div", "confirm");
+  body.append(el("p", "confirm-msg", `Delete ${what}? This cannot be undone.`));
+  const row = el("div", "confirm-actions");
+  const dlg = modal("Confirm delete", body);
+  row.append(
+    button("Cancel", () => dlg.close()),
+    button("Delete", () => { dlg.close(); onYes(); }, "danger"),
+  );
+  body.append(row);
 }
 
 function round(n: number): number { return Math.round(n * 1000) / 1000; }

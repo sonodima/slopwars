@@ -116,10 +116,10 @@ async function run(ctx: McpBridgeCtx, cmd: Cmd): Promise<unknown> {
     case "listGroups":
       return { groups: state.groups() };
 
-    // ── viewport tabs (map / material / model / texture documents) ──
+    // ── viewport tabs (map / material / model documents) ──
     case "listTabs":
       return {
-        tabs: tabs.tabs.map((t) => ({ id: t.id, kind: t.kind, name: t.material ?? t.model ?? t.texture ?? (t.kind === "map" ? state.mapName(t.id) : ""), view: t.view ?? null, active: t.id === tabs.activeId })),
+        tabs: tabs.tabs.map((t) => ({ id: t.id, kind: t.kind, name: t.material ?? t.model ?? (t.kind === "map" ? state.mapName(t.id) : ""), view: t.view ?? null, active: t.id === tabs.activeId })),
         activeId: tabs.activeId,
       };
     case "openTab": {
@@ -128,7 +128,6 @@ async function run(ctx: McpBridgeCtx, cmd: Cmd): Promise<unknown> {
       let id: string;
       if (kind === "material") id = tabs.openMaterial(String(name));
       else if (kind === "model") id = tabs.openModel(String(name));
-      else if (kind === "texture") id = tabs.openTexture(String(name));
       else if (kind === "map") { await ctx.loadMap(cmd.file as string); id = tabs.activeId; }
       else throw new Error(`unknown tab kind: ${kind}`);
       return { ok: true, id };

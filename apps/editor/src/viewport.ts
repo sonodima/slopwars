@@ -180,13 +180,31 @@ export class Viewport {
   }
 
   /** keep the WebGL drawing buffer matched to the canvas's on-screen size so the
-   *  image is resized (not stretched) when the editor layout changes */
+   *  image is resized (not stretched) when the editor layout changes. Never resize
+   *  while the canvas is hidden (a preview/empty tab is up): a 0-sized drawing buffer
+   *  degrades the HDR/opaque/post render targets and the map comes back black. */
   private bindResize(): void {
-    const resize = (): void => { if (this.ready || this.engine) this.engine.canvas.resizeByClientSize(); };
+    const resize = (): void => { if ((this.ready || this.engine) && this.visibleSize()) this.engine.canvas.resizeByClientSize(); };
     if (typeof ResizeObserver !== "undefined") {
       new ResizeObserver(resize).observe(this.canvas.parentElement ?? this.canvas);
     }
     window.addEventListener("resize", resize);
+  }
+
+  /** true when the map canvas is actually on-screen with a non-zero size */
+  private visibleSize(): boolean {
+    return this.canvas.clientWidth > 0 && this.canvas.clientHeight > 0 && this.canvas.style.display !== "none";
+  }
+
+  /** the map viewport just became visible again (switched back from a preview/empty
+   *  tab). Re-match the drawing buffer to the now-visible canvas and re-render, so the
+   *  scene isn't left black from a hidden/zero-sized frame. */
+  onShown(): void {
+    if (!this.ready) return;
+    this.engine.canvas.resizeByClientSize();
+    if (state.map) void this.render(state.map);
+    // the canvas may still be laying out this frame — re-fit + re-render next frame too
+    requestAnimationFrame(() => { if (this.ready && this.visibleSize()) { this.engine.canvas.resizeByClientSize(); if (state.map) void this.render(state.map); } });
   }
 
   /** update the material defs used to shade the viewport (from the editor catalog

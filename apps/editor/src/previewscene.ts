@@ -13,12 +13,13 @@
 // exactly like the thumbnail renderer — no coupling to the map Viewport.
 import {
   AmbientLight, BackgroundMode, BlendMode, BoundingBox, Camera, Color, DirectLight, Entity,
-  MeshRenderer, PBRMaterial, PrimitiveMesh, RefractionMode, RenderFace, SkyBoxMaterial,
+  MeshRenderer, PBRMaterial, PrimitiveMesh, RenderFace, SkyBoxMaterial,
   TextureCube, UnlitMaterial, Vector3, Vector4, WebGLEngine,
 } from "@galacean/engine";
 import type { AssetCatalog, CollisionBox, MaterialDef, ModelMeta, Tuple3 } from "@slopwars/shared";
 import { loadGLTF, loadHDRCube, loadTexture2D } from "@game/assets";
 import { applyWaterLook, attachWaterAnim, WATER_LOOK, type WaterLook } from "@game/water";
+import { buildGlassMaterial } from "@game/materials";
 import type { ModelView } from "./tabs";
 import type { Tool } from "./viewport";
 
@@ -53,6 +54,10 @@ export class PreviewScene {
   private target = new Vector3(0, 0, 0);
 
   private content: Content = { kind: "none" };
+  // model-view root indicator: the base offset applied to the previewed model and a
+  // radius that sizes the y=0 ground grid drawn on the overlay.
+  private modelBase = 0;
+  private indicatorRadius = 1;
   private hdriCache = new Map<string, Promise<TextureCube>>();
   private catalog: AssetCatalog = { models: [], textures: [], materials: [], audio: [], hdri: [] };
   private curHdri: string | null = null;
@@ -183,11 +188,6 @@ export class PreviewScene {
     if (def.type === "water") attachWaterAnim(e, mat, WATER_PREVIEW_TILING, waterLookOf(def).flow);
   }
 
-  /** render a lit sphere textured with a raw texture set (texture preview tab). */
-  async showTexture(name: string): Promise<void> {
-    await this.showMaterial(`tex:${name}`, { type: "standard", texture: name });
-  }
-
   /** build an engine material from a def (mirrors the thumbnail renderer) */
   private async buildMaterial(def: MaterialDef): Promise<PBRMaterial> {
     const m = new PBRMaterial(this.engine);
@@ -213,10 +213,9 @@ export class PreviewScene {
       m.tilingOffset = new Vector4(1, 1, 0, 0);
       if (def.emissive) m.emissiveColor = new Color(def.emissive[0], def.emissive[1], def.emissive[2], 1);
     } else if (def.type === "glass") {
-      const c = def.color ?? [0.85, 0.92, 0.95];
-      m.baseColor = new Color(c[0], c[1], c[2], def.opacity ?? 0.16);
-      m.roughness = def.roughness ?? 0.02; m.metallic = 0; m.ior = def.ior ?? 1.5;
-      m.isTransparent = true; m.refractionMode = RefractionMode.Planar; m.transmission = 1;
+      // reuse the game's exact glass shading so the preview refracts + tints what's
+      // behind the sphere identically to a window in a map.
+      return buildGlassMaterial(this.engine, def);
     } else {
       // water — use the game's exact shading (fractal wave normal + transmission +
       // depth attenuation) so the preview shows real ripples, not a flat tint. The
@@ -268,13 +267,23 @@ export class PreviewScene {
     if (!res || this.content.kind !== "model" || this.content.name !== name) return;
     const e = res.instantiateSceneRoot();
     this.holder.addChild(e);
+    // Model view lifts the model by its `base` so you can see it sit relative to the
+    // y=0 root grid (tune base until it rests on the grid). Collision authoring stays
+    // in the raw local frame the boxes are stored in, so it applies no base offset.
+    this.modelBase = view === "model" && typeof meta.base === "number" ? meta.base : 0;
+    if (this.modelBase) e.transform.setPosition(0, this.modelBase, 0);
     const radius = keep ? this.holderRadius() : this.frameHolder();
+    this.indicatorRadius = radius;
     if (meta.material) this.applyModelMaterial(e, meta.material);
     if (view === "collision") {
       this.dimModel(e);
       this.renderCollision(meta, radius);
     }
   }
+
+  /** model-local centre of the previewed geometry (for spawning a new collision
+   *  solid somewhere visible instead of at the origin). */
+  modelCenter(): Tuple3 { const c = this.holderBox().center; return [round3(c.x), round3(c.y), round3(c.z)]; }
 
   /** apply a material override (by name) to every surface of the previewed model,
    *  so the isolated preview matches what the game will render. */
@@ -599,6 +608,9 @@ export class PreviewScene {
     }
     const ctx = this.octx;
     ctx.clearRect(0, 0, this.overlay.width, this.overlay.height);
+    // model view: draw the root (0,0,0) indicator — a ground grid + axis cross — so
+    // the base offset can be judged/adjusted against it.
+    if (this.content.kind === "model" && this.content.view === "model") { this.drawOriginIndicator(); return; }
     if (!this.gizmoActive()) return;
     const at = this.boxes[this.selBox].at;
     const c = this.project(at);
@@ -628,6 +640,36 @@ export class PreviewScene {
     if (this.gizmoTool === "scale") ctx.fillRect(c.x - 5, c.y - 5, 10, 10);
     else { ctx.beginPath(); ctx.arc(c.x, c.y, 6, 0, Math.PI * 2); ctx.strokeStyle = ctx.fillStyle; ctx.lineWidth = onC ? 3 : 2; ctx.stroke(); }
     ctx.beginPath(); ctx.arc(c.x, c.y, 3, 0, Math.PI * 2); ctx.fillStyle = "#f5a623"; ctx.fill();
+  }
+
+  /** draw the model's root (0,0,0) indicator: a faint ground grid on the y=0 plane
+   *  plus a short X/Y/Z axis cross at the origin. The previewed model is lifted by
+   *  its `base`, so this grid is the surface it should rest on — tuning base until
+   *  the model sits on the grid calibrates its footing. */
+  private drawOriginIndicator(): void {
+    const ctx = this.octx;
+    const R = Math.max(0.6, Math.min(6, this.indicatorRadius * 1.4));
+    const step = R / 4;
+    const line = (a: Tuple3, b: Tuple3, style: string, w: number): void => {
+      const pa = this.project(a), pb = this.project(b);
+      if (!pa.visible || !pb.visible) return;
+      ctx.strokeStyle = style; ctx.lineWidth = w;
+      ctx.beginPath(); ctx.moveTo(pa.x, pa.y); ctx.lineTo(pb.x, pb.y); ctx.stroke();
+    };
+    // ground grid (y=0)
+    for (let i = -4; i <= 4; i++) {
+      const t = i * step;
+      const main = i === 0;
+      line([t, 0, -R], [t, 0, R], main ? "rgba(120,160,200,0.5)" : "rgba(120,140,160,0.18)", main ? 1.4 : 1);
+      line([-R, 0, t], [R, 0, t], main ? "rgba(120,160,200,0.5)" : "rgba(120,140,160,0.18)", main ? 1.4 : 1);
+    }
+    // axis cross at the root
+    const A = step * 1.6;
+    line([0, 0, 0], [A, 0, 0], "#e5484d", 2);   // X
+    line([0, 0, 0], [0, A, 0], "#5bd15b", 2);   // Y (up)
+    line([0, 0, 0], [0, 0, A], "#3b82f6", 2);   // Z
+    const o = this.project([0, 0, 0]);
+    if (o.visible) { ctx.beginPath(); ctx.arc(o.x, o.y, 3.5, 0, Math.PI * 2); ctx.fillStyle = "#eef1f4"; ctx.fill(); }
   }
 }
 

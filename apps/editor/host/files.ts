@@ -119,6 +119,9 @@ export function saveModelMeta(root: string, name: string, meta: ModelMeta): { ok
   const p = path.join(dir, "meta.json");
   const clean: ModelMeta = {};
   if (typeof meta.base === "number") clean.base = meta.base;
+  if (Array.isArray(meta.baseRot) && meta.baseRot.some((n) => n)) {
+    clean.baseRot = [Number(meta.baseRot[0]) || 0, Number(meta.baseRot[1]) || 0, Number(meta.baseRot[2]) || 0];
+  }
   if (typeof meta.scale === "number") clean.scale = meta.scale;
   if (typeof meta.material === "string" && meta.material) clean.material = meta.material;
   // collision: only persist "manual" (auto is the default) + its authored boxes
@@ -149,6 +152,24 @@ export function deleteModel(root: string, name: string): { ok?: boolean; error?:
 export function deleteTexture(root: string, name: string): { ok?: boolean; error?: string } {
   const dir = path.join(root, "public", "assets", "textures", sanitize(name));
   if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
+  return { ok: true };
+}
+
+/** delete an asset file by its catalog-relative path (e.g. "hdri/sky.hdr",
+ *  "audio/clip.mp3"). Guarded so it can only remove files inside public/assets/. */
+export function deleteAssetFile(root: string, file: string): { ok?: boolean; error?: string } {
+  const base = path.resolve(root, "public", "assets");
+  const abs = path.resolve(base, String(file));
+  if (!abs.startsWith(base + path.sep)) return { error: "path outside assets" };
+  if (fs.existsSync(abs)) fs.rmSync(abs, { recursive: true, force: true });
+  return { ok: true };
+}
+
+/** delete a map file (maps/<basename>.json). */
+export function deleteMap(root: string, file: string): { ok?: boolean; error?: string } {
+  const abs = path.join(root, "maps", path.basename(String(file)));
+  if (!abs.endsWith(".json")) return { error: "not a map file" };
+  if (fs.existsSync(abs)) fs.rmSync(abs);
   return { ok: true };
 }
 

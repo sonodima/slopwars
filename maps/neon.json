@@ -631,63 +631,148 @@
 			}
 		},
 		{
-			"type": "lantern",
+			"type": "prop",
 			"at": [
 				-10,
 				2.4,
 				-8
 			],
 			"params": {
-				"color": 58879,
-				"distance": 10
+				"model": "Lantern_01",
+				"solid": false
 			}
 		},
 		{
-			"type": "lantern",
+			"type": "pointlight",
+			"at": [
+				-10,
+				2.4,
+				-8
+			],
+			"params": {
+				"color": [
+					0.0,
+					0.898,
+					1.0
+				],
+				"intensity": 1,
+				"range": 10
+			}
+		},
+		{
+			"type": "prop",
 			"at": [
 				4,
 				2.4,
 				-8
 			],
 			"params": {
-				"color": 16722902,
-				"distance": 10
+				"model": "Lantern_01",
+				"solid": false
 			}
 		},
 		{
-			"type": "lantern",
+			"type": "pointlight",
+			"at": [
+				4,
+				2.4,
+				-8
+			],
+			"params": {
+				"color": [
+					1.0,
+					0.169,
+					0.839
+				],
+				"intensity": 1,
+				"range": 10
+			}
+		},
+		{
+			"type": "prop",
 			"at": [
 				-12,
 				2.4,
 				8
 			],
 			"params": {
-				"color": 9133311,
-				"distance": 10
+				"model": "Lantern_01",
+				"solid": false
 			}
 		},
 		{
-			"type": "lantern",
+			"type": "pointlight",
+			"at": [
+				-12,
+				2.4,
+				8
+			],
+			"params": {
+				"color": [
+					0.545,
+					0.361,
+					1.0
+				],
+				"intensity": 1,
+				"range": 10
+			}
+		},
+		{
+			"type": "prop",
 			"at": [
 				12,
 				2.4,
 				8
 			],
 			"params": {
-				"color": 2883464,
-				"distance": 10
+				"model": "Lantern_01",
+				"solid": false
 			}
 		},
 		{
-			"type": "lantern",
+			"type": "pointlight",
+			"at": [
+				12,
+				2.4,
+				8
+			],
+			"params": {
+				"color": [
+					0.169,
+					1.0,
+					0.533
+				],
+				"intensity": 1,
+				"range": 10
+			}
+		},
+		{
+			"type": "prop",
 			"at": [
 				0,
 				2.4,
 				0
 			],
 			"params": {
-				"color": 58879,
-				"distance": 12
+				"model": "Lantern_01",
+				"solid": false
+			}
+		},
+		{
+			"type": "pointlight",
+			"at": [
+				0,
+				2.4,
+				0
+			],
+			"params": {
+				"color": [
+					0.0,
+					0.898,
+					1.0
+				],
+				"intensity": 1,
+				"range": 12
 			}
 		},
 		{
@@ -796,27 +881,87 @@
 			}
 		},
 		{
-			"type": "sandbags",
+			"type": "box",
 			"at": [
 				6,
-				0,
+				0.28,
 				-1
 			],
+			"scale": [
+				0.65,
+				0.56,
+				1.5
+			],
 			"params": {
-				"rot": 1,
-				"mat": "neon_wall"
+				"mat": "neon_wall",
+				"tile": [
+					0.6,
+					0.3
+				],
+				"solid": true
 			}
 		},
 		{
-			"type": "sandbags",
+			"type": "box",
 			"at": [
-				-6,
-				0,
-				10
+				6,
+				0.72,
+				-0.9
+			],
+			"scale": [
+				0.52,
+				0.34,
+				1.2
 			],
 			"params": {
-				"rot": 0,
-				"mat": "neon_wall"
+				"mat": "neon_wall",
+				"tile": [
+					0.5,
+					0.2
+				],
+				"solid": true
+			}
+		},
+		{
+			"type": "box",
+			"at": [
+				-6,
+				0.28,
+				10
+			],
+			"scale": [
+				1.5,
+				0.56,
+				0.65
+			],
+			"params": {
+				"mat": "neon_wall",
+				"tile": [
+					0.6,
+					0.3
+				],
+				"solid": true
+			}
+		},
+		{
+			"type": "box",
+			"at": [
+				-5.9,
+				0.72,
+				10
+			],
+			"scale": [
+				1.2,
+				0.34,
+				0.52
+			],
+			"params": {
+				"mat": "neon_wall",
+				"tile": [
+					0.5,
+					0.2
+				],
+				"solid": true
 			}
 		},
 		{
@@ -917,20 +1062,52 @@
 			}
 		},
 		{
-			"type": "planter",
+			"type": "prop",
 			"at": [
 				-24,
 				0,
 				18
-			]
+			],
+			"params": {
+				"model": "planter_box_01",
+				"solid": true
+			}
 		},
 		{
-			"type": "planter",
+			"type": "prop",
+			"at": [
+				-24,
+				0.5,
+				18
+			],
+			"params": {
+				"model": "cheiridopsis_succulent",
+				"solid": false
+			}
+		},
+		{
+			"type": "prop",
 			"at": [
 				24,
 				0,
 				-18
-			]
+			],
+			"params": {
+				"model": "planter_box_01",
+				"solid": true
+			}
+		},
+		{
+			"type": "prop",
+			"at": [
+				24,
+				0.5,
+				-18
+			],
+			"params": {
+				"model": "cheiridopsis_succulent",
+				"solid": false
+			}
 		},
 		{
 			"type": "spawn",

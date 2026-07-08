@@ -41,13 +41,29 @@
   .tool-group .btn{border:none;border-right:1px solid var(--line);border-radius:0}
   .tool-group .btn:last-child{border-right:none}
 
-  .btn{background:var(--panel2);color:var(--text);border:1px solid var(--line2);border-radius:4px;padding:4px 10px;cursor:pointer;font-family:var(--font);font-size:12px}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:5px;background:var(--panel2);color:var(--text);border:1px solid var(--line2);border-radius:4px;padding:4px 10px;cursor:pointer;font-family:var(--font);font-size:12px;line-height:1}
   .btn:hover{background:var(--panel3)}
   .btn.on{background:var(--accent);color:#fff;border-color:var(--accent)}
   .btn.primary{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:600}
   .btn.primary:hover{background:var(--accent2)}
-  .btn.mini{padding:0 5px;font-size:12px;color:var(--dim);border-color:transparent;background:transparent}
+  .btn.mini{padding:2px 4px;font-size:12px;color:var(--dim);border-color:transparent;background:transparent}
   .btn.mini:hover{color:#fff;background:var(--panel3)}
+
+  /* inline icons — inherit currentColor, size to the surrounding text */
+  .icon{width:1.16em;height:1.16em;flex:0 0 auto;display:block;stroke:currentColor;fill:none;vertical-align:middle}
+  .btn.mini .icon{width:14px;height:14px}
+
+  /* context menu (right-click actions) */
+  .ctx-menu{position:fixed;z-index:200;min-width:174px;background:var(--panel2);border:1px solid var(--line2);border-radius:6px;padding:4px;box-shadow:0 10px 30px rgba(0,0,0,.5);font-size:12px}
+  .ctx-item{display:flex;align-items:center;gap:9px;width:100%;text-align:left;background:transparent;border:none;border-radius:4px;padding:6px 9px;color:var(--text);cursor:pointer;font-family:var(--font);font-size:12px}
+  .ctx-item:hover{background:var(--accent);color:#fff}
+  .ctx-item.danger{color:#e5726d}
+  .ctx-item.danger:hover{background:var(--red);color:#fff}
+  .ctx-item.disabled,.ctx-item.disabled:hover{color:var(--dim);cursor:default;opacity:.55;background:transparent}
+  .ctx-ico{width:15px;height:15px;flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center}
+  .ctx-ico .icon{width:15px;height:15px}
+  .ctx-label{flex:1}
+  .ctx-sep{height:1px;background:var(--line2);margin:4px 6px}
 
   /* main split */
   #main{display:grid;grid-template-columns:var(--left-w) 1fr var(--right-w);overflow:hidden;min-height:0;position:relative}
@@ -63,6 +79,10 @@
   /* preview tabs hide the map canvas + its HUD; map tabs hide the preview canvas */
   .vp-stage.preview #editor-canvas,.vp-stage.preview .viewport-overlay,.vp-stage.preview .vp-perf,.vp-stage.preview .vp-hint{display:none}
   .vp-stage:not(.preview) #preview-canvas,.vp-stage:not(.preview) .vp-modes{display:none}
+  /* no document open → a blank grey stage (no 3D render lingering) */
+  .vp-stage.empty{background:#202327}
+  .vp-stage.empty #editor-canvas,.vp-stage.empty #preview-canvas,.vp-stage.empty .viewport-overlay,.vp-stage.empty .preview-overlay,.vp-stage.empty .vp-perf,.vp-stage.empty .vp-hint,.vp-stage.empty .vp-modes,.vp-stage.empty .vp-envbtn{display:none!important}
+  .vp-stage.empty::after{content:"No document open";position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--dim);font-size:13px;letter-spacing:.02em}
   /* left column collapses for preview tabs (no outliner). Keep #scene-col in the
      grid as a zero-width, clipped slot — using display:none would drop it from the
      grid and reflow the viewport/inspector into the wrong columns. */
@@ -75,7 +95,9 @@
   .vp-tab{display:flex;align-items:center;gap:7px;padding:0 8px 0 11px;background:var(--panel);color:var(--dim);border:none;border-right:1px solid var(--line);cursor:pointer;font-family:var(--font);font-size:12px;white-space:nowrap;max-width:220px}
   .vp-tab:hover{background:var(--panel2);color:var(--text)}
   .vp-tab.on{background:var(--panel2);color:#fff;box-shadow:inset 0 2px 0 var(--accent)}
-  .vp-tab .vp-tab-ico{font-size:12px;opacity:.85}
+  .vp-tab .vp-tab-ico{display:inline-flex;align-items:center;opacity:.85}
+  .vp-tab .vp-tab-ico .icon{width:14px;height:14px}
+  .vp-tab .vp-tab-x .icon{width:13px;height:13px}
   .vp-tab .vp-tab-name{overflow:hidden;text-overflow:ellipsis}
   .vp-tab .vp-tab-x{opacity:0;border:none;background:transparent;color:var(--dim);cursor:pointer;font-size:12px;padding:0 2px;border-radius:3px;line-height:1}
   .vp-tab:hover .vp-tab-x{opacity:1}
@@ -127,7 +149,10 @@
   .sg-row .btn.mini{opacity:0}
   .sg-row:hover .btn.mini{opacity:1}
   .sg-world{border-bottom:1px solid var(--line2)}
-  .sg-ico{margin-right:4px}
+  .sg-ico{margin-right:4px;display:inline-flex;align-items:center;color:var(--dim)}
+  .sg-ico .icon{width:14px;height:14px}
+  .sg-caret .icon{width:12px;height:12px}
+  .sg-group .sg-ico{color:#e6c98a}
   .sg-group .sg-label{font-weight:600;color:#e6c98a;text-transform:none}
   .sg-caret{width:12px;display:inline-block;text-align:center;color:var(--dim);cursor:pointer;flex:0 0 auto}
   .sg-search-bar{display:flex;gap:6px;align-items:center}
@@ -207,6 +232,8 @@
   .asset-card.grab:hover{border-color:var(--accent)}
   .asset-thumb{width:100%;height:64px;border-radius:3px;display:flex;align-items:center;justify-content:center;background:#0e0f10;overflow:hidden}
   .asset-icon{font-size:22px;color:var(--dim);display:flex;align-items:center}
+  .asset-icon-svg{width:30px;height:30px;color:var(--dim)}
+  .env-card .asset-icon-svg{width:22px;height:22px}
   .thumb-img{width:100%;height:100%;object-fit:contain;display:block}
   .asset-name{font-size:11px;color:var(--text);word-break:break-word}
   .asset-audioctl{display:flex;gap:4px;width:100%}
@@ -232,7 +259,10 @@
   .assetfield .af-name.empty{color:var(--dim);font-style:italic}
   .assetfield .btn.mini{flex:0 0 auto}
   .af-prevwrap{width:26px;height:26px;border-radius:3px;background:#0e0f10;flex:0 0 auto;display:flex;align-items:center;justify-content:center;overflow:hidden}
-  .af-ico{font-size:14px;color:var(--dim)}
+  .af-ico{font-size:14px;color:var(--dim);display:inline-flex;align-items:center}
+  .af-ico .icon{width:15px;height:15px}
+  .af-warn{display:inline-flex;align-items:center}
+  .af-warn .icon{width:14px;height:14px}
 
   /* thumbnail picker modal */
   .picker-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:7px;padding:10px;overflow:auto;max-height:60vh;min-width:420px}

@@ -13,13 +13,14 @@ import { ThumbRenderer } from "./preview";
 import { state } from "./state";
 import { tabs, type Tab } from "./tabs";
 import { mountSceneGraph } from "./scenegraph";
-import { renderInspector, refreshInspector, setInspectorCatalog, setInspectorThumbs, setInspectorMaterialHooks, setInspectorModelHooks, setInspectorTextureHooks } from "./inspector";
+import { renderInspector, refreshInspector, setInspectorCatalog, setInspectorThumbs, setInspectorMaterialHooks, setInspectorModelHooks } from "./inspector";
 import { renderBrowser, Payload, type BrowserControl } from "./panels";
 import { mountResizers } from "./layout";
 import { objectDropScale } from "@game/objects";
 import { startMcpBridge } from "./mcpbridge";
 import { api } from "./api";
-import { el, clear, button, toast, modal } from "./ui";
+import { el, clear, button, iconButton, toast, modal } from "./ui";
+import { icon, type IconName } from "./icons";
 
 const $ = (id: string): HTMLElement => document.getElementById(id) as HTMLElement;
 
@@ -86,20 +87,19 @@ async function main(): Promise<void> {
   setInspectorMaterialHooks({
     changed: (name, def) => { viewport.setMaterials(catalog.materials, true); saveMaterialSoon(name, def); previewMaterialEdit(name, def); },
     renamed: (from, to) => { void renameMaterial(from, to); },
-    deleted: (name) => { void deleteMaterialFlow(name); },
   });
   setInspectorModelHooks({
     meta: (name) => liveMeta(name),
     changed: (name) => onModelMetaChanged(name),
-    deleted: (name) => { void deleteModelFlow(name); },
     collSel: () => selBox,
     collSelect: (i) => collSelect(i),
     collAdd: () => collAdd(),
     collDelete: (i) => collDelete(i),
   });
-  setInspectorTextureHooks({ deleted: (name) => { void deleteTextureFlow(name); } });
 
   buildToolbar();
+  // the floating preview-environment button (static in the HTML) gets its icon here
+  const envBtn = $("vp-envbtn"); clear(envBtn); envBtn.append(icon("mountain"), el("span", "btn-label", "Environment"));
   mountSceneGraph($("scene-graph"));
   buildDock();
   bindUndoRedo();
@@ -153,30 +153,34 @@ function syncViewport(): void {
   const tab = tabs.active();
   const kind = tab?.kind ?? null;
   const isPreview = !!kind && kind !== "map";
-  $("vp-stage").classList.toggle("preview", isPreview);
+  const isEmpty = kind === null;   // no tab open at all → blank grey stage (no 3D)
+  const stage = $("vp-stage");
+  stage.classList.toggle("preview", isPreview);
+  stage.classList.toggle("empty", isEmpty);
   preview.show(isPreview);
   renderModes();
   renderEnvButton();
 
-  const key = tab ? `${tab.kind}:${tab.material ?? tab.texture ?? tab.model ?? ""}:${tab.view ?? ""}` : "";
+  const key = tab ? `${tab.kind}:${tab.material ?? tab.model ?? ""}:${tab.view ?? ""}` : "";
   if (isPreview && key !== previewKey && preview.ready) {
     if (tab!.kind === "material") {
       const m = catalog.materials.find((x) => x.name === tab!.material);
       if (m) void preview.showMaterial(m.name, m.def);
       ensureEnv();
-    } else if (tab!.kind === "texture") {
-      void preview.showTexture(tab!.texture!);
-      ensureEnv();
     } else if (tab!.kind === "model") {
       selBox = -1;
       void preview.showModel(tab!.model!, tab!.view ?? "model", liveMeta(tab!.model!));
+      ensureEnv();   // an environment gives the model real reflections + a lit skybox
     }
   }
   previewKey = isPreview ? key : "";
-  if (kind === "map" && viewport.ready && state.map) void viewport.render(state.map);
+  // switching back to a map tab: the map canvas was hidden (0-sized while a preview
+  // was up), so resize it before re-rendering — otherwise the scene comes back black
+  // with only the overlay markers showing.
+  if (kind === "map" && viewport.ready && state.map) viewport.onShown();
 }
 
-/** default the material/texture preview to an environment for nice reflections */
+/** default the material/model preview to an environment for nice reflections */
 function ensureEnv(): void {
   if (preview.currentHdri() === null && catalog.hdri.length) void preview.setHdri(catalog.hdri[0].name);
 }
@@ -195,16 +199,20 @@ function onModelMetaChanged(name: string): void {
   saveModelMetaSoon(name, meta);
   const tab = tabs.active();
   if (tab?.kind === "model" && tab.model === name) {
-    if (tab.view === "collision") preview.refreshCollision(meta);
+    // the collision-mode toggle (top-left) only shows in manual mode, so re-evaluate
+    // it whenever the meta changes (auto⇄manual flips its visibility + can snap the view)
+    renderModes();
+    const view = tabs.active()?.kind === "model" ? (tabs.active() as Tab).view ?? "model" : "model";
+    if (view === "collision") preview.refreshCollision(meta);
     else void preview.showModel(name, "model", meta, true);
   }
 }
 
 // ── viewport tab strip + view-mode control ───────────────────────────────────
-const TAB_ICON: Record<Tab["kind"], string> = { map: "🗺", material: "◆", model: "▣", texture: "▦" };
+const TAB_ICON: Record<Tab["kind"], IconName> = { map: "map", material: "material", model: "box" };
 function tabTitle(t: Tab): string {
   if (t.kind === "map") return state.mapName(t.id);
-  return t.material ?? t.model ?? t.texture ?? t.kind;
+  return t.material ?? t.model ?? t.kind;
 }
 function renderTabStrip(): void {
   const bar = $("vp-tabs");
@@ -212,8 +220,9 @@ function renderTabStrip(): void {
   for (const t of tabs.tabs) {
     const b = el("button", "vp-tab" + (t.id === tabs.activeId ? " on" : ""));
     if (t.kind === "map" && state.isDirty(t.id)) b.classList.add("dirty");
-    b.append(el("span", "vp-tab-ico", TAB_ICON[t.kind]), el("span", "vp-tab-name", tabTitle(t)));
-    const x = el("button", "vp-tab-x", "✕");
+    const ico = el("span", "vp-tab-ico"); ico.append(icon(TAB_ICON[t.kind]));
+    b.append(ico, el("span", "vp-tab-name", tabTitle(t)));
+    const x = el("button", "vp-tab-x"); x.append(icon("x"));
     x.title = "close tab";
     x.addEventListener("click", (e) => { e.stopPropagation(); tabs.close(t.id); });
     b.append(x);
@@ -226,16 +235,25 @@ function renderTabStrip(): void {
   }
 }
 
-/** Model / Collision segmented control (only for model tabs) */
+/** Model / Collision segmented control. Only shown on a model tab whose collision
+ *  mode is "manual" — with automatic collision there are no solids to author, so
+ *  the Collision view (and the whole toggle) would be empty. Switching a model back
+ *  to auto in the inspector snaps its view to Model. */
 function renderModes(): void {
   const box = $("vp-modes");
   clear(box);
   const tab = tabs.active();
-  if (tab?.kind !== "model") { box.style.display = "none"; return; }
+  const manual = tab?.kind === "model" && !!tab.model && (liveMeta(tab.model).collision ?? "auto") === "manual";
+  if (!manual) {
+    box.style.display = "none";
+    // never leave a model parked in the Collision view when it isn't manual
+    if (tab?.kind === "model" && tab.view === "collision") tabs.setModelView(tab.id, "model");
+    return;
+  }
   box.style.display = "flex";
   for (const v of ["model", "collision"] as const) {
-    const b = el("button", v === (tab.view ?? "model") ? "on" : "", v === "model" ? "Model" : "Collision");
-    b.addEventListener("click", () => tabs.setModelView(tab.id, v));
+    const b = el("button", v === (tab!.view ?? "model") ? "on" : "", v === "model" ? "Model" : "Collision");
+    b.addEventListener("click", () => tabs.setModelView(tab!.id, v));
     box.append(b);
   }
 }
@@ -249,12 +267,13 @@ function renderLeftPanel(): void {
   if (isMap) $("left-head").textContent = "Scene Outliner";
 }
 
-/** show the small “Environment” button only on material/texture tabs; it opens the
- *  HDRI picker for the preview (replaces the old dedicated left environment section). */
+/** show the small “Environment” button on any preview tab (material or model); it
+ *  opens the HDRI picker for the preview, driving the skybox + the reflections on
+ *  the previewed sphere/model. */
 function renderEnvButton(): void {
   const btn = $("vp-envbtn") as HTMLButtonElement;
   const kind = tabs.activeKind();
-  const show = kind === "material" || kind === "texture";
+  const show = kind === "material" || kind === "model";
   btn.classList.toggle("on", show);
   btn.onclick = show ? openEnvPicker : null;
 }
@@ -271,7 +290,7 @@ function openEnvPicker(): void {
       const c = el("div", "env-card" + ((name ?? null) === cur ? " on" : ""));
       const thumb = el("div", "asset-thumb");
       if (name) { const h = catalog.hdri.find((x) => x.name === name); if (h) void thumbs.hdriThumb(h.file).then((u) => { if (u) { const img = el("img", "thumb-img"); img.src = u; thumb.replaceChildren(img); } }); }
-      else thumb.append(el("div", "asset-icon", "∅"));
+      else thumb.append(icon("x", "asset-icon-svg"));
       c.append(thumb, el("div", "env-name", label));
       c.addEventListener("click", () => { void preview.setHdri(name).then(draw); });
       return c;
@@ -289,7 +308,11 @@ function collSelect(i: number): void { selBox = i; preview.selectBox(i); refresh
 function collAdd(): void {
   const tab = tabs.active(); if (tab?.kind !== "model" || !tab.model) return;
   const meta = liveMeta(tab.model);
-  (meta.collisionBoxes ??= []).push({ at: [0, 0, 0], size: [0.5, 0.5, 0.5] });
+  // author solids in the Collision view; drop the new one at the model centre so it's
+  // visible immediately (not hidden at the origin), pre-selected for a straight drag.
+  if (tab.view !== "collision") tabs.setModelView(tab.id, "collision");
+  const at = preview.modelCenter();
+  (meta.collisionBoxes ??= []).push({ at, size: [0.5, 0.5, 0.5] });
   selBox = meta.collisionBoxes.length - 1;
   onModelMetaChanged(tab.model);
   preview.selectBox(selBox);
@@ -376,7 +399,7 @@ function buildToolbar(): void {
   const logo = el("img", "brand-icon") as HTMLImageElement;
   logo.src = `${import.meta.env.BASE_URL}logo.png`; logo.alt = "SlopWars";
   bar.append(logo, el("span", "brand", "Editor"),
-    button("Save", saveMap, "primary"), button("Save As…", saveMapAs),
+    iconButton("save", "Save", () => void saveMap(), "primary"), button("Save As…", () => void saveMapAs()),
     el("span", "bar-sep"));
 
   const tools = el("div", "tool-group");
@@ -406,10 +429,15 @@ function buildDock(): void {
     listMaps: () => api.maps(),
     onOpenMaterial: (name) => tabs.openMaterial(name),
     onOpenModel: (name) => tabs.openModel(name),
-    onOpenTexture: (name) => tabs.openTexture(name),
     onCreateMaterial: () => void createMaterialFlow(),
     onLoadMap: (file) => void openMap(file),
     onCreateMap: () => { tabs.newMap(); },
+    onDeleteModel: (name) => void deleteModelFlow(name),
+    onDeleteMaterial: (name) => void deleteMaterialFlow(name),
+    onDeleteTexture: (name) => void deleteTextureFlow(name),
+    onDeleteHdri: (file) => void deleteAssetFlow(file, "skybox"),
+    onDeleteAudio: (file) => void deleteAssetFlow(file, "audio"),
+    onDeleteMap: (file) => void deleteMapFlow(file),
   });
 }
 
@@ -459,10 +487,30 @@ async function deleteTextureFlow(name: string): Promise<void> {
   try {
     const r = await api.deleteTexture(name);
     if (r.error) { toast("delete failed: " + r.error, true); return; }
-    tabs.closeAsset("texture", name);
     await refreshCatalog(true);
     await browser?.reload();
     toast(`deleted texture "${name}"`);
+  } catch (e) { toast("delete failed: " + e, true); }
+}
+
+/** delete a single-file asset (skybox / audio) by its catalog path, then refresh */
+async function deleteAssetFlow(file: string, label: string): Promise<void> {
+  try {
+    const r = await api.deleteAsset(file);
+    if (r.error) { toast("delete failed: " + r.error, true); return; }
+    await refreshCatalog(true);
+    await browser?.reload();
+    toast(`deleted ${label}`);
+  } catch (e) { toast("delete failed: " + e, true); }
+}
+
+/** delete a map file, then refresh the Maps list */
+async function deleteMapFlow(file: string): Promise<void> {
+  try {
+    const r = await api.deleteMap(file);
+    if (r.error) { toast("delete failed: " + r.error, true); return; }
+    browser?.refreshMaps();
+    toast(`deleted ${file}`);
   } catch (e) { toast("delete failed: " + e, true); }
 }
 

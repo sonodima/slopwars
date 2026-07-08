@@ -1753,238 +1753,1057 @@
 			"group": "grp-plpx4r"
 		},
 		{
-			"type": "window",
+			"type": "box",
 			"at": [
 				-22.3,
-				0,
+				0.55,
 				-6
 			],
+			"scale": [
+				0.9,
+				1.1,
+				1.6
+			],
 			"params": {
-				"mat": "koi_wall"
+				"mat": "koi_wall",
+				"tile": [
+					0.5,
+					0.4
+				],
+				"solid": true
 			}
 		},
 		{
-			"type": "window",
+			"type": "box",
 			"at": [
 				-22.3,
-				0,
+				2.85,
+				-6
+			],
+			"scale": [
+				0.9,
+				1.1,
+				1.6
+			],
+			"params": {
+				"mat": "koi_wall",
+				"tile": [
+					0.5,
+					0.4
+				],
+				"solid": true
+			}
+		},
+		{
+			"type": "box",
+			"at": [
+				-22.3,
+				1.12,
+				-6
+			],
+			"scale": [
+				1.1,
+				0.14,
+				1.9
+			],
+			"params": {
+				"mat": "stone",
+				"tile": [
+					0.6,
+					0.08
+				],
+				"solid": true
+			}
+		},
+		{
+			"type": "box",
+			"at": [
+				-22.3,
+				0.55,
 				4
 			],
+			"scale": [
+				0.9,
+				1.1,
+				1.6
+			],
 			"params": {
-				"mat": "koi_wall"
+				"mat": "koi_wall",
+				"tile": [
+					0.5,
+					0.4
+				],
+				"solid": true
 			}
 		},
 		{
-			"type": "column",
+			"type": "box",
+			"at": [
+				-22.3,
+				2.85,
+				4
+			],
+			"scale": [
+				0.9,
+				1.1,
+				1.6
+			],
+			"params": {
+				"mat": "koi_wall",
+				"tile": [
+					0.5,
+					0.4
+				],
+				"solid": true
+			}
+		},
+		{
+			"type": "box",
+			"at": [
+				-22.3,
+				1.12,
+				4
+			],
+			"scale": [
+				1.1,
+				0.14,
+				1.9
+			],
+			"params": {
+				"mat": "stone",
+				"tile": [
+					0.6,
+					0.08
+				],
+				"solid": true
+			}
+		},
+		{
+			"type": "box",
 			"at": [
 				-13.2,
-				0,
+				1.45,
 				-10.5
 			],
-			"params": {
-				"mat": "koi_stone"
-			}
-		},
-		{
-			"type": "column",
-			"at": [
-				-13.2,
-				0,
-				-7
+			"scale": [
+				0.64,
+				2.9,
+				0.64
 			],
 			"params": {
-				"mat": "koi_stone"
+				"mat": "koi_stone",
+				"tile": [
+					0.6,
+					1.4
+				],
+				"solid": true
 			}
 		},
 		{
-			"type": "column",
+			"type": "box",
 			"at": [
 				-13.2,
-				0,
+				3.05,
+				-10.5
+			],
+			"scale": [
+				0.85,
+				0.3,
+				0.85
+			],
+			"params": {
+				"mat": "koi_stone",
+				"tile": [
+					0.3,
+					0.15
+				],
+				"solid": true
+			}
+		},
+		{
+			"type": "box",
+			"at": [
+				-13.2,
+				0.15,
+				-10.5
+			],
+			"scale": [
+				0.85,
+				0.3,
+				0.85
+			],
+			"params": {
+				"mat": "koi_stone",
+				"tile": [
+					0.3,
+					0.15
+				],
+				"solid": true
+			}
+		},
+		{
+			"type": "box",
+			"at": [
+				-13.2,
+				1.45,
+				-7
+			],
+			"scale": [
+				0.64,
+				2.9,
+				0.64
+			],
+			"params": {
+				"mat": "koi_stone",
+				"tile": [
+					0.6,
+					1.4
+				],
+				"solid": true
+			}
+		},
+		{
+			"type": "box",
+			"at": [
+				-13.2,
+				3.05,
+				-7
+			],
+			"scale": [
+				0.85,
+				0.3,
+				0.85
+			],
+			"params": {
+				"mat": "koi_stone",
+				"tile": [
+					0.3,
+					0.15
+				],
+				"solid": true
+			}
+		},
+		{
+			"type": "box",
+			"at": [
+				-13.2,
+				0.15,
+				-7
+			],
+			"scale": [
+				0.85,
+				0.3,
+				0.85
+			],
+			"params": {
+				"mat": "koi_stone",
+				"tile": [
+					0.3,
+					0.15
+				],
+				"solid": true
+			}
+		},
+		{
+			"type": "box",
+			"at": [
+				-13.2,
+				1.45,
 				-3.5
 			],
+			"scale": [
+				0.64,
+				2.9,
+				0.64
+			],
 			"params": {
-				"mat": "koi_stone"
+				"mat": "koi_stone",
+				"tile": [
+					0.6,
+					1.4
+				],
+				"solid": true
 			}
 		},
 		{
-			"type": "column",
+			"type": "box",
 			"at": [
 				-13.2,
-				0,
+				3.05,
+				-3.5
+			],
+			"scale": [
+				0.85,
+				0.3,
+				0.85
+			],
+			"params": {
+				"mat": "koi_stone",
+				"tile": [
+					0.3,
+					0.15
+				],
+				"solid": true
+			}
+		},
+		{
+			"type": "box",
+			"at": [
+				-13.2,
+				0.15,
+				-3.5
+			],
+			"scale": [
+				0.85,
+				0.3,
+				0.85
+			],
+			"params": {
+				"mat": "koi_stone",
+				"tile": [
+					0.3,
+					0.15
+				],
+				"solid": true
+			}
+		},
+		{
+			"type": "box",
+			"at": [
+				-13.2,
+				1.45,
 				0
 			],
+			"scale": [
+				0.64,
+				2.9,
+				0.64
+			],
 			"params": {
-				"mat": "koi_stone"
+				"mat": "koi_stone",
+				"tile": [
+					0.6,
+					1.4
+				],
+				"solid": true
 			}
 		},
 		{
-			"type": "column",
+			"type": "box",
 			"at": [
 				-13.2,
-				0,
+				3.05,
+				0
+			],
+			"scale": [
+				0.85,
+				0.3,
+				0.85
+			],
+			"params": {
+				"mat": "koi_stone",
+				"tile": [
+					0.3,
+					0.15
+				],
+				"solid": true
+			}
+		},
+		{
+			"type": "box",
+			"at": [
+				-13.2,
+				0.15,
+				0
+			],
+			"scale": [
+				0.85,
+				0.3,
+				0.85
+			],
+			"params": {
+				"mat": "koi_stone",
+				"tile": [
+					0.3,
+					0.15
+				],
+				"solid": true
+			}
+		},
+		{
+			"type": "box",
+			"at": [
+				-13.2,
+				1.45,
 				3.5
 			],
+			"scale": [
+				0.64,
+				2.9,
+				0.64
+			],
 			"params": {
-				"mat": "koi_stone"
+				"mat": "koi_stone",
+				"tile": [
+					0.6,
+					1.4
+				],
+				"solid": true
 			}
 		},
 		{
-			"type": "column",
+			"type": "box",
 			"at": [
 				-13.2,
-				0,
+				3.05,
+				3.5
+			],
+			"scale": [
+				0.85,
+				0.3,
+				0.85
+			],
+			"params": {
+				"mat": "koi_stone",
+				"tile": [
+					0.3,
+					0.15
+				],
+				"solid": true
+			}
+		},
+		{
+			"type": "box",
+			"at": [
+				-13.2,
+				0.15,
+				3.5
+			],
+			"scale": [
+				0.85,
+				0.3,
+				0.85
+			],
+			"params": {
+				"mat": "koi_stone",
+				"tile": [
+					0.3,
+					0.15
+				],
+				"solid": true
+			}
+		},
+		{
+			"type": "box",
+			"at": [
+				-13.2,
+				1.45,
 				7
 			],
-			"params": {
-				"mat": "koi_stone"
-			}
-		},
-		{
-			"type": "column",
-			"at": [
-				-13.2,
-				0,
-				10.5
+			"scale": [
+				0.64,
+				2.9,
+				0.64
 			],
 			"params": {
-				"mat": "koi_stone"
+				"mat": "koi_stone",
+				"tile": [
+					0.6,
+					1.4
+				],
+				"solid": true
 			}
 		},
 		{
-			"type": "lantern",
+			"type": "box",
+			"at": [
+				-13.2,
+				3.05,
+				7
+			],
+			"scale": [
+				0.85,
+				0.3,
+				0.85
+			],
+			"params": {
+				"mat": "koi_stone",
+				"tile": [
+					0.3,
+					0.15
+				],
+				"solid": true
+			}
+		},
+		{
+			"type": "box",
+			"at": [
+				-13.2,
+				0.15,
+				7
+			],
+			"scale": [
+				0.85,
+				0.3,
+				0.85
+			],
+			"params": {
+				"mat": "koi_stone",
+				"tile": [
+					0.3,
+					0.15
+				],
+				"solid": true
+			}
+		},
+		{
+			"type": "box",
+			"at": [
+				-13.2,
+				1.45,
+				10.5
+			],
+			"scale": [
+				0.64,
+				2.9,
+				0.64
+			],
+			"params": {
+				"mat": "koi_stone",
+				"tile": [
+					0.6,
+					1.4
+				],
+				"solid": true
+			}
+		},
+		{
+			"type": "box",
+			"at": [
+				-13.2,
+				3.05,
+				10.5
+			],
+			"scale": [
+				0.85,
+				0.3,
+				0.85
+			],
+			"params": {
+				"mat": "koi_stone",
+				"tile": [
+					0.3,
+					0.15
+				],
+				"solid": true
+			}
+		},
+		{
+			"type": "box",
+			"at": [
+				-13.2,
+				0.15,
+				10.5
+			],
+			"scale": [
+				0.85,
+				0.3,
+				0.85
+			],
+			"params": {
+				"mat": "koi_stone",
+				"tile": [
+					0.3,
+					0.15
+				],
+				"solid": true
+			}
+		},
+		{
+			"type": "prop",
 			"at": [
 				-13.6,
 				2.7,
 				-7
-			]
+			],
+			"params": {
+				"model": "Lantern_01",
+				"solid": false
+			}
 		},
 		{
-			"type": "lantern",
+			"type": "pointlight",
+			"at": [
+				-13.6,
+				2.7,
+				-7
+			],
+			"params": {
+				"color": [
+					0.902,
+					0.62,
+					0.322
+				],
+				"intensity": 1,
+				"range": 8
+			}
+		},
+		{
+			"type": "prop",
 			"at": [
 				-13.6,
 				2.7,
 				7
-			]
+			],
+			"params": {
+				"model": "Lantern_01",
+				"solid": false
+			}
 		},
 		{
-			"type": "awning",
+			"type": "pointlight",
+			"at": [
+				-13.6,
+				2.7,
+				7
+			],
+			"params": {
+				"color": [
+					0.902,
+					0.62,
+					0.322
+				],
+				"intensity": 1,
+				"range": 8
+			}
+		},
+		{
+			"type": "box",
 			"at": [
 				12.4,
-				2.6,
+				2.66,
 				-4.2
 			],
-			"params": {
-				"mat": "metal"
-			}
-		},
-		{
-			"type": "window",
-			"at": [
-				24.3,
-				0,
-				-5
+			"scale": [
+				1.3,
+				0.12,
+				2.6
 			],
 			"params": {
-				"mat": "koi_wall"
+				"mat": "metal",
+				"tile": [
+					0.6,
+					1
+				],
+				"solid": true
 			}
 		},
 		{
-			"type": "lantern",
+			"type": "box",
+			"at": [
+				24.3,
+				0.55,
+				-5
+			],
+			"scale": [
+				0.9,
+				1.1,
+				1.6
+			],
+			"params": {
+				"mat": "koi_wall",
+				"tile": [
+					0.5,
+					0.4
+				],
+				"solid": true
+			}
+		},
+		{
+			"type": "box",
+			"at": [
+				24.3,
+				2.85,
+				-5
+			],
+			"scale": [
+				0.9,
+				1.1,
+				1.6
+			],
+			"params": {
+				"mat": "koi_wall",
+				"tile": [
+					0.5,
+					0.4
+				],
+				"solid": true
+			}
+		},
+		{
+			"type": "box",
+			"at": [
+				24.3,
+				1.12,
+				-5
+			],
+			"scale": [
+				1.1,
+				0.14,
+				1.9
+			],
+			"params": {
+				"mat": "stone",
+				"tile": [
+					0.6,
+					0.08
+				],
+				"solid": true
+			}
+		},
+		{
+			"type": "prop",
 			"at": [
 				18.5,
 				2.9,
 				-5
-			]
-		},
-		{
-			"type": "stall",
-			"at": [
-				8.5,
-				0,
-				-6.5
 			],
 			"params": {
-				"mat": "crate"
-			},
-			"rot": [
-				0,
-				0,
-				0
-			],
-			"scale": [
-				1,
-				1,
-				1
-			]
-		},
-		{
-			"type": "sandbags",
-			"at": [
-				-7.5,
-				0,
-				-1.5
-			],
-			"params": {
-				"rot": 0,
-				"mat": "koi_wall"
+				"model": "Lantern_01",
+				"solid": false
 			}
 		},
 		{
-			"type": "sandbags",
+			"type": "pointlight",
 			"at": [
-				-7.9,
-				0,
-				0
+				18.5,
+				2.9,
+				-5
 			],
 			"params": {
-				"rot": 1,
-				"mat": "koi_wall"
-			},
-			"rot": [
-				0,
-				0,
+				"color": [
+					0.902,
+					0.62,
+					0.322
+				],
+				"intensity": 1,
+				"range": 8
+			}
+		},
+		{
+			"type": "box",
+			"at": [
+				8.5,
+				0.5,
+				-6.5
+			],
+			"scale": [
+				2.6,
+				1.0,
+				1.1
+			],
+			"params": {
+				"mat": "crate",
+				"tile": [
+					1.4,
+					0.6
+				],
+				"solid": true
+			}
+		},
+		{
+			"type": "box",
+			"at": [
+				7.3,
+				1.2,
+				-7.4
+			],
+			"scale": [
+				0.14,
+				2.4,
+				0.14
+			],
+			"params": {
+				"mat": "crate",
+				"tile": [
+					0.1,
+					1.4
+				],
+				"solid": true
+			}
+		},
+		{
+			"type": "box",
+			"at": [
+				9.7,
+				1.2,
+				-7.4
+			],
+			"scale": [
+				0.14,
+				2.4,
+				0.14
+			],
+			"params": {
+				"mat": "crate",
+				"tile": [
+					0.1,
+					1.4
+				],
+				"solid": true
+			}
+		},
+		{
+			"type": "box",
+			"at": [
+				7.3,
+				1.2,
+				-5.6
+			],
+			"scale": [
+				0.14,
+				2.4,
+				0.14
+			],
+			"params": {
+				"mat": "crate",
+				"tile": [
+					0.1,
+					1.4
+				],
+				"solid": true
+			}
+		},
+		{
+			"type": "box",
+			"at": [
+				9.7,
+				1.2,
+				-5.6
+			],
+			"scale": [
+				0.14,
+				2.4,
+				0.14
+			],
+			"params": {
+				"mat": "crate",
+				"tile": [
+					0.1,
+					1.4
+				],
+				"solid": true
+			}
+		},
+		{
+			"type": "box",
+			"at": [
+				8.5,
+				2.45,
+				-6.5
+			],
+			"scale": [
+				3.1,
+				0.14,
+				2.4
+			],
+			"params": {
+				"mat": "metal",
+				"tile": [
+					1.4,
+					1
+				],
+				"solid": true
+			}
+		},
+		{
+			"type": "box",
+			"at": [
+				8.0,
+				0.08,
+				-4.8
+			],
+			"scale": [
+				1.3,
+				0.16,
+				1.1
+			],
+			"params": {
+				"mat": "crate",
+				"tile": [
+					0.8,
+					0.7
+				],
+				"solid": true
+			}
+		},
+		{
+			"type": "box",
+			"at": [
+				-7.5,
+				0.28,
+				-1.5
+			],
+			"scale": [
+				1.5,
+				0.56,
+				0.65
+			],
+			"params": {
+				"mat": "koi_wall",
+				"tile": [
+					0.6,
+					0.3
+				],
+				"solid": true
+			}
+		},
+		{
+			"type": "box",
+			"at": [
+				-7.4,
+				0.72,
+				-1.5
+			],
+			"scale": [
+				1.2,
+				0.34,
+				0.52
+			],
+			"params": {
+				"mat": "koi_wall",
+				"tile": [
+					0.5,
+					0.2
+				],
+				"solid": true
+			}
+		},
+		{
+			"type": "box",
+			"at": [
+				-7.9,
+				0.28,
 				0
 			],
 			"scale": [
-				1,
-				1,
-				1
-			]
-		},
-		{
-			"type": "sandbags",
-			"at": [
-				-7.5,
-				0,
+				0.65,
+				0.56,
 				1.5
 			],
 			"params": {
-				"rot": 0,
-				"mat": "koi_wall"
+				"mat": "koi_wall",
+				"tile": [
+					0.6,
+					0.3
+				],
+				"solid": true
 			}
 		},
 		{
-			"type": "sandbags",
+			"type": "box",
 			"at": [
-				-6.13,
-				0,
-				-0.99
-			],
-			"params": {
-				"rot": 1,
-				"mat": "koi_wall"
-			},
-			"rot": [
-				0,
-				0,
-				0
+				-7.9,
+				0.72,
+				0.1
 			],
 			"scale": [
-				1,
-				1,
-				1
-			]
+				0.52,
+				0.34,
+				1.2
+			],
+			"params": {
+				"mat": "koi_wall",
+				"tile": [
+					0.5,
+					0.2
+				],
+				"solid": true
+			}
+		},
+		{
+			"type": "box",
+			"at": [
+				-7.5,
+				0.28,
+				1.5
+			],
+			"scale": [
+				1.5,
+				0.56,
+				0.65
+			],
+			"params": {
+				"mat": "koi_wall",
+				"tile": [
+					0.6,
+					0.3
+				],
+				"solid": true
+			}
+		},
+		{
+			"type": "box",
+			"at": [
+				-7.4,
+				0.72,
+				1.5
+			],
+			"scale": [
+				1.2,
+				0.34,
+				0.52
+			],
+			"params": {
+				"mat": "koi_wall",
+				"tile": [
+					0.5,
+					0.2
+				],
+				"solid": true
+			}
+		},
+		{
+			"type": "box",
+			"at": [
+				-6.13,
+				0.28,
+				-0.99
+			],
+			"scale": [
+				0.65,
+				0.56,
+				1.5
+			],
+			"params": {
+				"mat": "koi_wall",
+				"tile": [
+					0.6,
+					0.3
+				],
+				"solid": true
+			}
+		},
+		{
+			"type": "box",
+			"at": [
+				-6.13,
+				0.72,
+				-0.89
+			],
+			"scale": [
+				0.52,
+				0.34,
+				1.2
+			],
+			"params": {
+				"mat": "koi_wall",
+				"tile": [
+					0.5,
+					0.2
+				],
+				"solid": true
+			}
 		},
 		{
 			"type": "prop",
@@ -2297,57 +3116,50 @@
 			}
 		},
 		{
-			"type": "veg",
+			"type": "prop",
 			"at": [
 				9.2,
 				0,
 				-9.3
 			],
 			"params": {
-				"model": "cheiridopsis_succulent"
+				"model": "cheiridopsis_succulent",
+				"solid": false
 			}
 		},
 		{
-			"type": "veg",
+			"type": "prop",
 			"at": [
 				-27.2,
 				0,
 				-21.22
 			],
+			"params": {
+				"model": "didelta_spinosa",
+				"solid": false
+			},
 			"rot": [
 				0,
 				111.73,
 				0
-			],
-			"scale": [
-				1,
-				1,
-				1
-			],
-			"params": {
-				"model": "didelta_spinosa"
-			}
+			]
 		},
 		{
-			"type": "veg",
+			"type": "prop",
 			"at": [
 				28.74,
 				0,
 				19.24
 			],
+			"params": {
+				"model": "didelta_spinosa",
+				"solid": false
+			},
 			"rot": [
-				-0.62,
+				0,
 				181.09,
 				0
-			],
-			"scale": [
-				1,
-				1,
-				1
-			],
-			"params": {
-				"model": "didelta_spinosa"
-			}
+			]
 		},
 		{
 			"type": "spawn",

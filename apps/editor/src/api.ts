@@ -38,4 +38,7 @@ export const api = {
   saveModelMeta: (name: string, meta: ModelMeta): Promise<{ name?: string; error?: string }> => jpost("/__editor/model", { op: "save", name, meta }) as Promise<{ name?: string; error?: string }>,
   deleteModel: (name: string): Promise<{ error?: string }> => jpost("/__editor/model", { op: "delete", name }) as Promise<{ error?: string }>,
   deleteTexture: (name: string): Promise<{ error?: string }> => jpost("/__editor/texture", { op: "delete", name }) as Promise<{ error?: string }>,
+  // skyboxes (hdri) + audio are single files, deleted by their catalog path
+  deleteAsset: (file: string): Promise<{ error?: string }> => jpost("/__editor/asset", { op: "delete", file }) as Promise<{ error?: string }>,
+  deleteMap: (file: string): Promise<{ error?: string }> => jpost("/__editor/map", { op: "delete", file }) as Promise<{ error?: string }>,
 };

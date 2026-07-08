@@ -18,7 +18,7 @@ import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { Bridge } from "./bridge";
 import { createMcp } from "./mcp";
-import { createMaterial, deleteMaterial, deleteModel, deleteTexture, importAsset, loadMap, renameMaterial, saveMap, saveMaterial, saveModelMeta, scanAssets, scanMaps } from "./files";
+import { createMaterial, deleteAssetFile, deleteMap, deleteMaterial, deleteModel, deleteTexture, importAsset, loadMap, renameMaterial, saveMap, saveMaterial, saveModelMeta, scanAssets, scanMaps } from "./files";
 
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -100,6 +100,26 @@ export function editorHostPlugin(opts: Options = {}): Plugin {
           readBody(req).then((body) => {
             const b = JSON.parse(body);
             const r = deleteTexture(root, b.name);
+            json(res, (r as { error?: string }).error ? 400 : 200, r);
+          }).catch((e) => json(res, 500, { error: String(e) }));
+          return;
+        }
+
+        // ── generic asset-file delete: hdri / audio (browser UI right-click) ──
+        if (method === "POST" && url === "/__editor/asset") {
+          readBody(req).then((body) => {
+            const b = JSON.parse(body);
+            const r = deleteAssetFile(root, b.file);
+            json(res, (r as { error?: string }).error ? 400 : 200, r);
+          }).catch((e) => json(res, 500, { error: String(e) }));
+          return;
+        }
+
+        // ── maps: delete (browser UI right-click) ──
+        if (method === "POST" && url === "/__editor/map") {
+          readBody(req).then((body) => {
+            const b = JSON.parse(body);
+            const r = b.op === "delete" ? deleteMap(root, b.file) : { error: "unknown op" };
             json(res, (r as { error?: string }).error ? 400 : 200, r);
           }).catch((e) => json(res, 500, { error: String(e) }));
           return;

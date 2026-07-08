@@ -6,6 +6,7 @@
 import type { AssetCatalog } from "@slopwars/shared";
 import type { ThumbRenderer } from "./preview";
 import { clear, el, modal } from "./ui";
+import { icon, type IconName } from "./icons";
 
 export type AssetKind = "model" | "audio" | "texture" | "material" | "hdri";
 
@@ -28,16 +29,17 @@ function names(cat: AssetCatalog, kind: AssetKind): string[] {
   return cat.textures.map((t) => t.name);
 }
 
-/** placeholder glyph for an empty / loading slot of a given kind */
-function kindIcon(kind: AssetKind): string {
-  return kind === "audio" ? "♪" : kind === "texture" ? "▦" : kind === "material" ? "◆" : kind === "hdri" ? "🌅" : "▣";
+/** placeholder icon for an empty / loading slot of a given kind */
+function kindIcon(kind: AssetKind): IconName {
+  return kind === "audio" ? "volume" : kind === "texture" ? "image" : kind === "material" ? "material" : kind === "hdri" ? "mountain" : "box";
 }
 
 /** kick off the inline preview render for `name`, filling `slot` when ready */
 function preview(slot: HTMLElement, o: AssetFieldOpts, name: string): void {
   clear(slot);
-  if (!name) { slot.append(el("span", "af-ico", kindIcon(o.kind))); return; }
-  slot.append(el("span", "af-ico", o.kind === "audio" ? "♪" : "…"));
+  const ico = (): HTMLElement => { const s = el("span", "af-ico"); s.append(icon(kindIcon(o.kind))); return s; };
+  if (!name) { slot.append(ico()); return; }
+  slot.append(ico());
   const t = o.thumbs; if (!t) return;
   let p: Promise<string | null> | null = null;
   if (o.kind === "model") { const m = o.catalog.models.find((x) => x.name === name); if (m) p = t.modelThumb(m.gltf); }
@@ -60,7 +62,7 @@ export function assetField(o: AssetFieldOpts): HTMLElement {
   const prev = el("div", "af-prevwrap");
   const nameEl = el("span", "af-name");
 
-  const warn = el("span", "af-warn", "⚠");
+  const warn = el("span", "af-warn"); warn.append(icon("warn"));
   warn.title = "missing asset — falls back to a default; pick another or clear it";
   const refresh = (): void => {
     const v = o.get();
@@ -93,7 +95,7 @@ export function assetField(o: AssetFieldOpts): HTMLElement {
   // click → thumbnail picker
   box.addEventListener("click", () => openPicker(o, apply));
 
-  const clearBtn = el("button", "btn mini", "✕");
+  const clearBtn = el("button", "btn mini"); clearBtn.append(icon("x"));
   clearBtn.title = "clear";
   clearBtn.addEventListener("click", (e) => { e.stopPropagation(); apply(""); });
 
