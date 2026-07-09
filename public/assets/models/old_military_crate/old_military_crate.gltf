@@ -129,17 +129,7 @@
     {
       "doubleSided": true,
       "name": "military_crate_m_01",
-      "normalTexture": {
-        "index": 0
-      },
-      "pbrMetallicRoughness": {
-        "baseColorTexture": {
-          "index": 1
-        },
-        "metallicRoughnessTexture": {
-          "index": 2
-        }
-      }
+      "pbrMetallicRoughness": {}
     }
   ],
   "meshes": [
@@ -212,37 +202,6 @@
           "material": 0
         }
       ]
-    }
-  ],
-  "textures": [
-    {
-      "sampler": 0,
-      "source": 0
-    },
-    {
-      "sampler": 0,
-      "source": 1
-    },
-    {
-      "sampler": 0,
-      "source": 2
-    }
-  ],
-  "images": [
-    {
-      "mimeType": "image/jpeg",
-      "name": "old_military_crate_nor_gl",
-      "uri": "textures/military_crate_m_01/normal.jpg"
-    },
-    {
-      "mimeType": "image/jpeg",
-      "name": "old_military_crate_diff",
-      "uri": "textures/military_crate_m_01/color.jpg"
-    },
-    {
-      "mimeType": "image/jpeg",
-      "name": "old_military_crate_metal-old_military_crate_rough",
-      "uri": "textures/military_crate_m_01/arm.jpg"
     }
   ],
   "accessors": [
@@ -537,12 +496,6 @@
       "byteLength": 28230,
       "byteOffset": 300772,
       "target": 34963
-    }
-  ],
-  "samplers": [
-    {
-      "magFilter": 9729,
-      "minFilter": 9987
     }
   ],
   "buffers": [

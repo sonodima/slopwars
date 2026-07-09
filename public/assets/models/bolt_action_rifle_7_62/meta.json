@@ -1,6 +1,7 @@
 {
   "materials": {
     "bolt_action_rifle_7_62_accesories": "bolt_action_rifle_7_62_accesories",
-    "bolt_action_rifle_7_62": "bolt_action_rifle_7_62"
+    "bolt_action_rifle_7_62": "bolt_action_rifle_7_62",
+    "bolt_action_rifle_7_62_accesories_glass": "bolt_action_rifle_7_62_accesories_glass"
   }
 }

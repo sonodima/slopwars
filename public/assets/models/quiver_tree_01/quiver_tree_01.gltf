@@ -22,34 +22,16 @@
     {
       "doubleSided": true,
       "name": "quiver_tree_01_trunk",
-      "normalTexture": {
-        "index": 0
-      },
       "pbrMetallicRoughness": {
-        "baseColorTexture": {
-          "index": 1
-        },
-        "metallicFactor": 0,
-        "metallicRoughnessTexture": {
-          "index": 2
-        }
+        "metallicFactor": 0
       }
     },
     {
       "alphaMode": "BLEND",
       "doubleSided": true,
       "name": "quiver_tree_01_leaf",
-      "normalTexture": {
-        "index": 3
-      },
       "pbrMetallicRoughness": {
-        "baseColorTexture": {
-          "index": 4
-        },
-        "metallicFactor": 0,
-        "metallicRoughnessTexture": {
-          "index": 5
-        }
+        "metallicFactor": 0
       }
     }
   ],
@@ -76,64 +58,6 @@
           "material": 1
         }
       ]
-    }
-  ],
-  "textures": [
-    {
-      "sampler": 0,
-      "source": 0
-    },
-    {
-      "sampler": 0,
-      "source": 1
-    },
-    {
-      "sampler": 0,
-      "source": 2
-    },
-    {
-      "sampler": 0,
-      "source": 3
-    },
-    {
-      "sampler": 0,
-      "source": 4
-    },
-    {
-      "sampler": 0,
-      "source": 5
-    }
-  ],
-  "images": [
-    {
-      "mimeType": "image/jpeg",
-      "name": "quiver_tree_01_trunk_nor_gl",
-      "uri": "textures/quiver_tree_01_trunk/normal.jpg"
-    },
-    {
-      "mimeType": "image/jpeg",
-      "name": "quiver_tree_01_trunk_diff",
-      "uri": "textures/quiver_tree_01_trunk/color.jpg"
-    },
-    {
-      "mimeType": "image/jpeg",
-      "name": "quiver_tree_01_trunk_rough",
-      "uri": "textures/quiver_tree_01_trunk/arm.jpg"
-    },
-    {
-      "mimeType": "image/jpeg",
-      "name": "quiver_tree_01_leaf_nor_gl",
-      "uri": "textures/quiver_tree_01_leaf/normal.jpg"
-    },
-    {
-      "mimeType": "image/jpeg",
-      "name": "quiver_tree_01_leaf_diff",
-      "uri": "textures/quiver_tree_01_leaf/color.jpg"
-    },
-    {
-      "mimeType": "image/jpeg",
-      "name": "quiver_tree_01_leaf_rough",
-      "uri": "textures/quiver_tree_01_leaf/arm.jpg"
     }
   ],
   "accessors": [
@@ -254,12 +178,6 @@
       "byteLength": 1357848,
       "byteOffset": 3055356,
       "target": 34963
-    }
-  ],
-  "samplers": [
-    {
-      "magFilter": 9729,
-      "minFilter": 9987
     }
   ],
   "buffers": [

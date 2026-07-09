@@ -1,5 +1,7 @@
 {
   "materials": {
-    "island_tree_02": "island_tree_02"
+    "island_tree_02": "island_tree_02",
+    "island_tree_02_leaves": "island_tree_02_leaves",
+    "island_tree_02_branches": "island_tree_02_branches"
   }
 }

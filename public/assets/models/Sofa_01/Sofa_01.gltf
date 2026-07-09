@@ -22,17 +22,7 @@
     {
       "doubleSided": true,
       "name": "Sofa_01",
-      "normalTexture": {
-        "index": 0
-      },
-      "pbrMetallicRoughness": {
-        "baseColorTexture": {
-          "index": 1
-        },
-        "metallicRoughnessTexture": {
-          "index": 2
-        }
-      }
+      "pbrMetallicRoughness": {}
     }
   ],
   "meshes": [
@@ -49,37 +39,6 @@
           "material": 0
         }
       ]
-    }
-  ],
-  "textures": [
-    {
-      "sampler": 0,
-      "source": 0
-    },
-    {
-      "sampler": 0,
-      "source": 1
-    },
-    {
-      "sampler": 0,
-      "source": 2
-    }
-  ],
-  "images": [
-    {
-      "mimeType": "image/jpeg",
-      "name": "Sofa_01_nor_gl",
-      "uri": "textures/Sofa_01/normal.jpg"
-    },
-    {
-      "mimeType": "image/jpeg",
-      "name": "Sofa_01_diff",
-      "uri": "textures/Sofa_01/color.jpg"
-    },
-    {
-      "mimeType": "image/jpeg",
-      "name": "Sofa_01_metallic-Sofa_01_roughness",
-      "uri": "textures/Sofa_01/arm.jpg"
     }
   ],
   "accessors": [
@@ -138,12 +97,6 @@
       "buffer": 0,
       "byteLength": 24606,
       "byteOffset": 86656
-    }
-  ],
-  "samplers": [
-    {
-      "magFilter": 9729,
-      "minFilter": 9987
     }
   ],
   "buffers": [

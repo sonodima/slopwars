@@ -62,17 +62,7 @@
     {
       "doubleSided": true,
       "name": "metal_office_desk",
-      "normalTexture": {
-        "index": 0
-      },
-      "pbrMetallicRoughness": {
-        "baseColorTexture": {
-          "index": 1
-        },
-        "metallicRoughnessTexture": {
-          "index": 2
-        }
-      }
+      "pbrMetallicRoughness": {}
     }
   ],
   "meshes": [
@@ -201,37 +191,6 @@
           "material": 0
         }
       ]
-    }
-  ],
-  "textures": [
-    {
-      "sampler": 0,
-      "source": 0
-    },
-    {
-      "sampler": 0,
-      "source": 1
-    },
-    {
-      "sampler": 0,
-      "source": 2
-    }
-  ],
-  "images": [
-    {
-      "mimeType": "image/jpeg",
-      "name": "metal_office_desk_nor_gl",
-      "uri": "textures/metal_office_desk/normal.jpg"
-    },
-    {
-      "mimeType": "image/jpeg",
-      "name": "metal_office_desk_diff",
-      "uri": "textures/metal_office_desk/color.jpg"
-    },
-    {
-      "mimeType": "image/jpeg",
-      "name": "metal_office_desk_metal-metal_office_desk_rough",
-      "uri": "textures/metal_office_desk/arm.jpg"
     }
   ],
   "accessors": [
@@ -722,12 +681,6 @@
       "byteLength": 1856,
       "byteOffset": 227844,
       "target": 34962
-    }
-  ],
-  "samplers": [
-    {
-      "magFilter": 9729,
-      "minFilter": 9987
     }
   ],
   "buffers": [

@@ -22,17 +22,7 @@
     {
       "doubleSided": true,
       "name": "planter_box_01",
-      "normalTexture": {
-        "index": 0
-      },
-      "pbrMetallicRoughness": {
-        "baseColorTexture": {
-          "index": 1
-        },
-        "metallicRoughnessTexture": {
-          "index": 2
-        }
-      }
+      "pbrMetallicRoughness": {}
     }
   ],
   "meshes": [
@@ -49,37 +39,6 @@
           "material": 0
         }
       ]
-    }
-  ],
-  "textures": [
-    {
-      "sampler": 0,
-      "source": 0
-    },
-    {
-      "sampler": 0,
-      "source": 1
-    },
-    {
-      "sampler": 0,
-      "source": 2
-    }
-  ],
-  "images": [
-    {
-      "mimeType": "image/jpeg",
-      "name": "planter_box_01_nor_gl",
-      "uri": "textures/planter_box_01/normal.jpg"
-    },
-    {
-      "mimeType": "image/jpeg",
-      "name": "planter_box_01_diff",
-      "uri": "textures/planter_box_01/color.jpg"
-    },
-    {
-      "mimeType": "image/jpeg",
-      "name": "planter_box_01_metal-planter_box_01_rough",
-      "uri": "textures/planter_box_01/arm.jpg"
     }
   ],
   "accessors": [
@@ -142,12 +101,6 @@
       "byteLength": 48564,
       "byteOffset": 202016,
       "target": 34963
-    }
-  ],
-  "samplers": [
-    {
-      "magFilter": 9729,
-      "minFilter": 9987
     }
   ],
   "buffers": [

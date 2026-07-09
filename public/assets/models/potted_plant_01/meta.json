@@ -1,5 +1,6 @@
 {
   "materials": {
-    "potted_plant_01_pot": "potted_plant_01_pot"
+    "potted_plant_01_pot": "potted_plant_01_pot",
+    "potted_plant_01_leaves": "potted_plant_01_leaves"
   }
 }

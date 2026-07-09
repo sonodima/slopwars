@@ -22,17 +22,7 @@
     {
       "doubleSided": true,
       "name": "plastic_crate_01",
-      "normalTexture": {
-        "index": 0
-      },
-      "pbrMetallicRoughness": {
-        "baseColorTexture": {
-          "index": 1
-        },
-        "metallicRoughnessTexture": {
-          "index": 2
-        }
-      }
+      "pbrMetallicRoughness": {}
     }
   ],
   "meshes": [
@@ -49,37 +39,6 @@
           "material": 0
         }
       ]
-    }
-  ],
-  "textures": [
-    {
-      "sampler": 0,
-      "source": 0
-    },
-    {
-      "sampler": 0,
-      "source": 1
-    },
-    {
-      "sampler": 0,
-      "source": 2
-    }
-  ],
-  "images": [
-    {
-      "mimeType": "image/jpeg",
-      "name": "plastic_crate_01_nor_gl",
-      "uri": "textures/plastic_crate_01/normal.jpg"
-    },
-    {
-      "mimeType": "image/jpeg",
-      "name": "plastic_crate_01_diff",
-      "uri": "textures/plastic_crate_01/color.jpg"
-    },
-    {
-      "mimeType": "image/jpeg",
-      "name": "plastic_crate_01_metal-plastic_crate_01_rough",
-      "uri": "textures/plastic_crate_01/arm.jpg"
     }
   ],
   "accessors": [
@@ -142,12 +101,6 @@
       "byteLength": 109920,
       "byteOffset": 680000,
       "target": 34963
-    }
-  ],
-  "samplers": [
-    {
-      "magFilter": 9729,
-      "minFilter": 9987
     }
   ],
   "buffers": [

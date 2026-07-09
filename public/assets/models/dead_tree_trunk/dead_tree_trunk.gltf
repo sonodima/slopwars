@@ -22,17 +22,8 @@
     {
       "doubleSided": true,
       "name": "dead_tree_trunk",
-      "normalTexture": {
-        "index": 0
-      },
       "pbrMetallicRoughness": {
-        "baseColorTexture": {
-          "index": 1
-        },
-        "metallicFactor": 0,
-        "metallicRoughnessTexture": {
-          "index": 2
-        }
+        "metallicFactor": 0
       }
     }
   ],
@@ -50,37 +41,6 @@
           "material": 0
         }
       ]
-    }
-  ],
-  "textures": [
-    {
-      "sampler": 0,
-      "source": 0
-    },
-    {
-      "sampler": 0,
-      "source": 1
-    },
-    {
-      "sampler": 0,
-      "source": 2
-    }
-  ],
-  "images": [
-    {
-      "mimeType": "image/jpeg",
-      "name": "dead_tree_trunk_nor_gl",
-      "uri": "textures/dead_tree_trunk/normal.jpg"
-    },
-    {
-      "mimeType": "image/jpeg",
-      "name": "dead_tree_trunk_diff",
-      "uri": "textures/dead_tree_trunk/color.jpg"
-    },
-    {
-      "mimeType": "image/jpeg",
-      "name": "dead_tree_trunk_rough",
-      "uri": "textures/dead_tree_trunk/arm.jpg"
     }
   ],
   "accessors": [
@@ -143,12 +103,6 @@
       "byteLength": 610812,
       "byteOffset": 1682976,
       "target": 34963
-    }
-  ],
-  "samplers": [
-    {
-      "magFilter": 9729,
-      "minFilter": 9987
     }
   ],
   "buffers": [

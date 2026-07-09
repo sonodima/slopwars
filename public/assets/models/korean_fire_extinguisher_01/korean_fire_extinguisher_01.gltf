@@ -22,54 +22,25 @@
     {
       "doubleSided": true,
       "name": "korean_fire_extinguisher_01_body",
-      "normalTexture": {
-        "index": 0
-      },
-      "pbrMetallicRoughness": {
-        "baseColorTexture": {
-          "index": 1
-        },
-        "metallicRoughnessTexture": {
-          "index": 2
-        }
-      }
+      "pbrMetallicRoughness": {}
     },
     {
       "alphaMode": "BLEND",
       "doubleSided": true,
       "name": "korean_fire_extinguisher_01_glass",
-      "normalTexture": {
-        "index": 3
-      },
       "pbrMetallicRoughness": {
         "baseColorFactor": [
           1,
           1,
           1,
           0.30000001192092896
-        ],
-        "baseColorTexture": {
-          "index": 4
-        },
-        "metallicRoughnessTexture": {
-          "index": 5
-        }
+        ]
       }
     },
     {
       "alphaMode": "BLEND",
       "name": "korean_fire_extinguisher_01_paper",
-      "normalTexture": {
-        "index": 6
-      },
-      "pbrMetallicRoughness": {
-        "baseColorTexture": {
-          "index": 7
-        },
-        "metallicRoughnessTexture": {
-          "index": 8
-        }
-      }
+      "pbrMetallicRoughness": {}
     }
   ],
   "meshes": [
@@ -104,91 +75,6 @@
           "material": 2
         }
       ]
-    }
-  ],
-  "textures": [
-    {
-      "sampler": 0,
-      "source": 0
-    },
-    {
-      "sampler": 0,
-      "source": 1
-    },
-    {
-      "sampler": 0,
-      "source": 2
-    },
-    {
-      "sampler": 0,
-      "source": 3
-    },
-    {
-      "sampler": 0,
-      "source": 4
-    },
-    {
-      "sampler": 0,
-      "source": 5
-    },
-    {
-      "sampler": 0,
-      "source": 6
-    },
-    {
-      "sampler": 0,
-      "source": 7
-    },
-    {
-      "sampler": 0,
-      "source": 8
-    }
-  ],
-  "images": [
-    {
-      "mimeType": "image/jpeg",
-      "name": "korean_fire_extinguisher_01_body_nor_gl",
-      "uri": "textures/korean_fire_extinguisher_01_body/normal.jpg"
-    },
-    {
-      "mimeType": "image/jpeg",
-      "name": "korean_fire_extinguisher_01_body_diff.png",
-      "uri": "textures/korean_fire_extinguisher_01_body/color.jpg"
-    },
-    {
-      "mimeType": "image/jpeg",
-      "name": "korean_fire_extinguisher_01_body_metal.png-korean_fire_extinguisher_01_body_rough.png",
-      "uri": "textures/korean_fire_extinguisher_01_body/arm.jpg"
-    },
-    {
-      "mimeType": "image/jpeg",
-      "name": "korean_fire_extinguisher_01_glass_nor_gl",
-      "uri": "textures/korean_fire_extinguisher_01_glass/normal.jpg"
-    },
-    {
-      "mimeType": "image/jpeg",
-      "name": "korean_fire_extinguisher_01_glass_diff",
-      "uri": "textures/korean_fire_extinguisher_01_glass/color.jpg"
-    },
-    {
-      "mimeType": "image/jpeg",
-      "name": "korean_fire_extinguisher_01_glass_metal-korean_fire_extinguisher_01_glass_rough",
-      "uri": "textures/korean_fire_extinguisher_01_glass/arm.jpg"
-    },
-    {
-      "mimeType": "image/jpeg",
-      "name": "korean_fire_extinguisher_01_paper_nor_gl",
-      "uri": "textures/korean_fire_extinguisher_01_paper/normal.jpg"
-    },
-    {
-      "mimeType": "image/jpeg",
-      "name": "korean_fire_extinguisher_01_paper_diff-korean_fire_extinguisher_01_paper_opacity",
-      "uri": "textures/korean_fire_extinguisher_01_paper/color.jpg"
-    },
-    {
-      "mimeType": "image/jpeg",
-      "name": "korean_fire_extinguisher_01_paper_metal-korean_fire_extinguisher_01_paper_rough",
-      "uri": "textures/korean_fire_extinguisher_01_paper/arm.jpg"
     }
   ],
   "accessors": [
@@ -355,12 +241,6 @@
       "buffer": 0,
       "byteLength": 192,
       "byteOffset": 279288
-    }
-  ],
-  "samplers": [
-    {
-      "magFilter": 9729,
-      "minFilter": 9987
     }
   ],
   "buffers": [

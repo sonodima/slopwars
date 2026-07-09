@@ -22,17 +22,7 @@
     {
       "doubleSided": true,
       "name": "wooden_bookshelf_worn",
-      "normalTexture": {
-        "index": 0
-      },
-      "pbrMetallicRoughness": {
-        "baseColorTexture": {
-          "index": 1
-        },
-        "metallicRoughnessTexture": {
-          "index": 2
-        }
-      }
+      "pbrMetallicRoughness": {}
     }
   ],
   "meshes": [
@@ -49,37 +39,6 @@
           "material": 0
         }
       ]
-    }
-  ],
-  "textures": [
-    {
-      "sampler": 0,
-      "source": 0
-    },
-    {
-      "sampler": 0,
-      "source": 1
-    },
-    {
-      "sampler": 0,
-      "source": 2
-    }
-  ],
-  "images": [
-    {
-      "mimeType": "image/jpeg",
-      "name": "wooden_bookshelf_worn_nor_gl",
-      "uri": "textures/wooden_bookshelf_worn/normal.jpg"
-    },
-    {
-      "mimeType": "image/jpeg",
-      "name": "wooden_bookshelf_worn_diff",
-      "uri": "textures/wooden_bookshelf_worn/color.jpg"
-    },
-    {
-      "mimeType": "image/jpeg",
-      "name": "wooden_bookshelf_worn_metal-wooden_bookshelf_worn_rough",
-      "uri": "textures/wooden_bookshelf_worn/arm.jpg"
     }
   ],
   "accessors": [
@@ -142,12 +101,6 @@
       "byteLength": 60636,
       "byteOffset": 207328,
       "target": 34963
-    }
-  ],
-  "samplers": [
-    {
-      "magFilter": 9729,
-      "minFilter": 9987
     }
   ],
   "buffers": [

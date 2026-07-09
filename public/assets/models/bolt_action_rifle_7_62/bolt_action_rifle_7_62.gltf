@@ -93,48 +93,18 @@
     {
       "doubleSided": true,
       "name": "bolt_action_rifle_7_62_accesories",
-      "normalTexture": {
-        "index": 0
-      },
-      "pbrMetallicRoughness": {
-        "baseColorTexture": {
-          "index": 1
-        },
-        "metallicRoughnessTexture": {
-          "index": 2
-        }
-      }
+      "pbrMetallicRoughness": {}
     },
     {
       "alphaMode": "BLEND",
       "doubleSided": true,
       "name": "bolt_action_rifle_7_62_accesories_glass",
-      "normalTexture": {
-        "index": 3
-      },
-      "pbrMetallicRoughness": {
-        "baseColorTexture": {
-          "index": 4
-        },
-        "metallicRoughnessTexture": {
-          "index": 5
-        }
-      }
+      "pbrMetallicRoughness": {}
     },
     {
       "doubleSided": true,
       "name": "bolt_action_rifle_7_62",
-      "normalTexture": {
-        "index": 6
-      },
-      "pbrMetallicRoughness": {
-        "baseColorTexture": {
-          "index": 7
-        },
-        "metallicRoughnessTexture": {
-          "index": 8
-        }
-      }
+      "pbrMetallicRoughness": {}
     }
   ],
   "meshes": [
@@ -244,81 +214,6 @@
           "material": 2
         }
       ]
-    }
-  ],
-  "textures": [
-    {
-      "sampler": 0,
-      "source": 0
-    },
-    {
-      "sampler": 0,
-      "source": 1
-    },
-    {
-      "sampler": 0,
-      "source": 2
-    },
-    {
-      "sampler": 0,
-      "source": 0
-    },
-    {
-      "sampler": 0,
-      "source": 3
-    },
-    {
-      "sampler": 0,
-      "source": 2
-    },
-    {
-      "sampler": 0,
-      "source": 4
-    },
-    {
-      "sampler": 0,
-      "source": 5
-    },
-    {
-      "sampler": 0,
-      "source": 6
-    }
-  ],
-  "images": [
-    {
-      "mimeType": "image/jpeg",
-      "name": "bolt_action_rifle_7_62_accesories_nor_gl",
-      "uri": "textures/bolt_action_rifle_7_62_accesories/normal.jpg"
-    },
-    {
-      "mimeType": "image/jpeg",
-      "name": "bolt_action_rifle_7_62_accesories_diff",
-      "uri": "textures/bolt_action_rifle_7_62_accesories/color.jpg"
-    },
-    {
-      "mimeType": "image/jpeg",
-      "name": "bolt_action_rifle_7_62_accesories_metal-bolt_action_rifle_7_62_accesories_rough",
-      "uri": "textures/bolt_action_rifle_7_62_accesories/arm.jpg"
-    },
-    {
-      "mimeType": "image/jpeg",
-      "name": "bolt_action_rifle_7_62_accesories_diff-bolt_action_rifle_7_62_accesories_alpha",
-      "uri": "textures/bolt_action_rifle_7_62_accesories/color.jpg"
-    },
-    {
-      "mimeType": "image/jpeg",
-      "name": "bolt_action_rifle_7_62_nor_gl",
-      "uri": "textures/bolt_action_rifle_7_62/normal.jpg"
-    },
-    {
-      "mimeType": "image/jpeg",
-      "name": "bolt_action_rifle_7_62_diff",
-      "uri": "textures/bolt_action_rifle_7_62/color.jpg"
-    },
-    {
-      "mimeType": "image/jpeg",
-      "name": "bolt_action_rifle_7_62_metal-bolt_action_rifle_7_62_rough",
-      "uri": "textures/bolt_action_rifle_7_62/arm.jpg"
     }
   ],
   "accessors": [
@@ -787,12 +682,6 @@
       "byteLength": 624,
       "byteOffset": 735992,
       "target": 34963
-    }
-  ],
-  "samplers": [
-    {
-      "magFilter": 9729,
-      "minFilter": 9987
     }
   ],
   "buffers": [

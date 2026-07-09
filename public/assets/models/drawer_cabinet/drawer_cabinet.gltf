@@ -42,17 +42,7 @@
     {
       "doubleSided": true,
       "name": "drawer_cabinet",
-      "normalTexture": {
-        "index": 0
-      },
-      "pbrMetallicRoughness": {
-        "baseColorTexture": {
-          "index": 1
-        },
-        "metallicRoughnessTexture": {
-          "index": 2
-        }
-      }
+      "pbrMetallicRoughness": {}
     }
   ],
   "meshes": [
@@ -125,37 +115,6 @@
           "material": 0
         }
       ]
-    }
-  ],
-  "textures": [
-    {
-      "sampler": 0,
-      "source": 0
-    },
-    {
-      "sampler": 0,
-      "source": 1
-    },
-    {
-      "sampler": 0,
-      "source": 2
-    }
-  ],
-  "images": [
-    {
-      "mimeType": "image/jpeg",
-      "name": "drawer_cabinet_nor_gl",
-      "uri": "textures/drawer_cabinet/normal.jpg"
-    },
-    {
-      "mimeType": "image/jpeg",
-      "name": "drawer_cabinet_diff",
-      "uri": "textures/drawer_cabinet/color.jpg"
-    },
-    {
-      "mimeType": "image/jpeg",
-      "name": "drawer_cabinet_metallic.png-drawer_cabinet_roughness.png",
-      "uri": "textures/drawer_cabinet/arm.jpg"
     }
   ],
   "accessors": [
@@ -430,12 +389,6 @@
       "buffer": 0,
       "byteLength": 12312,
       "byteOffset": 786540
-    }
-  ],
-  "samplers": [
-    {
-      "magFilter": 9729,
-      "minFilter": 9987
     }
   ],
   "buffers": [

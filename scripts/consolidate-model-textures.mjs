@@ -11,9 +11,10 @@
 // in one place, every material in one place, and a model folder is just .gltf + .bin.
 //
 // The URI written into the glTF is LIBRARY-relative — "textures/<group>/<file>", not a
-// "../../" climb out of the model folder — so the repo reads cleanly. The shared Vite
-// plugin (vite-asset-catalog) prefixes it back to the "../../textures/…" form the glTF
-// loader needs when it serves/builds the file, so nothing on disk carries "../".
+// "../../" climb out of the model folder. This was the intermediate step; the final
+// pass (geometry-only-models.mjs) removes texture references from the glTFs entirely and
+// drives every surface through a library material, so a shipped model glTF carries no
+// texture path at all. This script's lasting job is moving the textures into the library.
 //
 // Idempotent: re-running normalizes any legacy "../../textures/…" URI to the clean form
 // and leaves already-clean ones (and the removed folders) alone.

@@ -16,7 +16,8 @@ import {
   AmbientLight, BackgroundMode, BoundingBox, Camera, Color, DirectLight, Entity,
   MeshRenderer, PBRMaterial, PrimitiveMesh, RefractionMode, SkyBoxMaterial, Vector3, Vector4, WebGLEngine,
 } from "@galacean/engine";
-import type { MapDef, MaterialDef, TextureMaps } from "@slopwars/shared";
+import type { MapDef, MaterialDef, ModelMeta, TextureMaps } from "@slopwars/shared";
+import { modelSlotMaterial } from "@slopwars/shared";
 import catalog from "virtual:asset-catalog";
 import { loadGLTF, loadHDRCube, loadTexture2D } from "@game/assets";
 import { GameMap } from "@game/map";
@@ -102,15 +103,63 @@ export class ThumbRenderer {
     this.markReady();   // unblock queued requests (they null-guard on `engine`)
   }
 
-  /** framed turntable snapshot of a glTF model */
+  /** framed turntable snapshot of a glTF model, shaded through its library materials
+   *  (models are geometry-only; each glTF material slot is resolved to a material asset
+   *  via the model's meta, exactly as the game renders it). */
   modelThumb(gltfPath: string): Promise<string | null> {
     return this.enqueue(`model:${gltfPath}`, async () => {
       const res = await loadGLTF(this.engine!, gltfPath);
       const e = res.instantiateSceneRoot();
       this.holder.addChild(e);
+      const meta = catalog.models.find((m) => m.gltf === gltfPath)?.meta as ModelMeta | undefined;
+      if (meta?.materials || meta?.material) {
+        for (const r of e.getComponentsIncludeChildren(MeshRenderer, [])) {
+          const name = modelSlotMaterial(meta, r.getMaterial()?.name ?? "");
+          const def = name ? catalog.materials.find((x) => x.name === name)?.def : undefined;
+          if (def) r.setMaterial(await this.buildDefMaterial(def));
+        }
+      }
       this.frame(this.holder, 0.55, 0.42);
       return this.snapshot();
     });
+  }
+
+  /** build a PBRMaterial from a material def (textures resolved from the catalog) —
+   *  the single shading path shared by the material-swatch and model thumbnails. */
+  private async buildDefMaterial(def: MaterialDef): Promise<PBRMaterial> {
+    const m = new PBRMaterial(this.engine!);
+    if (def.type === "standard") {
+      if (def.texture) {
+        const maps = catalog.textures.find((t) => t.name === def.texture)?.maps ?? {};
+        const [color, normal, arm] = await Promise.all([
+          maps.color ? loadTexture2D(this.engine!, maps.color) : null,
+          maps.normal ? loadTexture2D(this.engine!, maps.normal) : null,
+          maps.arm ? loadTexture2D(this.engine!, maps.arm) : null,
+        ]);
+        if (color) m.baseTexture = color;
+        if (normal) m.normalTexture = normal;
+        if (arm) { m.roughnessMetallicTexture = arm; m.occlusionTexture = arm; } else { m.roughness = 0.85; m.metallic = 0; }
+        if (def.color) m.baseColor = new Color(def.color[0], def.color[1], def.color[2], 1);
+        if (def.roughness != null) m.roughness = def.roughness;
+        if (def.metallic != null) m.metallic = def.metallic;
+      } else {
+        const c = def.color ?? [0.6, 0.6, 0.62];
+        m.baseColor = new Color(c[0], c[1], c[2], 1);
+        m.roughness = def.roughness ?? 0.9; m.metallic = def.metallic ?? 0.02;
+      }
+      if (def.emissive) m.emissiveColor = new Color(def.emissive[0], def.emissive[1], def.emissive[2], 1);
+    } else if (def.type === "glass") {
+      const c = def.color ?? [0.85, 0.92, 0.95];
+      m.baseColor = new Color(c[0], c[1], c[2], def.opacity ?? 0.16);
+      m.roughness = def.roughness ?? 0.02; m.metallic = 0; m.ior = def.ior ?? 1.5;
+      m.isTransparent = true; m.refractionMode = RefractionMode.Planar; m.transmission = 1;
+    } else {   // water
+      const c = def.color ?? [0.05, 0.16, 0.2];
+      m.baseColor = new Color(c[0], c[1], c[2], def.opacity ?? 0.92);
+      m.roughness = def.roughness ?? 0.08; m.metallic = 0;
+      m.isTransparent = true;
+    }
+    return m;
   }
 
   /** lit PBR sphere showing a texture set (color/normal/arm) */
@@ -138,44 +187,12 @@ export class ThumbRenderer {
 
   /** lit sphere showing a material def (standard → its PBR set/colour; glass/water
    *  → a tinted transmissive sphere). Textures are resolved from the catalog. */
-  materialThumb(name: string, def: MaterialDef, catalog: { textures: { name: string; maps: TextureMaps }[] }): Promise<string | null> {
+  materialThumb(name: string, def: MaterialDef, _catalog?: unknown): Promise<string | null> {
     return this.enqueue(`mat:${name}`, async () => {
       const e = this.holder.createChild("sphere");
       const r = e.addComponent(MeshRenderer);
       r.mesh = PrimitiveMesh.createSphere(this.engine!, 1, 48);
-      const m = new PBRMaterial(this.engine!);
-      if (def.type === "standard") {
-        if (def.texture) {
-          const maps = catalog.textures.find((t) => t.name === def.texture)?.maps ?? {};
-          const [color, normal, arm] = await Promise.all([
-            maps.color ? loadTexture2D(this.engine!, maps.color) : null,
-            maps.normal ? loadTexture2D(this.engine!, maps.normal) : null,
-            maps.arm ? loadTexture2D(this.engine!, maps.arm) : null,
-          ]);
-          if (color) m.baseTexture = color;
-          if (normal) m.normalTexture = normal;
-          if (arm) { m.roughnessMetallicTexture = arm; m.occlusionTexture = arm; } else { m.roughness = 0.85; m.metallic = 0; }
-          if (def.color) m.baseColor = new Color(def.color[0], def.color[1], def.color[2], 1);
-          if (def.roughness != null) m.roughness = def.roughness;
-          if (def.metallic != null) m.metallic = def.metallic;
-        } else {
-          const c = def.color ?? [0.6, 0.6, 0.62];
-          m.baseColor = new Color(c[0], c[1], c[2], 1);
-          m.roughness = def.roughness ?? 0.9; m.metallic = def.metallic ?? 0.02;
-        }
-        if (def.emissive) m.emissiveColor = new Color(def.emissive[0], def.emissive[1], def.emissive[2], 1);
-      } else if (def.type === "glass") {
-        const c = def.color ?? [0.85, 0.92, 0.95];
-        m.baseColor = new Color(c[0], c[1], c[2], def.opacity ?? 0.16);
-        m.roughness = def.roughness ?? 0.02; m.metallic = 0; m.ior = def.ior ?? 1.5;
-        m.isTransparent = true; m.refractionMode = RefractionMode.Planar; m.transmission = 1;
-      } else {   // water
-        const c = def.color ?? [0.05, 0.16, 0.2];
-        m.baseColor = new Color(c[0], c[1], c[2], def.opacity ?? 0.92);
-        m.roughness = def.roughness ?? 0.08; m.metallic = 0;
-        m.isTransparent = true;
-      }
-      r.setMaterial(m);
+      r.setMaterial(await this.buildDefMaterial(def));
       this.camPose(this.fitDist(1, 1.35), 0.5, 0.32);
       return this.snapshot();
     });

@@ -40,26 +40,11 @@
     {
       "doubleSided": true,
       "name": "wall_clock",
-      "normalTexture": {
-        "index": 0
-      },
-      "pbrMetallicRoughness": {
-        "baseColorTexture": {
-          "index": 1
-        },
-        "metallicRoughnessTexture": {
-          "index": 2
-        }
-      }
+      "pbrMetallicRoughness": {}
     },
     {
       "alphaMode": "BLEND",
       "doubleSided": true,
-      "extensions": {
-        "KHR_materials_transmission": {
-          "transmissionFactor": 1
-        }
-      },
       "name": "wall_clock_glass",
       "pbrMetallicRoughness": {
         "baseColorFactor": [
@@ -68,10 +53,7 @@
           0.800000011920929,
           0.4000000059604645
         ],
-        "metallicFactor": 0,
-        "metallicRoughnessTexture": {
-          "index": 3
-        }
+        "metallicFactor": 0
       }
     }
   ],
@@ -140,46 +122,6 @@
           "material": 1
         }
       ]
-    }
-  ],
-  "textures": [
-    {
-      "sampler": 0,
-      "source": 0
-    },
-    {
-      "sampler": 0,
-      "source": 1
-    },
-    {
-      "sampler": 0,
-      "source": 2
-    },
-    {
-      "sampler": 0,
-      "source": 3
-    }
-  ],
-  "images": [
-    {
-      "mimeType": "image/jpeg",
-      "name": "wall_clock_nor_gl",
-      "uri": "textures/wall_clock/normal.jpg"
-    },
-    {
-      "mimeType": "image/jpeg",
-      "name": "wall_clock_diff",
-      "uri": "textures/wall_clock/color.jpg"
-    },
-    {
-      "mimeType": "image/jpeg",
-      "name": "wall_clock_metal-wall_clock_rough",
-      "uri": "textures/wall_clock/arm.jpg"
-    },
-    {
-      "mimeType": "image/jpeg",
-      "name": "wall_clock_glass_rough",
-      "uri": "textures/wall_clock_glass/arm.jpg"
     }
   ],
   "accessors": [
@@ -474,12 +416,6 @@
       "byteLength": 3168,
       "byteOffset": 129244,
       "target": 34963
-    }
-  ],
-  "samplers": [
-    {
-      "magFilter": 9729,
-      "minFilter": 9987
     }
   ],
   "buffers": [

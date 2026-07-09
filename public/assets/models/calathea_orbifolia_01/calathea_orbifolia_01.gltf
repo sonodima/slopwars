@@ -67,30 +67,9 @@
       "alphaCutoff": 0.5,
       "alphaMode": "MASK",
       "doubleSided": true,
-      "extensions": {
-        "KHR_materials_specular": {
-          "specularColorFactor": [
-            1.1200000047683716,
-            1.1200000047683716,
-            1.1200000047683716
-          ]
-        },
-        "KHR_materials_ior": {
-          "ior": 1.4500000476837158
-        }
-      },
       "name": "calathea_orbifolia_01",
-      "normalTexture": {
-        "index": 0
-      },
       "pbrMetallicRoughness": {
-        "baseColorTexture": {
-          "index": 1
-        },
-        "metallicFactor": 0,
-        "metallicRoughnessTexture": {
-          "index": 2
-        }
+        "metallicFactor": 0
       }
     }
   ],
@@ -164,37 +143,6 @@
           "material": 0
         }
       ]
-    }
-  ],
-  "textures": [
-    {
-      "sampler": 0,
-      "source": 0
-    },
-    {
-      "sampler": 0,
-      "source": 1
-    },
-    {
-      "sampler": 0,
-      "source": 2
-    }
-  ],
-  "images": [
-    {
-      "mimeType": "image/jpeg",
-      "name": "calathea_orbifolia_01_nor_gl",
-      "uri": "textures/calathea_orbifolia_01/normal.jpg"
-    },
-    {
-      "mimeType": "image/jpeg",
-      "name": "calathea_orbifolia_01_diff",
-      "uri": "textures/calathea_orbifolia_01/color.jpg"
-    },
-    {
-      "mimeType": "image/jpeg",
-      "name": "calathea_orbifolia_01_rough",
-      "uri": "textures/calathea_orbifolia_01/arm.jpg"
     }
   ],
   "accessors": [
@@ -489,12 +437,6 @@
       "byteLength": 11964,
       "byteOffset": 396004,
       "target": 34963
-    }
-  ],
-  "samplers": [
-    {
-      "magFilter": 9729,
-      "minFilter": 9987
     }
   ],
   "buffers": [

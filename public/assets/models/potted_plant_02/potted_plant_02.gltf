@@ -42,17 +42,8 @@
     {
       "doubleSided": true,
       "name": "potted_plant_02_pot",
-      "normalTexture": {
-        "index": 0
-      },
       "pbrMetallicRoughness": {
-        "baseColorTexture": {
-          "index": 1
-        },
-        "metallicFactor": 0,
-        "metallicRoughnessTexture": {
-          "index": 2
-        }
+        "metallicFactor": 0
       }
     },
     {
@@ -60,17 +51,8 @@
       "alphaMode": "MASK",
       "doubleSided": true,
       "name": "potted_plant_02_leaves",
-      "normalTexture": {
-        "index": 3
-      },
       "pbrMetallicRoughness": {
-        "baseColorTexture": {
-          "index": 4
-        },
-        "metallicFactor": 0,
-        "metallicRoughnessTexture": {
-          "index": 5
-        }
+        "metallicFactor": 0
       }
     }
   ],
@@ -116,64 +98,6 @@
           "material": 0
         }
       ]
-    }
-  ],
-  "textures": [
-    {
-      "sampler": 0,
-      "source": 0
-    },
-    {
-      "sampler": 0,
-      "source": 1
-    },
-    {
-      "sampler": 0,
-      "source": 2
-    },
-    {
-      "sampler": 0,
-      "source": 3
-    },
-    {
-      "sampler": 0,
-      "source": 4
-    },
-    {
-      "sampler": 0,
-      "source": 5
-    }
-  ],
-  "images": [
-    {
-      "mimeType": "image/jpeg",
-      "name": "potted_plant_02_pot_nor_gl",
-      "uri": "textures/potted_plant_02_pot/normal.jpg"
-    },
-    {
-      "mimeType": "image/jpeg",
-      "name": "potted_plant_02_pot_diff",
-      "uri": "textures/potted_plant_02_pot/color.jpg"
-    },
-    {
-      "mimeType": "image/jpeg",
-      "name": "potted_plant_02_pot_rough",
-      "uri": "textures/potted_plant_02_pot/arm.jpg"
-    },
-    {
-      "mimeType": "image/jpeg",
-      "name": "potted_plant_02_leaves_nor_gl",
-      "uri": "textures/potted_plant_02_leaves/normal.jpg"
-    },
-    {
-      "mimeType": "image/jpeg",
-      "name": "potted_plant_02_leaves_diff",
-      "uri": "textures/potted_plant_02_leaves/color.jpg"
-    },
-    {
-      "mimeType": "image/jpeg",
-      "name": "potted_plant_02_leaves_rough",
-      "uri": "textures/potted_plant_02_leaves/arm.jpg"
     }
   ],
   "accessors": [
@@ -340,12 +264,6 @@
       "buffer": 0,
       "byteLength": 323580,
       "byteOffset": 1528664
-    }
-  ],
-  "samplers": [
-    {
-      "magFilter": 9729,
-      "minFilter": 9987
     }
   ],
   "buffers": [
