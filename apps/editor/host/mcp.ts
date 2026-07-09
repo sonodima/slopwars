@@ -126,7 +126,7 @@ export function createMcp({ root, bridge }: Deps): { handle: (msg: any) => Promi
         if (a.arm) files.push(await filepayload(a.arm, "arm"));
         return doImport({ kind: "texture", name: a.name, files });
       } },
-    { name: "editor_import_model", description: "Import a glTF model (a .glb, or a .gltf plus its .bin/textures) into public/assets/models/<name>/.",
+    { name: "editor_import_model", description: "Import a glTF model — geometry only (a .glb, or a .gltf plus its .bin) — into public/assets/models/<name>/. A model carries no textures: import a texture set + material and assign it.",
       inputSchema: { type: "object", properties: { name: { type: "string" }, files: { type: "array", items: { type: "string" }, description: "local file paths" } }, required: ["name", "files"] },
       run: async (a) => doImport({ kind: "model", name: a.name, files: await Promise.all((a.files as string[]).map((p) => filepayload(p))) }) },
     { name: "editor_import_audio", description: "Import an audio clip into public/assets/audio/.",

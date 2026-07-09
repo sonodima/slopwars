@@ -162,18 +162,18 @@ function isBin(f: string): boolean { return /\.bin$/i.test(f); }
 function importModel(onDone: () => void): void {
   const body = el("div", "imp-body");
   const name = textRow("Name", "e.g. crate_new");
-  // one file per slot, picked/dropped separately — a .glb is self-contained (leave the
-  // others empty); a .gltf usually needs its .bin, and may reference image files.
+  // Geometry only — a model carries no textures. Two slots: the glTF scene and (for a
+  // .gltf) its .bin buffer. Surfaces come from a material, not the import: import a
+  // texture set, build a material, then assign it to the model in its preview tab.
   const model = dropZone("Model (.gltf / .glb)", ".gltf,.glb", false, (f) => {
     if (!name.input.value.trim() && f[0]) name.input.value = baseName(f[0].name);
   });
   const bin = dropZone("Binary (.bin, optional)", ".bin", false);
-  const textures = dropZone("Textures (optional)", "image/*", true);
-  const slots: DropZone[] = [model, bin, textures];
+  const slots: DropZone[] = [model, bin];
 
   body.append(
-    el("div", "imp-hint", "Geometry only → public/assets/models/<name>/. A .glb is one file; a .gltf needs its .bin (and any images it references). Pick each file below, or drop them all at once and they’re sorted by type. Models carry no material — import a texture, build a material, then assign it to the model in its preview tab."),
-    name.row, model.row, bin.row, textures.row,
+    el("div", "imp-hint", "Geometry only → public/assets/models/<name>/. A .glb is one file; a .gltf needs its .bin. Pick each file below, or drop them both at once and they’re sorted by type. A model carries no textures — import a texture set, build a material from it, then assign that material to the model in its preview tab."),
+    name.row, model.row, bin.row,
   );
   const dlg = modal("Import model", body);
 
@@ -184,13 +184,10 @@ function importModel(onDone: () => void): void {
     const dropped = Array.from(e.dataTransfer?.files ?? []);
     if (dropped.length < 2) return;
     e.preventDefault(); e.stopPropagation();
-    const imgs: File[] = [...textures.files()];
     for (const f of dropped) {
       if (isGltf(f.name)) model.set([f]);
       else if (isBin(f.name)) bin.set([f]);
-      else imgs.push(f);
     }
-    if (imgs.length) textures.set(imgs);
     if (!name.input.value.trim() && model.files()[0]) name.input.value = baseName(model.files()[0].name);
   });
 

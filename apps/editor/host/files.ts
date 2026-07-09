@@ -42,7 +42,9 @@ function writeAssetB64(root: string, rel: string, b64: string): void {
 }
 
 const IMG_EXT = new Set(["jpg", "jpeg", "png", "webp", "ktx", "ktx2", "hdr"]);
-const MODEL_EXT = new Set(["gltf", "glb", "bin", "jpg", "jpeg", "png", "webp", "ktx", "ktx2"]);
+// geometry only — a model carries no textures (surfaces come from a material, not the
+// import). glTF scene (.gltf/.glb) + its optional .bin buffer, nothing else.
+const MODEL_EXT = new Set(["gltf", "glb", "bin"]);
 const AUDIO_EXT = new Set(["mp3", "wav", "ogg", "m4a"]);
 
 // ── map read / write ─────────────────────────────────────────────────────────
@@ -238,10 +240,14 @@ export function importAsset(root: string, req: ImportRequest): ImportResult {
     if (!name) return { error: "model needs a name" };
     const hasGltf = files.some((f) => ["gltf", "glb"].includes(extOf(f.name)));
     if (!hasGltf) return { error: "model needs a .gltf or .glb file" };
-    const written: string[] = [];
+    // validate every file up front so a rejected one never leaves a half-written
+    // folder behind (a model is geometry only — .gltf/.glb + its .bin, no textures).
     for (const f of files) {
       const ext = extOf(f.name);
-      if (!MODEL_EXT.has(ext)) return { error: `unsupported model file: .${ext}` };
+      if (!MODEL_EXT.has(ext)) return { error: `unsupported model file: .${ext} (a model is geometry only — import textures separately)` };
+    }
+    const written: string[] = [];
+    for (const f of files) {
       const rel = `models/${name}/${sanitizeFile(f.name)}`;
       writeAssetB64(root, rel, f.data);
       written.push(rel);
