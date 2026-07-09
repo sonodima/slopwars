@@ -1,0 +1,9 @@
+operator.glb — realistic CS-style tactical operator, the runtime player-character
+avatar. Rigged (mixamorig skeleton) with skeletal animation clips: Idle, Walk, Run,
+Jump, Fire, Reload, StrafeLeft, StrafeRight, Grenade.
+
+Source: Adobe Mixamo — character "Ch15" + the "Basic Shooter Pack" animation set
+(free to use). Exported from Mixamo as FBX, converted to a single glTF binary
+(three.js FBXLoader -> GLTFExporter): non-metal PBR materials, material groups
+coalesced to 2 primitives, geometry welded/pruned (~2.7 MB). Team identity is a
+runtime emissive tint (see apps/game/src/remote.ts).
