@@ -51,6 +51,12 @@ export interface MapParticle { key: string; entity: Entity }
 export interface DynBody {
   entity: Entity | null;
   mass: number;          // kg (heavy = barely shoved, light = easily pushed)
+  /** per-body PhysX tuning (grip / bounce / damping); each falls back to a default in
+   *  PhysxProps when omitted, so a body only stores what an author actually changed. */
+  friction?: number;
+  restitution?: number;
+  linearDamping?: number;
+  angularDamping?: number;
   half: Vec3;            // collider half-extents
   off: Vec3;             // collider centre offset from `pos`
   shape?: SolidShape;    // rounds player contact (cylinder/sphere); omit = box

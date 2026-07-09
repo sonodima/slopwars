@@ -52,6 +52,43 @@ export interface GroupDef {
   physics?: boolean;
   /** body mass in kg when `physics` is on (heavier = harder to shove). Default 8. */
   mass?: number;
+  /** surface grip 0 (ice) … 1+ (rubber) — PhysX static+dynamic friction. Default 0.6. */
+  friction?: number;
+  /** bounciness 0 (dead thud) … 1 (super-ball) — PhysX restitution. Default 0.15. */
+  restitution?: number;
+  /** how fast the body loses linear speed as it coasts (0 = never). Default 0.05. */
+  linearDamping?: number;
+  /** how fast the body loses spin (higher = stops rolling sooner). Default 0.35. */
+  angularDamping?: number;
+}
+
+/** the physical tuning of a dynamic rigid body — shared by physics groups and physics
+ *  props, and consumed by the PhysX prop simulation. All optional; missing fields fall
+ *  back to PHYSICS_DEFAULTS so a body is meaningful the moment `physics` is switched on. */
+export interface PhysicsProps {
+  mass?: number;
+  friction?: number;
+  restitution?: number;
+  linearDamping?: number;
+  angularDamping?: number;
+}
+
+/** engine-matched defaults for a dynamic body (mirror the values PhysxProps used to
+ *  bake in globally, so turning a body's params on changes nothing until you tune it). */
+export const PHYSICS_DEFAULTS: Required<PhysicsProps> = {
+  mass: 8, friction: 0.6, restitution: 0.15, linearDamping: 0.05, angularDamping: 0.35,
+};
+
+/** fill a partial physics spec with the defaults (mass may be overridden separately —
+ *  props default to a lighter 5kg, so pass it explicitly). */
+export function resolvePhysics(p: PhysicsProps): Required<PhysicsProps> {
+  return {
+    mass: p.mass ?? PHYSICS_DEFAULTS.mass,
+    friction: p.friction ?? PHYSICS_DEFAULTS.friction,
+    restitution: p.restitution ?? PHYSICS_DEFAULTS.restitution,
+    linearDamping: p.linearDamping ?? PHYSICS_DEFAULTS.linearDamping,
+    angularDamping: p.angularDamping ?? PHYSICS_DEFAULTS.angularDamping,
+  };
 }
 
 /** shadow-map quality tier (drives resolution + softness); "off" disables shadows */

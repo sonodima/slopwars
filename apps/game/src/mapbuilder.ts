@@ -11,7 +11,7 @@ import catalog from "virtual:asset-catalog";
 import { GameModels, instantiate } from "./models";
 import { MapTextures, PbrSet, DEFAULT_FOLDER } from "./textures";
 import { MaterialLibrary } from "./materials";
-import type { GroupDef, MaterialDef, ModelMeta, Tuple3 } from "@slopwars/shared";
+import type { GroupDef, MaterialDef, ModelMeta, PhysicsProps, Tuple3 } from "@slopwars/shared";
 import { rotateEuler, modelSlotMaterial } from "@slopwars/shared";
 import type { AABB, GameMap } from "./map";
 
@@ -232,9 +232,10 @@ export class MapBuilder {
   /** register a placed model as a dynamic physics body (see objects.ts `prop` with
    *  physics on). The collider is derived from the model's authored manual collision
    *  (so a barrel authored as a cylinder becomes a cylinder body) or, failing that,
-   *  from its mesh bounds. `mass` (kg) governs how easily it's shoved. The simulation
-   *  lives in the game (PhysicsWorld); the editor just leaves the prop where placed. */
-  pushDynamicBody(id: string, entity: Entity, at: Vec3T, rot: Vec3T, scale: Vec3T, mass: number): void {
+   *  from its mesh bounds. `phys` carries mass (kg) plus the optional PhysX tuning
+   *  (grip / bounce / damping). The simulation lives in the game (PhysicsWorld); the
+   *  editor just leaves the prop where placed. */
+  pushDynamicBody(id: string, entity: Entity, at: Vec3T, rot: Vec3T, scale: Vec3T, phys: PhysicsProps): void {
     if (this.suppressSolids) return;   // inside a physics group → the group body owns collision
     const meta = this.modelMeta.get(id) ?? {};
     const { ms, base } = modelCalib(meta);
@@ -270,7 +271,10 @@ export class MapBuilder {
     const q = new Quaternion();
     Quaternion.rotationEuler(rot[0] * DEG, rot[1] * DEG, rot[2] * DEG, q);   // start at the authored orientation
     this.map.dynBodies.push({
-      entity, mass: Math.max(0.05, mass), half, off, shape, pos,
+      entity, mass: Math.max(0.05, phys.mass ?? 5),
+      friction: phys.friction, restitution: phys.restitution,
+      linearDamping: phys.linearDamping, angularDamping: phys.angularDamping,
+      half, off, shape, pos,
       vel: { x: 0, y: 0, z: 0 }, q, angVel: { x: 0, y: 0, z: 0 }, onGround: false, rest: 0,
     });
   }
@@ -305,7 +309,10 @@ export class MapBuilder {
     } else { half = { x: 0.4, y: 0.4, z: 0.4 }; off = { x: 0, y: 0.4, z: 0 }; }
     const mass = typeof g.mass === "number" && g.mass > 0 ? g.mass : 8;
     this.map.dynBodies.push({
-      entity: e, mass, half, off, shape: undefined, pos: { x: at[0], y: at[1], z: at[2] },
+      entity: e, mass,
+      friction: g.friction, restitution: g.restitution,
+      linearDamping: g.linearDamping, angularDamping: g.angularDamping,
+      half, off, shape: undefined, pos: { x: at[0], y: at[1], z: at[2] },
       vel: { x: 0, y: 0, z: 0 }, q: new Quaternion(), angVel: { x: 0, y: 0, z: 0 }, onGround: false, rest: 0,
     });
   }

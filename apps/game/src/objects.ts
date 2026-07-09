@@ -211,14 +211,23 @@ defineObject<{ clip: string; radius: number; volume: number; loop: boolean; spat
 // body (mass in kg): light props (a crate, a can) get shoved when you shoot, blast
 // or walk into them; heavy ones barely budge. Physics props are dynamic, so they
 // don't contribute static collision — the PhysicsWorld drives them at runtime.
-defineObject<{ model: string; solid: boolean; physics: boolean; mass: number }>("prop", {
+// physics tuning (friction/restitution/damping) is optional: a plain physics prop
+// stores only `physics` + `mass`, and each unset field falls back to the shared PhysX
+// default — so the extra knobs add zero data until an author actually turns one.
+defineObject<{ model: string; solid: boolean; physics: boolean; mass: number; friction?: number; restitution?: number; linearDamping?: number; angularDamping?: number }>("prop", {
   defaults: { model: "", solid: true, physics: false, mass: 5 },
   category: "prop",
   build(b, t, p) {
     if (!p.model) return;
     const e = b.placeModelTf(p.model, t.at, t.rot, t.scale);
     if (!e) return;
-    if (p.physics) { b.pushDynamicBody(p.model, e, t.at, t.rot, t.scale, p.mass); return; }
+    if (p.physics) {
+      b.pushDynamicBody(p.model, e, t.at, t.rot, t.scale, {
+        mass: p.mass, friction: p.friction, restitution: p.restitution,
+        linearDamping: p.linearDamping, angularDamping: p.angularDamping,
+      });
+      return;
+    }
     if (p.solid) b.pushModelSolids(p.model, e, t.at, t.rot, t.scale);
   },
 });

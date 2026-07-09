@@ -6,8 +6,8 @@
 // model's calibration meta, a texture's preview — each with a Delete action. The
 // "World" row edits the map's sky / lighting / effects. A group is a first-class
 // parent, so its inspector edits the group's own transform.
-import type { AssetCatalog, CollisionMode, CollisionShape, FogFalloff, MapDef, MaterialDef, MaterialType, ModelMeta, Placement, ShadowQuality, TextureMaps, ToneMode, Tuple3 } from "@slopwars/shared";
-import { MATERIAL_TYPES, defaultMaterialDef, envPost, envShadows } from "@slopwars/shared";
+import type { AssetCatalog, CollisionMode, CollisionShape, FogFalloff, MapDef, MaterialDef, MaterialType, ModelMeta, PhysicsProps, Placement, ShadowQuality, TextureMaps, ToneMode, Tuple3 } from "@slopwars/shared";
+import { MATERIAL_TYPES, PHYSICS_DEFAULTS, defaultMaterialDef, envPost, envShadows } from "@slopwars/shared";
 import { objectDefaults, placementDetail } from "@game/objects";
 import type { ThumbRenderer } from "./preview";
 import { state } from "./state";
@@ -376,10 +376,24 @@ function groupInspector(host: HTMLElement, g: { id: string; name: string }): voi
       if (v && def.mass == null) def.mass = 8;
     }, () => { state.commit(true); }));
     if (def.physics) {
-      host.append(numField("mass", () => def.mass ?? 8, (v) => (def.mass = v), () => state.commit(), 0.5, { min: 0.1 }));
+      host.append(numField("mass", () => def.mass ?? PHYSICS_DEFAULTS.mass, (v) => (def.mass = v), () => state.commit(), 0.5, { min: 0.1 }));
+      physicsParamFields(host, def, () => state.commit());
       host.append(el("div", "side-note", "Members move & tumble together; their collision is one box."));
     }
   }
+}
+
+/** the shared per-body PhysX knobs (friction / bounce / damping) — rendered under both
+ *  a physics group and a physics prop. Each writes straight onto the target's physics
+ *  fields and clears back to undefined at the default so an untuned body stores nothing. */
+function physicsParamFields(host: HTMLElement, t: PhysicsProps, commit: () => void): void {
+  const num = (label: string, key: keyof PhysicsProps, dflt: number, step: number, bounds: Bounds): void => {
+    host.append(numField(label, () => t[key] ?? dflt, (v) => { t[key] = v; }, commit, step, bounds));
+  };
+  num("friction", "friction", PHYSICS_DEFAULTS.friction, 0.05, { min: 0, max: 2 });
+  num("bounciness", "restitution", PHYSICS_DEFAULTS.restitution, 0.02, UNIT);
+  num("linear damping", "linearDamping", PHYSICS_DEFAULTS.linearDamping, 0.02, { min: 0, max: 5 });
+  num("angular damping", "angularDamping", PHYSICS_DEFAULTS.angularDamping, 0.02, { min: 0, max: 5 });
 }
 
 function head(host: HTMLElement, title: string, sub?: string): void {
@@ -405,12 +419,32 @@ function objectInspector(host: HTMLElement, o: Placement, touch: () => void): vo
   host.append(scaleField("Scale", o.scale, touch, 0.05, { min: 0.01 }));
 
   const schema = objectDefaults(o.type);
-  const keys = Object.keys(schema);
-  if (keys.length) {
+  const params = (o.params ??= {});
+  // an object with a `physics` toggle gets a dedicated Physics section (mass + the PhysX
+  // knobs) that only appears when physics is on — its keys are pulled out of Details.
+  const hasPhysics = "physics" in schema && typeof schema.physics === "boolean";
+  const detailKeys = Object.keys(schema).filter((k) => !(hasPhysics && PHYSICS_KEYS.has(k)));
+  if (detailKeys.length) {
     group(host, "Details");
-    const params = (o.params ??= {});
-    for (const key of keys) host.append(paramField(key, schema[key], params, touch));
+    for (const key of detailKeys) host.append(paramField(key, schema[key], params, touch));
   }
+  if (hasPhysics) objectPhysicsSection(host, params, schema, touch);
+}
+
+/** param keys owned by the Physics section (hidden from the generic Details list) */
+const PHYSICS_KEYS = new Set(["physics", "mass", "friction", "restitution", "linearDamping", "angularDamping"]);
+
+/** the Physics block for an object with a `physics` toggle: the on/off switch, and —
+ *  only when it's on — mass plus the shared PhysX knobs, all backed by the object's
+ *  params so the fields hide entirely for a non-physics prop. */
+function objectPhysicsSection(host: HTMLElement, params: Record<string, unknown>, schema: Record<string, unknown>, touch: () => void): void {
+  group(host, "Physics");
+  const on = (): boolean => (params.physics as boolean | undefined) ?? (schema.physics as boolean ?? false);
+  host.append(checkField("physics", on, (v) => { params.physics = v; }, () => { touch(); state.emitSelect(); }));
+  if (!on()) { host.append(el("div", "side-note", "A physics prop is a movable rigid body — bullets, blasts and bumping shove it.")); return; }
+  const massDflt = typeof schema.mass === "number" ? schema.mass : PHYSICS_DEFAULTS.mass;
+  host.append(numField("mass", () => (params.mass as number | undefined) ?? massDflt, (v) => { params.mass = v; }, touch, 0.5, { min: 0.1 }));
+  physicsParamFields(host, params as unknown as PhysicsProps, touch);
 }
 
 function paramField(key: string, dflt: unknown, params: Record<string, unknown>, touch: () => void): HTMLElement {
