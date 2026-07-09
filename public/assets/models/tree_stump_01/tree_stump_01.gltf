@@ -70,17 +70,17 @@
     {
       "mimeType": "image/jpeg",
       "name": "tree_stump_01_nor_gl",
-      "uri": "../../textures/tree_stump_01/normal.jpg"
+      "uri": "textures/tree_stump_01/normal.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "tree_stump_01_diff",
-      "uri": "../../textures/tree_stump_01/color.jpg"
+      "uri": "textures/tree_stump_01/color.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "tree_stump_01_rough",
-      "uri": "../../textures/tree_stump_01/arm.jpg"
+      "uri": "textures/tree_stump_01/arm.jpg"
     }
   ],
   "accessors": [

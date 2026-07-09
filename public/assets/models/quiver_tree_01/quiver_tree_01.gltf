@@ -108,32 +108,32 @@
     {
       "mimeType": "image/jpeg",
       "name": "quiver_tree_01_trunk_nor_gl",
-      "uri": "../../textures/quiver_tree_01_trunk/normal.jpg"
+      "uri": "textures/quiver_tree_01_trunk/normal.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "quiver_tree_01_trunk_diff",
-      "uri": "../../textures/quiver_tree_01_trunk/color.jpg"
+      "uri": "textures/quiver_tree_01_trunk/color.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "quiver_tree_01_trunk_rough",
-      "uri": "../../textures/quiver_tree_01_trunk/arm.jpg"
+      "uri": "textures/quiver_tree_01_trunk/arm.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "quiver_tree_01_leaf_nor_gl",
-      "uri": "../../textures/quiver_tree_01_leaf/normal.jpg"
+      "uri": "textures/quiver_tree_01_leaf/normal.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "quiver_tree_01_leaf_diff",
-      "uri": "../../textures/quiver_tree_01_leaf/color.jpg"
+      "uri": "textures/quiver_tree_01_leaf/color.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "quiver_tree_01_leaf_rough",
-      "uri": "../../textures/quiver_tree_01_leaf/arm.jpg"
+      "uri": "textures/quiver_tree_01_leaf/arm.jpg"
     }
   ],
   "accessors": [

@@ -164,22 +164,22 @@
     {
       "mimeType": "image/jpeg",
       "name": "wall_clock_nor_gl",
-      "uri": "../../textures/wall_clock/normal.jpg"
+      "uri": "textures/wall_clock/normal.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "wall_clock_diff",
-      "uri": "../../textures/wall_clock/color.jpg"
+      "uri": "textures/wall_clock/color.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "wall_clock_metal-wall_clock_rough",
-      "uri": "../../textures/wall_clock/arm.jpg"
+      "uri": "textures/wall_clock/arm.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "wall_clock_glass_rough",
-      "uri": "../../textures/wall_clock_glass/arm.jpg"
+      "uri": "textures/wall_clock_glass/arm.jpg"
     }
   ],
   "accessors": [

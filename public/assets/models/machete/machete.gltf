@@ -69,17 +69,17 @@
     {
       "mimeType": "image/jpeg",
       "name": "machete_nor_gl",
-      "uri": "../../textures/machete/normal.jpg"
+      "uri": "textures/machete/normal.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "machete_diff",
-      "uri": "../../textures/machete/color.jpg"
+      "uri": "textures/machete/color.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "machete_metal-machete_rough",
-      "uri": "../../textures/machete/arm.jpg"
+      "uri": "textures/machete/arm.jpg"
     }
   ],
   "accessors": [

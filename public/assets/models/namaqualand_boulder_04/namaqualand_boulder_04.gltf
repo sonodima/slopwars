@@ -70,17 +70,17 @@
     {
       "mimeType": "image/jpeg",
       "name": "boulder_04_nor_gl",
-      "uri": "../../textures/boulder_04/normal.jpg"
+      "uri": "textures/boulder_04/normal.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "boulder_04_diff",
-      "uri": "../../textures/boulder_04/color.jpg"
+      "uri": "textures/boulder_04/color.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "boulder_04_rough",
-      "uri": "../../textures/boulder_04/arm.jpg"
+      "uri": "textures/boulder_04/arm.jpg"
     }
   ],
   "accessors": [

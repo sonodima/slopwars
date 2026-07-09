@@ -155,11 +155,43 @@ export function scanMaps(root: string): MapCatalogEntry[] {
   return out.sort((a, b) => a.name.localeCompare(b.name));
 }
 
+// A model glTF stores its texture images as LIBRARY-relative paths
+// ("textures/<group>/<file>") so the repo carries no "../" climbing and every texture
+// lives in one place. But the glTF loader resolves an image uri relative to the .gltf
+// file, and every model sits exactly two levels under assets/ (assets/models/<name>/),
+// so the form the loader needs is that same path prefixed with "../../". We keep the
+// clean form on disk and rewrite to the runtime form here — on dev serve and on build —
+// so nothing shipped or authored ever contains "../../textures/…".
+const GLTF_LIB_URI = /"uri"\s*:\s*"(textures\/[^"]+)"/g;
+export function gltfToRuntime(text: string): string {
+  return text.replace(GLTF_LIB_URI, (_m, p1) => `"uri":"../../${p1}"`);
+}
+
+/** rewrite every *.gltf under <dir>/assets/models/ in place to the runtime uri form */
+function rewriteBuiltGltfs(modelsDir: string): void {
+  if (!fs.existsSync(modelsDir)) return;
+  for (const name of readDirs(modelsDir)) {
+    const dir = path.join(modelsDir, name);
+    for (const f of readFilesFlat(dir)) {
+      if (!f.toLowerCase().endsWith(".gltf")) continue;
+      const p = path.join(dir, f);
+      const text = fs.readFileSync(p, "utf8");
+      const out = gltfToRuntime(text);
+      if (out !== text) fs.writeFileSync(p, out);
+    }
+  }
+}
+
 export function assetCatalogPlugin(opts: Options = {}): Plugin {
   const root = path.resolve(opts.root ?? process.cwd());
+  let outDir = "";
 
   return {
     name: "slopwars-asset-catalog",
+
+    configResolved(config) {
+      outDir = path.resolve(config.root, config.build.outDir);
+    },
 
     resolveId(id) {
       if (id === V_ASSETS || id === V_MAPS) return "\0" + id;
@@ -167,6 +199,13 @@ export function assetCatalogPlugin(opts: Options = {}): Plugin {
     load(id) {
       if (id === "\0" + V_ASSETS) return `export default ${JSON.stringify(scanAssets(root))};`;
       if (id === "\0" + V_MAPS) return `export default ${JSON.stringify(scanMaps(root))};`;
+    },
+
+    // publicDir is copied verbatim into the build, so the clean library-relative texture
+    // uris land in the model glTFs as-is; rewrite them to the runtime "../../" form in the
+    // finished output (after the public copy) so the shipped client resolves them.
+    closeBundle() {
+      if (outDir) rewriteBuiltGltfs(path.join(outDir, "assets", "models"));
     },
 
     // maps live outside publicDir → emit them into the build so the deployed
@@ -182,6 +221,23 @@ export function assetCatalogPlugin(opts: Options = {}): Plugin {
 
     configureServer(server) {
       const mapsDir = path.join(root, "maps");
+      const publicDir = path.join(root, "public");
+
+      // serve model glTFs with their texture uris rewritten to the runtime "../../" form
+      // (they are stored library-relative on disk). Runs before Vite's static handler so
+      // the loader — game or editor — never sees the clean-but-unresolvable path.
+      server.middlewares.use((req, res, next) => {
+        const url = (req.url ?? "").split("?")[0];
+        if (req.method === "GET" && /^\/assets\/models\/[^/]+\/[^/]+\.gltf$/.test(url)) {
+          const file = path.join(publicDir, decodeURIComponent(url).replace(/^\//, ""));
+          if (fs.existsSync(file)) {
+            res.setHeader("Content-Type", "model/gltf+json");
+            res.end(gltfToRuntime(fs.readFileSync(file, "utf8")));
+            return;
+          }
+        }
+        return next();
+      });
 
       // serve maps/*.json in dev (they are not under publicDir)
       server.middlewares.use((req, res, next) => {

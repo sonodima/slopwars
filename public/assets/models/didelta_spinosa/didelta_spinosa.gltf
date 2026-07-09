@@ -108,17 +108,17 @@
     {
       "mimeType": "image/jpeg",
       "name": "didelta_spinosa_nor_gl",
-      "uri": "../../textures/didelta_spinosa/normal.jpg"
+      "uri": "textures/didelta_spinosa/normal.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "didelta_spinosa_diff",
-      "uri": "../../textures/didelta_spinosa/color.jpg"
+      "uri": "textures/didelta_spinosa/color.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "didelta_spinosa_rough",
-      "uri": "../../textures/didelta_spinosa/arm.jpg"
+      "uri": "textures/didelta_spinosa/arm.jpg"
     }
   ],
   "accessors": [

@@ -184,17 +184,17 @@
     {
       "mimeType": "image/jpeg",
       "name": "calathea_orbifolia_01_nor_gl",
-      "uri": "../../textures/calathea_orbifolia_01/normal.jpg"
+      "uri": "textures/calathea_orbifolia_01/normal.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "calathea_orbifolia_01_diff",
-      "uri": "../../textures/calathea_orbifolia_01/color.jpg"
+      "uri": "textures/calathea_orbifolia_01/color.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "calathea_orbifolia_01_rough",
-      "uri": "../../textures/calathea_orbifolia_01/arm.jpg"
+      "uri": "textures/calathea_orbifolia_01/arm.jpg"
     }
   ],
   "accessors": [

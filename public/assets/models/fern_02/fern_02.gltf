@@ -144,17 +144,17 @@
     {
       "mimeType": "image/jpeg",
       "name": "fern_02_nor_gl",
-      "uri": "../../textures/fern_02/normal.jpg"
+      "uri": "textures/fern_02/normal.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "fern_02_diff-fern_02_alpha",
-      "uri": "../../textures/fern_02/color.jpg"
+      "uri": "textures/fern_02/color.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "fern_02_rough",
-      "uri": "../../textures/fern_02/arm.jpg"
+      "uri": "textures/fern_02/arm.jpg"
     }
   ],
   "accessors": [

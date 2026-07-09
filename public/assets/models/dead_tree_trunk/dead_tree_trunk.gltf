@@ -70,17 +70,17 @@
     {
       "mimeType": "image/jpeg",
       "name": "dead_tree_trunk_nor_gl",
-      "uri": "../../textures/dead_tree_trunk/normal.jpg"
+      "uri": "textures/dead_tree_trunk/normal.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "dead_tree_trunk_diff",
-      "uri": "../../textures/dead_tree_trunk/color.jpg"
+      "uri": "textures/dead_tree_trunk/color.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "dead_tree_trunk_rough",
-      "uri": "../../textures/dead_tree_trunk/arm.jpg"
+      "uri": "textures/dead_tree_trunk/arm.jpg"
     }
   ],
   "accessors": [

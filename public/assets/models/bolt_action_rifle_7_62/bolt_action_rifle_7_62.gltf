@@ -288,37 +288,37 @@
     {
       "mimeType": "image/jpeg",
       "name": "bolt_action_rifle_7_62_accesories_nor_gl",
-      "uri": "../../textures/bolt_action_rifle_7_62_accesories/normal.jpg"
+      "uri": "textures/bolt_action_rifle_7_62_accesories/normal.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "bolt_action_rifle_7_62_accesories_diff",
-      "uri": "../../textures/bolt_action_rifle_7_62_accesories/color.jpg"
+      "uri": "textures/bolt_action_rifle_7_62_accesories/color.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "bolt_action_rifle_7_62_accesories_metal-bolt_action_rifle_7_62_accesories_rough",
-      "uri": "../../textures/bolt_action_rifle_7_62_accesories/arm.jpg"
+      "uri": "textures/bolt_action_rifle_7_62_accesories/arm.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "bolt_action_rifle_7_62_accesories_diff-bolt_action_rifle_7_62_accesories_alpha",
-      "uri": "../../textures/bolt_action_rifle_7_62_accesories/color.jpg"
+      "uri": "textures/bolt_action_rifle_7_62_accesories/color.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "bolt_action_rifle_7_62_nor_gl",
-      "uri": "../../textures/bolt_action_rifle_7_62/normal.jpg"
+      "uri": "textures/bolt_action_rifle_7_62/normal.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "bolt_action_rifle_7_62_diff",
-      "uri": "../../textures/bolt_action_rifle_7_62/color.jpg"
+      "uri": "textures/bolt_action_rifle_7_62/color.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "bolt_action_rifle_7_62_metal-bolt_action_rifle_7_62_rough",
-      "uri": "../../textures/bolt_action_rifle_7_62/arm.jpg"
+      "uri": "textures/bolt_action_rifle_7_62/arm.jpg"
     }
   ],
   "accessors": [

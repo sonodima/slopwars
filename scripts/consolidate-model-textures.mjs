@@ -10,7 +10,13 @@
 // then deletes the model's now-empty textures/ folder. Afterwards every texture lives
 // in one place, every material in one place, and a model folder is just .gltf + .bin.
 //
-// Idempotent: re-running finds the URIs already rewritten and the folders gone.
+// The URI written into the glTF is LIBRARY-relative — "textures/<group>/<file>", not a
+// "../../" climb out of the model folder — so the repo reads cleanly. The shared Vite
+// plugin (vite-asset-catalog) prefixes it back to the "../../textures/…" form the glTF
+// loader needs when it serves/builds the file, so nothing on disk carries "../".
+//
+// Idempotent: re-running normalizes any legacy "../../textures/…" URI to the clean form
+// and leaves already-clean ones (and the removed folders) alone.
 // Usage:  node scripts/consolidate-model-textures.mjs
 import fs from "node:fs";
 import path from "node:path";
@@ -64,7 +70,10 @@ function consolidate(model) {
   images.forEach((img, i) => {
     const uri = img.uri;
     if (!uri || uri.startsWith("data:")) return;                 // embedded → nothing to move
-    if (uri.startsWith("../../textures/")) return;               // already consolidated
+    if (uri.startsWith("textures/")) return;                     // already clean (library-relative)
+    if (uri.startsWith("../../textures/")) {                     // legacy climb → normalize to clean
+      img.uri = uri.slice("../../".length); stats.urisRewritten++; changed = true; return;
+    }
     if (movedUri.has(uri)) { img.uri = movedUri.get(uri); stats.urisRewritten++; changed = true; return; }
     const srcAbs = path.join(dir, uri);
     const d = dest.get(i) ?? { group: `${sanitize(model)}_extra`, slot: sanitize(path.basename(uri, path.extname(uri))) };
@@ -80,7 +89,7 @@ function consolidate(model) {
       fs.mkdirSync(groupDir, { recursive: true });
       if (fs.existsSync(srcAbs)) { fs.renameSync(srcAbs, path.join(groupDir, fileName)); stats.moved++; }
     }
-    const rel = `../../textures/${d.group}/${fileName}`;
+    const rel = `textures/${d.group}/${fileName}`;                // library-relative (plugin adds ../../)
     img.uri = rel;
     movedUri.set(uri, rel);
     stats.urisRewritten++;
@@ -108,7 +117,10 @@ function validate() {
     const gltf = JSON.parse(fs.readFileSync(path.join(dir, gltfFile), "utf8"));
     for (const img of gltf.images ?? []) {
       if (!img.uri || img.uri.startsWith("data:")) continue;
-      const abs = path.resolve(dir, img.uri);
+      // library-relative uris resolve against public/assets; anything else against the model dir
+      const abs = img.uri.startsWith("textures/")
+        ? path.join(ROOT, "public/assets", img.uri)
+        : path.resolve(dir, img.uri);
       if (!fs.existsSync(abs)) problems.push(`${model}: ${img.uri} → MISSING`);
     }
     if (fs.existsSync(path.join(dir, "textures"))) problems.push(`${model}: textures/ still present`);

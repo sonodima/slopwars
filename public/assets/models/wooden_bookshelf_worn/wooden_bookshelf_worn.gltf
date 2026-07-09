@@ -69,17 +69,17 @@
     {
       "mimeType": "image/jpeg",
       "name": "wooden_bookshelf_worn_nor_gl",
-      "uri": "../../textures/wooden_bookshelf_worn/normal.jpg"
+      "uri": "textures/wooden_bookshelf_worn/normal.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "wooden_bookshelf_worn_diff",
-      "uri": "../../textures/wooden_bookshelf_worn/color.jpg"
+      "uri": "textures/wooden_bookshelf_worn/color.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "wooden_bookshelf_worn_metal-wooden_bookshelf_worn_rough",
-      "uri": "../../textures/wooden_bookshelf_worn/arm.jpg"
+      "uri": "textures/wooden_bookshelf_worn/arm.jpg"
     }
   ],
   "accessors": [

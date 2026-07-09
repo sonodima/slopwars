@@ -195,17 +195,17 @@
     {
       "mimeType": "image/jpeg",
       "name": "rock_moss_set_01_nor_gl",
-      "uri": "../../textures/rock_moss_set_01/normal.jpg"
+      "uri": "textures/rock_moss_set_01/normal.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "rock_moss_set_01_diff",
-      "uri": "../../textures/rock_moss_set_01/color.jpg"
+      "uri": "textures/rock_moss_set_01/color.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "rock_moss_set_01_rough",
-      "uri": "../../textures/rock_moss_set_01/arm.jpg"
+      "uri": "textures/rock_moss_set_01/arm.jpg"
     }
   ],
   "accessors": [

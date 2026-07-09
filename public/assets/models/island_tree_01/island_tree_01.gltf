@@ -198,47 +198,47 @@
     {
       "mimeType": "image/jpeg",
       "name": "island_tree_01_nor_gl",
-      "uri": "../../textures/island_tree_01/normal.jpg"
+      "uri": "textures/island_tree_01/normal.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "island_tree_01_diff",
-      "uri": "../../textures/island_tree_01/color.jpg"
+      "uri": "textures/island_tree_01/color.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "island_tree_01_rough",
-      "uri": "../../textures/island_tree_01/arm.jpg"
+      "uri": "textures/island_tree_01/arm.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "island_tree_01_leaves_nor_gl",
-      "uri": "../../textures/island_tree_01_leaves/normal.jpg"
+      "uri": "textures/island_tree_01_leaves/normal.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "island_tree_01_leaves_diff-island_tree_01_leaves_alpha",
-      "uri": "../../textures/island_tree_01_leaves/color.jpg"
+      "uri": "textures/island_tree_01_leaves/color.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "island_tree_01_leaves_rough",
-      "uri": "../../textures/island_tree_01_leaves/arm.jpg"
+      "uri": "textures/island_tree_01_leaves/arm.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "island_tree_01_branches_nor_gl",
-      "uri": "../../textures/island_tree_01_branches/normal.jpg"
+      "uri": "textures/island_tree_01_branches/normal.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "island_tree_01_branches_diff",
-      "uri": "../../textures/island_tree_01_branches/color.jpg"
+      "uri": "textures/island_tree_01_branches/color.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "island_tree_01_branches_rough",
-      "uri": "../../textures/island_tree_01_branches/arm.jpg"
+      "uri": "textures/island_tree_01_branches/arm.jpg"
     }
   ],
   "accessors": [
