@@ -145,17 +145,17 @@
     {
       "mimeType": "image/jpeg",
       "name": "drawer_cabinet_nor_gl",
-      "uri": "textures/drawer_cabinet_nor_gl_1k.jpg"
+      "uri": "../../textures/drawer_cabinet/normal.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "drawer_cabinet_diff",
-      "uri": "textures/drawer_cabinet_diff_1k.jpg"
+      "uri": "../../textures/drawer_cabinet/color.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "drawer_cabinet_metallic.png-drawer_cabinet_roughness.png",
-      "uri": "textures/drawer_cabinet_arm_1k.jpg"
+      "uri": "../../textures/drawer_cabinet/arm.jpg"
     }
   ],
   "accessors": [

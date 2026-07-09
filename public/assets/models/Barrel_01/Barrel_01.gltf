@@ -69,17 +69,17 @@
     {
       "mimeType": "image/jpeg",
       "name": "Barrel_01_explosive_nor_gl",
-      "uri": "textures/Barrel_01_explosive_nor_gl_1k.jpg"
+      "uri": "../../textures/Barrel_01/normal.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "Barrel_01_explosive_diff",
-      "uri": "textures/Barrel_01_explosive_diff_1k.jpg"
+      "uri": "../../textures/Barrel_01/color.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "Barrel_01_explosive_metallic-Barrel_01_explosive_roughness",
-      "uri": "textures/Barrel_01_explosive_arm_1k.jpg"
+      "uri": "../../textures/Barrel_01/arm.jpg"
     }
   ],
   "accessors": [

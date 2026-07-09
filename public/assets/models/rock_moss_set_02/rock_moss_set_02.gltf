@@ -224,17 +224,17 @@
     {
       "mimeType": "image/jpeg",
       "name": "rock_moss_set_02_nor_gl",
-      "uri": "textures/rock_moss_set_02_nor_gl_1k.jpg"
+      "uri": "../../textures/rock_moss_set_02/normal.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "rock_moss_set_02_diff",
-      "uri": "textures/rock_moss_set_02_diff_1k.jpg"
+      "uri": "../../textures/rock_moss_set_02/color.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "rock_moss_set_02_rough",
-      "uri": "textures/rock_moss_set_02_rough_1k.jpg"
+      "uri": "../../textures/rock_moss_set_02/arm.jpg"
     }
   ],
   "accessors": [

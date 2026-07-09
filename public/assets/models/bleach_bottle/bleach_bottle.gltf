@@ -70,17 +70,17 @@
     {
       "mimeType": "image/jpeg",
       "name": "bleach_bottle_01_nor_gl",
-      "uri": "textures/bleach_bottle_01_nor_gl_1k.jpg"
+      "uri": "../../textures/bleach_bottle/normal.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "bleach_bottle_01_diff",
-      "uri": "textures/bleach_bottle_01_diff_1k.jpg"
+      "uri": "../../textures/bleach_bottle/color.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "bleach_bottle_01_rough",
-      "uri": "textures/bleach_bottle_01_arm_1k.jpg"
+      "uri": "../../textures/bleach_bottle/arm.jpg"
     }
   ],
   "accessors": [

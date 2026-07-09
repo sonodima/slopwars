@@ -70,17 +70,17 @@
     {
       "mimeType": "image/jpeg",
       "name": "coastal_cliff_04_nor_gl",
-      "uri": "textures/coastal_cliff_04_nor_gl_1k.jpg"
+      "uri": "../../textures/coastal_cliff_04/normal.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "coastal_cliff_04_diff",
-      "uri": "textures/coastal_cliff_04_diff_1k.jpg"
+      "uri": "../../textures/coastal_cliff_04/color.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "coastal_cliff_04_rough",
-      "uri": "textures/coastal_cliff_04_arm_1k.jpg"
+      "uri": "../../textures/coastal_cliff_04/arm.jpg"
     }
   ],
   "accessors": [

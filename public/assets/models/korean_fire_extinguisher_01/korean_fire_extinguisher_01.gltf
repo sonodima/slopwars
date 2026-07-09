@@ -148,47 +148,47 @@
     {
       "mimeType": "image/jpeg",
       "name": "korean_fire_extinguisher_01_body_nor_gl",
-      "uri": "textures/korean_fire_extinguisher_01_body_nor_gl_1k.jpg"
+      "uri": "../../textures/korean_fire_extinguisher_01_body/normal.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "korean_fire_extinguisher_01_body_diff.png",
-      "uri": "textures/korean_fire_extinguisher_01_body_diff_1k.jpg"
+      "uri": "../../textures/korean_fire_extinguisher_01_body/color.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "korean_fire_extinguisher_01_body_metal.png-korean_fire_extinguisher_01_body_rough.png",
-      "uri": "textures/korean_fire_extinguisher_01_body_arm_1k.jpg"
+      "uri": "../../textures/korean_fire_extinguisher_01_body/arm.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "korean_fire_extinguisher_01_glass_nor_gl",
-      "uri": "textures/korean_fire_extinguisher_01_glass_nor_gl_1k.jpg"
+      "uri": "../../textures/korean_fire_extinguisher_01_glass/normal.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "korean_fire_extinguisher_01_glass_diff",
-      "uri": "textures/korean_fire_extinguisher_01_glass_diff_1k.jpg"
+      "uri": "../../textures/korean_fire_extinguisher_01_glass/color.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "korean_fire_extinguisher_01_glass_metal-korean_fire_extinguisher_01_glass_rough",
-      "uri": "textures/korean_fire_extinguisher_01_glass_arm_1k.jpg"
+      "uri": "../../textures/korean_fire_extinguisher_01_glass/arm.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "korean_fire_extinguisher_01_paper_nor_gl",
-      "uri": "textures/korean_fire_extinguisher_01_paper_nor_gl_1k.jpg"
+      "uri": "../../textures/korean_fire_extinguisher_01_paper/normal.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "korean_fire_extinguisher_01_paper_diff-korean_fire_extinguisher_01_paper_opacity",
-      "uri": "textures/korean_fire_extinguisher_01_paper_diff_1k.jpg"
+      "uri": "../../textures/korean_fire_extinguisher_01_paper/color.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "korean_fire_extinguisher_01_paper_metal-korean_fire_extinguisher_01_paper_rough",
-      "uri": "textures/korean_fire_extinguisher_01_paper_arm_1k.jpg"
+      "uri": "../../textures/korean_fire_extinguisher_01_paper/arm.jpg"
     }
   ],
   "accessors": [

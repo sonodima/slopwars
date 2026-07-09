@@ -202,17 +202,17 @@
     {
       "mimeType": "image/jpeg",
       "name": "metal_toolbox_nor_gl",
-      "uri": "textures/metal_toolbox_nor_gl_1k.jpg"
+      "uri": "../../textures/metal_toolbox/normal.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "metal_toolbox_diff",
-      "uri": "textures/metal_toolbox_diff_1k.jpg"
+      "uri": "../../textures/metal_toolbox/color.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "metal_toolbox_metal-metal_toolbox_rough",
-      "uri": "textures/metal_toolbox_arm_1k.jpg"
+      "uri": "../../textures/metal_toolbox/arm.jpg"
     }
   ],
   "accessors": [

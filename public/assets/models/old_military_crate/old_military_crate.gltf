@@ -232,17 +232,17 @@
     {
       "mimeType": "image/jpeg",
       "name": "old_military_crate_nor_gl",
-      "uri": "textures/old_military_crate_nor_gl_1k.jpg"
+      "uri": "../../textures/military_crate_m_01/normal.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "old_military_crate_diff",
-      "uri": "textures/old_military_crate_diff_1k.jpg"
+      "uri": "../../textures/military_crate_m_01/color.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "old_military_crate_metal-old_military_crate_rough",
-      "uri": "textures/old_military_crate_arm_1k.jpg"
+      "uri": "../../textures/military_crate_m_01/arm.jpg"
     }
   ],
   "accessors": [

@@ -261,32 +261,32 @@
     {
       "mimeType": "image/jpeg",
       "name": "pachira_aquatica_01_bark_nor_gl",
-      "uri": "textures/pachira_aquatica_01_bark_nor_gl_1k.jpg"
+      "uri": "../../textures/pachira_aquatica_01_bark/normal.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "pachira_aquatica_01_bark_diff",
-      "uri": "textures/pachira_aquatica_01_bark_diff_1k.jpg"
+      "uri": "../../textures/pachira_aquatica_01_bark/color.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "pachira_aquatica_01_bark_rough",
-      "uri": "textures/pachira_aquatica_01_bark_arm_1k.jpg"
+      "uri": "../../textures/pachira_aquatica_01_bark/arm.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "pachira_aquatica_01_leaves_nor_gl",
-      "uri": "textures/pachira_aquatica_01_leaves_nor_gl_1k.jpg"
+      "uri": "../../textures/pachira_aquatica_01_leaves/normal.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "pachira_aquatica_01_leaves_diff-pachira_aquatica_01_leaves_alpha",
-      "uri": "textures/pachira_aquatica_01_leaves_diff_1k.jpg"
+      "uri": "../../textures/pachira_aquatica_01_leaves/color.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "pachira_aquatica_01_leaves_rough",
-      "uri": "textures/pachira_aquatica_01_leaves_arm_1k.jpg"
+      "uri": "../../textures/pachira_aquatica_01_leaves/arm.jpg"
     }
   ],
   "accessors": [

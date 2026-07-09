@@ -341,22 +341,22 @@
     {
       "mimeType": "image/jpeg",
       "name": "cheiridopsis_succulent_nor_gl",
-      "uri": "textures/cheiridopsis_succulent_nor_gl_1k.jpg"
+      "uri": "../../textures/cheiridopsis_succulent/normal.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "cheiridopsis_succulent_diff",
-      "uri": "textures/cheiridopsis_succulent_diff_1k.jpg"
+      "uri": "../../textures/cheiridopsis_succulent/color.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "cheiridopsis_succulent_rough",
-      "uri": "textures/cheiridopsis_succulent_arm_1k.jpg"
+      "uri": "../../textures/cheiridopsis_succulent/arm.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "cheiridopsis_succulent_diff-cheiridopsis_succulent_alpha",
-      "uri": "textures/cheiridopsis_succulent_diff_1k.jpg"
+      "uri": "../../textures/cheiridopsis_succulent/color.jpg"
     }
   ],
   "accessors": [

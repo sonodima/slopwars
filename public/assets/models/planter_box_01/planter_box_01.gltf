@@ -69,17 +69,17 @@
     {
       "mimeType": "image/jpeg",
       "name": "planter_box_01_nor_gl",
-      "uri": "textures/planter_box_01_nor_gl_1k.jpg"
+      "uri": "../../textures/planter_box_01/normal.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "planter_box_01_diff",
-      "uri": "textures/planter_box_01_diff_1k.jpg"
+      "uri": "../../textures/planter_box_01/color.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "planter_box_01_metal-planter_box_01_rough",
-      "uri": "textures/planter_box_01_arm_1k.jpg"
+      "uri": "../../textures/planter_box_01/arm.jpg"
     }
   ],
   "accessors": [

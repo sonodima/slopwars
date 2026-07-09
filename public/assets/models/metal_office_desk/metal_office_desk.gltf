@@ -221,17 +221,17 @@
     {
       "mimeType": "image/jpeg",
       "name": "metal_office_desk_nor_gl",
-      "uri": "textures/metal_office_desk_nor_gl_1k.jpg"
+      "uri": "../../textures/metal_office_desk/normal.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "metal_office_desk_diff",
-      "uri": "textures/metal_office_desk_diff_1k.jpg"
+      "uri": "../../textures/metal_office_desk/color.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "metal_office_desk_metal-metal_office_desk_rough",
-      "uri": "textures/metal_office_desk_arm_1k.jpg"
+      "uri": "../../textures/metal_office_desk/arm.jpg"
     }
   ],
   "accessors": [

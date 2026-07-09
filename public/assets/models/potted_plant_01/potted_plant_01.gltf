@@ -167,32 +167,32 @@
     {
       "mimeType": "image/jpeg",
       "name": "potted_plant_01_pot_nor_gl",
-      "uri": "textures/potted_plant_01_pot_nor_gl_1k.jpg"
+      "uri": "../../textures/potted_plant_01_pot/normal.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "potted_plant_01_pot_diff",
-      "uri": "textures/potted_plant_01_pot_diff_1k.jpg"
+      "uri": "../../textures/potted_plant_01_pot/color.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "potted_plant_01_pot_rough",
-      "uri": "textures/potted_plant_01_pot_rough_1k.jpg"
+      "uri": "../../textures/potted_plant_01_pot/arm.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "potted_plant_01_leaves_nor_gl.png",
-      "uri": "textures/potted_plant_01_leaves_nor_gl_1k.jpg"
+      "uri": "../../textures/potted_plant_01_leaves/normal.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "potted_plant_01_leaves_diff.png",
-      "uri": "textures/potted_plant_01_leaves_diff_1k.jpg"
+      "uri": "../../textures/potted_plant_01_leaves/color.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "potted_plant_01_leaves_rough.png",
-      "uri": "textures/potted_plant_01_leaves_rough_1k.jpg"
+      "uri": "../../textures/potted_plant_01_leaves/arm.jpg"
     }
   ],
   "accessors": [

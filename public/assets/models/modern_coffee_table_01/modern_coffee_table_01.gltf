@@ -70,17 +70,17 @@
     {
       "mimeType": "image/jpeg",
       "name": "modern_coffee_table_01_nor_gl",
-      "uri": "textures/modern_coffee_table_01_nor_gl_1k.jpg"
+      "uri": "../../textures/modern_coffee_table_01/normal.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "modern_coffee_table_01_diff",
-      "uri": "textures/modern_coffee_table_01_diff_1k.jpg"
+      "uri": "../../textures/modern_coffee_table_01/color.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "modern_coffee_table_01_rough",
-      "uri": "textures/modern_coffee_table_01_rough_1k.jpg"
+      "uri": "../../textures/modern_coffee_table_01/arm.jpg"
     }
   ],
   "accessors": [

@@ -69,17 +69,17 @@
     {
       "mimeType": "image/jpeg",
       "name": "SchoolChair_01_nor_gl",
-      "uri": "textures/SchoolChair_01_nor_gl_1k.jpg"
+      "uri": "../../textures/SchoolChair_01/normal.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "SchoolChair_01_diff",
-      "uri": "textures/SchoolChair_01_diff_1k.jpg"
+      "uri": "../../textures/SchoolChair_01/color.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "SchoolChair_01_metallic-SchoolChair_01_roughness",
-      "uri": "textures/SchoolChair_01_arm_1k.jpg"
+      "uri": "../../textures/SchoolChair_01/arm.jpg"
     }
   ],
   "accessors": [

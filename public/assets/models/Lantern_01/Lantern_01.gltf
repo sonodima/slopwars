@@ -125,22 +125,22 @@
     {
       "mimeType": "image/jpeg",
       "name": "Lantern_01_brass_nor_gl",
-      "uri": "textures/Lantern_01_brass_nor_gl_1k.jpg"
+      "uri": "../../textures/Lantern_01_brass/normal.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "Lantern_01_brass_diff",
-      "uri": "textures/Lantern_01_brass_diff_1k.jpg"
+      "uri": "../../textures/Lantern_01_brass/color.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "Lantern_01_brass_metallic-Lantern_01_brass_roughness",
-      "uri": "textures/Lantern_01_brass_arm_1k.jpg"
+      "uri": "../../textures/Lantern_01_brass/arm.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "Lantern_01_brass_diff-Lantern_01_brass_opacity",
-      "uri": "textures/Lantern_01_brass_diff_1k.jpg"
+      "uri": "../../textures/Lantern_01_brass/color.jpg"
     }
   ],
   "accessors": [

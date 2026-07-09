@@ -70,17 +70,17 @@
     {
       "mimeType": "image/jpeg",
       "name": "boulder_04_nor_gl",
-      "uri": "textures/namaqualand_boulder_04_nor_gl_1k.jpg"
+      "uri": "../../textures/boulder_04/normal.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "boulder_04_diff",
-      "uri": "textures/namaqualand_boulder_04_diff_1k.jpg"
+      "uri": "../../textures/boulder_04/color.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "boulder_04_rough",
-      "uri": "textures/namaqualand_boulder_04_arm_1k.jpg"
+      "uri": "../../textures/boulder_04/arm.jpg"
     }
   ],
   "accessors": [

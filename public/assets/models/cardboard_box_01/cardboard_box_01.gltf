@@ -75,17 +75,17 @@
     {
       "mimeType": "image/jpeg",
       "name": "cardboard_box_01_nor_gl",
-      "uri": "textures/cardboard_box_01_nor_gl_1k.jpg"
+      "uri": "../../textures/cardboard_box_01/normal.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "cardboard_box_01_diff",
-      "uri": "textures/cardboard_box_01_diff_1k.jpg"
+      "uri": "../../textures/cardboard_box_01/color.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "cardboard_box_01_rough",
-      "uri": "textures/cardboard_box_01_arm_1k.jpg"
+      "uri": "../../textures/cardboard_box_01/arm.jpg"
     }
   ],
   "accessors": [

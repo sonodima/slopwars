@@ -304,17 +304,17 @@
     {
       "mimeType": "image/jpeg",
       "name": "service_pistol_nor_gl",
-      "uri": "textures/service_pistol_nor_gl_1k.jpg"
+      "uri": "../../textures/service_pistol/normal.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "service_pistol_diff",
-      "uri": "textures/service_pistol_diff_1k.jpg"
+      "uri": "../../textures/service_pistol/color.jpg"
     },
     {
       "mimeType": "image/jpeg",
       "name": "service_pistol_metal-service_pistol_rough",
-      "uri": "textures/service_pistol_arm_1k.jpg"
+      "uri": "../../textures/service_pistol/arm.jpg"
     }
   ],
   "accessors": [
