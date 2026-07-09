@@ -144,42 +144,85 @@ export function placeScale(o: Placement): Tuple3 { return o.scale ?? [1, 1, 1]; 
 
 // ── group / world transform composition ──────────────────────────────────────
 // A placement (or a nested group) stores its transform in its parent group's local
-// space. To render or collide it we compose that up the chain of groups. Rotation
-// is composed as component-wise euler addition (the same approximation the editor's
-// group gizmo has always used — fine for this game's mostly-yaw rotations); scale
-// is multiplied per-axis; position is the child's local position scaled+rotated by
-// the group then offset by the group origin.
+// space. To render or collide it we compose that up the chain of groups: scale is
+// multiplied per-axis; position is the child's local position scaled, rotated by the
+// parent, then offset by the parent origin; rotation is composed as a QUATERNION
+// product (not component-wise euler addition — that only works for rotations about a
+// single shared axis, which silently skews tilted groups). All rotation maths here
+// mirror the engine's own euler convention (Galacean `Quaternion.rotationEuler`, i.e.
+// intrinsic Y→X→Z) so a composed transform renders exactly as the engine orients it,
+// and collision built from the same helpers lines up with the visual.
 
 /** a resolved transform (all fields present) */
 export interface WorldTf { at: Tuple3; rot: Tuple3; scale: Tuple3 }
 
-/** rotate a vector by an euler-degree triple, applying X then Y then Z */
-export function rotateEuler(v: Tuple3, deg: Tuple3): Tuple3 {
-  const D = Math.PI / 180;
-  let [x, y, z] = v;
-  if (deg[0]) { const c = Math.cos(deg[0] * D), s = Math.sin(deg[0] * D); const ny = y * c - z * s, nz = y * s + z * c; y = ny; z = nz; }
-  if (deg[1]) { const c = Math.cos(deg[1] * D), s = Math.sin(deg[1] * D); const nx = x * c + z * s, nz = -x * s + z * c; x = nx; z = nz; }
-  if (deg[2]) { const c = Math.cos(deg[2] * D), s = Math.sin(deg[2] * D); const nx = x * c - y * s, ny = x * s + y * c; x = nx; y = ny; }
-  return [x, y, z];
+// ── quaternion helpers (engine-convention, pure — no engine dependency) ───────
+// [x, y, z, w]. These replicate Galacean's math bit-for-bit (verified against
+// @galacean/engine-math): euler↔quat, product, conjugate, and vector rotation, so
+// the shared schema can compose rotations correctly without importing the engine.
+const D2R = Math.PI / 180;
+type Quat = [number, number, number, number];
+
+/** euler DEGREES (x,y,z) → quaternion, matching `Quaternion.rotationEuler` (Y→X→Z) */
+function eulerToQuat(deg: Tuple3): Quat {
+  const hx = deg[0] * D2R * 0.5, hy = deg[1] * D2R * 0.5, hz = deg[2] * D2R * 0.5;
+  const sx = Math.sin(hx), cx = Math.cos(hx), sy = Math.sin(hy), cy = Math.cos(hy), sz = Math.sin(hz), cz = Math.cos(hz);
+  return [cy * sx * cz + sy * cx * sz, sy * cx * cz - cy * sx * sz, cy * cx * sz - sy * sx * cz, cy * cx * cz + sy * sx * sz];
 }
 
-/** inverse of rotateEuler: undo an X→Y→Z rotation (apply −Z, −Y, −X) */
+/** quaternion → euler DEGREES, matching `Quaternion.toEuler` (inverse of eulerToQuat) */
+function quatToEuler(q: Quat): Tuple3 {
+  const [x, y, z, w] = q;
+  const xx = x * x, yy = y * y, zz = z * z, ww = w * w, unit = xx + yy + zz + ww;
+  const test = 2 * (x * w - y * z);
+  let px: number, py: number, pz: number;   // yaw-pitch-roll temps (pre-swap)
+  if (test > (1 - 1e-6) * unit) { px = Math.atan2(2 * (w * y - x * z), xx + ww - yy - zz); py = Math.PI / 2; pz = 0; }
+  else if (test < -(1 - 1e-6) * unit) { px = Math.atan2(2 * (w * y - x * z), xx + ww - yy - zz); py = -Math.PI / 2; pz = 0; }
+  else { px = Math.atan2(2 * (z * x + y * w), zz + ww - yy - xx); py = Math.asin(test / unit); pz = Math.atan2(2 * (x * y + z * w), yy + ww - zz - xx); }
+  return [py / D2R, px / D2R, pz / D2R];   // toEuler swaps x/y: eulerX=pitch, eulerY=yaw, eulerZ=roll
+}
+
+/** Hamilton product a·b, matching `Quaternion.multiply` */
+function quatMul(a: Quat, b: Quat): Quat {
+  const [ax, ay, az, aw] = a, [bx, by, bz, bw] = b;
+  return [
+    ax * bw + aw * bx + ay * bz - az * by,
+    ay * bw + aw * by + az * bx - ax * bz,
+    az * bw + aw * bz + ax * by - ay * bx,
+    aw * bw - ax * bx - ay * by - az * bz,
+  ];
+}
+
+/** conjugate (inverse rotation for a unit quaternion) */
+function quatConj(q: Quat): Quat { return [-q[0], -q[1], -q[2], q[3]]; }
+
+/** rotate a vector by a quaternion, matching `Vector3.transformByQuat` */
+function quatRotate(q: Quat, v: Tuple3): Tuple3 {
+  const [qx, qy, qz, qw] = q, [x, y, z] = v;
+  const ix = qw * x + qy * z - qz * y, iy = qw * y + qz * x - qx * z, iz = qw * z + qx * y - qy * x, iw = -qx * x - qy * y - qz * z;
+  return [ix * qw - iw * qx - iy * qz + iz * qy, iy * qw - iw * qy - iz * qx + ix * qz, iz * qw - iw * qz - ix * qy + iy * qx];
+}
+
+/** rotate a vector by an euler-degree triple (engine convention) */
+export function rotateEuler(v: Tuple3, deg: Tuple3): Tuple3 {
+  if (!deg[0] && !deg[1] && !deg[2]) return [v[0], v[1], v[2]];
+  return quatRotate(eulerToQuat(deg), v);
+}
+
+/** inverse of rotateEuler: rotate by the opposite of an euler-degree triple */
 export function rotateEulerInv(v: Tuple3, deg: Tuple3): Tuple3 {
-  const D = Math.PI / 180;
-  let [x, y, z] = v;
-  if (deg[2]) { const c = Math.cos(-deg[2] * D), s = Math.sin(-deg[2] * D); const nx = x * c - y * s, ny = x * s + y * c; x = nx; y = ny; }
-  if (deg[1]) { const c = Math.cos(-deg[1] * D), s = Math.sin(-deg[1] * D); const nx = x * c + z * s, nz = -x * s + z * c; x = nx; z = nz; }
-  if (deg[0]) { const c = Math.cos(-deg[0] * D), s = Math.sin(-deg[0] * D); const ny = y * c - z * s, nz = y * s + z * c; y = ny; z = nz; }
-  return [x, y, z];
+  if (!deg[0] && !deg[1] && !deg[2]) return [v[0], v[1], v[2]];
+  return quatRotate(quatConj(eulerToQuat(deg)), v);
 }
 
 /** apply a parent transform to a child (local) transform → world transform */
 export function composeTf(parent: WorldTf, child: WorldTf): WorldTf {
+  const pq = eulerToQuat(parent.rot);
   const scaled: Tuple3 = [child.at[0] * parent.scale[0], child.at[1] * parent.scale[1], child.at[2] * parent.scale[2]];
-  const rp = rotateEuler(scaled, parent.rot);
+  const rp = quatRotate(pq, scaled);
   return {
     at: [parent.at[0] + rp[0], parent.at[1] + rp[1], parent.at[2] + rp[2]],
-    rot: [parent.rot[0] + child.rot[0], parent.rot[1] + child.rot[1], parent.rot[2] + child.rot[2]],
+    rot: quatToEuler(quatMul(pq, eulerToQuat(child.rot))),
     scale: [parent.scale[0] * child.scale[0], parent.scale[1] * child.scale[1], parent.scale[2] * child.scale[2]],
   };
 }
@@ -246,14 +289,16 @@ export function resolveWorld(def: MapDef, o: Placement): WorldTf {
 }
 
 /** inverse of composeTf: express a world transform in a parent's local space (so a
- *  world-placed object can be stored relative to a group it's dropped into). */
+ *  world-placed object can be stored relative to a group it's dropped into). Rotation
+ *  is undone as parent⁻¹ · world (quaternion), the exact inverse of composeTf. */
 export function invComposeTf(parent: WorldTf, world: WorldTf): WorldTf {
+  const pInv = quatConj(eulerToQuat(parent.rot));
   const rel: Tuple3 = [world.at[0] - parent.at[0], world.at[1] - parent.at[1], world.at[2] - parent.at[2]];
-  const unr = rotateEulerInv(rel, parent.rot);
+  const unr = quatRotate(pInv, rel);
   const div = (a: number, b: number): number => (Math.abs(b) < 1e-6 ? a : a / b);
   return {
     at: [div(unr[0], parent.scale[0]), div(unr[1], parent.scale[1]), div(unr[2], parent.scale[2])],
-    rot: [world.rot[0] - parent.rot[0], world.rot[1] - parent.rot[1], world.rot[2] - parent.rot[2]],
+    rot: quatToEuler(quatMul(pInv, eulerToQuat(world.rot))),
     scale: [div(world.scale[0], parent.scale[0]), div(world.scale[1], parent.scale[1]), div(world.scale[2], parent.scale[2])],
   };
 }
