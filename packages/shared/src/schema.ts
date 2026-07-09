@@ -189,10 +189,50 @@ export function groupLocalTf(g: GroupDef): WorldTf {
   return { at: g.at ?? [0, 0, 0], rot: g.rot ?? [0, 0, 0], scale: g.scale ?? [1, 1, 1] };
 }
 
+// ── group hierarchy queries (pure MapDef helpers — shared by editor + game) ────
+// A map's groups form a forest (each GroupDef.parent points at another group, or the
+// top level) and every object may belong to one group. These read-only walks over
+// that hierarchy back both the editor (outliner, selection, group transforms — via
+// thin EditorState wrappers) and the game loader (physics groups), so they live here:
+// one definition, no drift between the two sides.
+
+/** the group with this id (undefined id → undefined) */
+export function groupById(def: MapDef, id: string | undefined): GroupDef | undefined {
+  return id ? def.groups?.find((g) => g.id === id) : undefined;
+}
+
+/** direct child groups of a parent (undefined parent → the top-level groups) */
+export function childGroups(def: MapDef, parent: string | undefined): GroupDef[] {
+  return (def.groups ?? []).filter((g) => (g.parent ?? undefined) === (parent ?? undefined));
+}
+
+/** objects placed directly in a group (not its descendant groups) */
+export function groupMembersDirect(def: MapDef, groupId: string): Placement[] {
+  return def.objects.filter((o) => o.group === groupId);
+}
+
+/** objects in a group and, when `recursive`, all its descendant groups too */
+export function groupMembers(def: MapDef, groupId: string, recursive = true): Placement[] {
+  const out = groupMembersDirect(def, groupId);
+  if (recursive) for (const g of childGroups(def, groupId)) out.push(...groupMembers(def, g.id, true));
+  return out;
+}
+
+/** physics-enabled groups whose ancestor chain has no *other* physics group, so a
+ *  nested physics group is absorbed by the outermost one (one body, not many). */
+export function topPhysicsGroups(def: MapDef): GroupDef[] {
+  const ancestorHasPhysics = (g: GroupDef): boolean => {
+    let p = groupById(def, g.parent);
+    while (p) { if (p.physics) return true; p = groupById(def, p.parent); }
+    return false;
+  };
+  return (def.groups ?? []).filter((g) => g.physics && !ancestorHasPhysics(g));
+}
+
 /** a group's world transform (composed up its parent chain) */
 export function groupWorldTf(def: MapDef, groupId: string | undefined): WorldTf {
   if (!groupId) return { at: [0, 0, 0], rot: [0, 0, 0], scale: [1, 1, 1] };
-  const g = def.groups?.find((x) => x.id === groupId);
+  const g = groupById(def, groupId);
   if (!g) return { at: [0, 0, 0], rot: [0, 0, 0], scale: [1, 1, 1] };
   return composeTf(groupWorldTf(def, g.parent), groupLocalTf(g));
 }

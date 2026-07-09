@@ -150,9 +150,8 @@ export class MapBuilder {
     const e = instantiate(this.models[id]);
     if (!e) return null;
     const meta = this.modelMeta.get(id) ?? {};
-    const ms = typeof meta.scale === "number" && meta.scale > 0 ? meta.scale : 1;
+    const { ms, base } = modelCalib(meta);
     const sx = scale[0] * ms, sy = scale[1] * ms, sz = scale[2] * ms;
-    const base = typeof meta.base === "number" ? meta.base : 0;
     e.transform.setScale(sx, sy, sz);
     e.transform.setPosition(at[0], at[1] + base * sy, at[2]);   // base is a local offset → scales with the model
     // compose the placement rotation over the model's baked baseRot (base applied
@@ -181,8 +180,7 @@ export class MapBuilder {
     const meta = this.modelMeta.get(id) ?? {};
     const boxes = meta.collision === "manual" ? (meta.collisionBoxes ?? []) : null;
     if (boxes) {
-      const ms = typeof meta.scale === "number" && meta.scale > 0 ? meta.scale : 1;
-      const base = typeof meta.base === "number" ? meta.base : 0;
+      const { ms, base } = modelCalib(meta);
       const sx = scale[0] * ms, sy = scale[1] * ms, sz = scale[2] * ms;
       const rotT: [number, number, number] = [rot[0], rot[1], rot[2]];
       const baseRot = meta.baseRot;
@@ -233,8 +231,7 @@ export class MapBuilder {
   pushDynamicBody(id: string, entity: Entity, at: Vec3T, rot: Vec3T, scale: Vec3T, mass: number): void {
     if (this.suppressSolids) return;   // inside a physics group → the group body owns collision
     const meta = this.modelMeta.get(id) ?? {};
-    const ms = typeof meta.scale === "number" && meta.scale > 0 ? meta.scale : 1;
-    const base = typeof meta.base === "number" ? meta.base : 0;
+    const { ms, base } = modelCalib(meta);
     const sx = scale[0] * ms, sy = scale[1] * ms, sz = scale[2] * ms;
     const pos = { x: at[0], y: at[1] + base * sy, z: at[2] };   // entity origin (matches placeModelTf)
     let half: { x: number; y: number; z: number };
@@ -336,3 +333,14 @@ function composeRot(outer: Vec3T, base: Vec3T): Quaternion {
   return out;
 }
 const DEG = Math.PI / 180;
+
+/** a model's calibration scalars from its meta: the uniform `scale` multiplier
+ *  (default 1, non-positive values ignored) and the `base` vertical offset (default
+ *  0). Extracted once so placement, static collision, and dynamic-body derivation all
+ *  read the same calibration instead of re-deriving it three ways. */
+function modelCalib(meta: ModelMeta): { ms: number; base: number } {
+  return {
+    ms: typeof meta.scale === "number" && meta.scale > 0 ? meta.scale : 1,
+    base: typeof meta.base === "number" ? meta.base : 0,
+  };
+}

@@ -6,6 +6,7 @@
 // drag objects/groups between groups to reparent (nesting). The "Group" button
 // groups the current selection.
 import type { GroupDef, Placement } from "@slopwars/shared";
+import { placementDetail } from "@game/objects";
 import { state } from "./state";
 import { clear, el, renamable, contextMenu, confirmDelete, type MenuItem } from "./ui";
 import { icon } from "./icons";
@@ -218,10 +219,6 @@ function selectObj(o: Placement, additive: boolean): void {
 
 function label(o: Placement): string {
   if (o.name) return o.name;
-  if (o.type === "prop" && o.params?.model) return `prop · ${o.params.model}`;
-  if (o.type === "sound" && o.params?.clip) return `sound · ${o.params.clip}`;
-  return o.type;
+  const detail = placementDetail(o);
+  return detail ? `${o.type} · ${detail}` : o.type;
 }
-
-/** kept as an alias so external callers referencing the old name still work */
-export const renderSceneGraph = (): void => renderList();

@@ -12,7 +12,7 @@
 // per-object static path.
 import { MapBuilder } from "../mapbuilder";
 import { buildObject, isDeferredType } from "../objects";
-import { GroupDef, MapDef, Placement, Tuple3, groupWorldTf, resolveWorld } from "./schema";
+import { MapDef, Placement, Tuple3, groupMembers, groupWorldTf, resolveWorld, topPhysicsGroups } from "./schema";
 
 /** populate a GameMap (via its builder) from a MapDef. */
 export function loadMapDef(b: MapBuilder, def: MapDef): void {
@@ -20,7 +20,7 @@ export function loadMapDef(b: MapBuilder, def: MapDef): void {
   // claim them so the normal per-object passes skip them.
   const claimed = new Set<Placement>();
   for (const g of topPhysicsGroups(def)) {
-    const members = groupMembersRec(def, g.id);
+    const members = groupMembers(def, g.id);
     for (const o of members) claimed.add(o);
     const origin = groupWorldTf(def, g.id).at;
     b.beginGroupBody(origin);
@@ -40,25 +40,4 @@ export function loadMapDef(b: MapBuilder, def: MapDef): void {
   };
   def.objects.forEach((o, i) => { if (!claimed.has(o) && !isDeferredType(o.type)) build(o, i); });
   def.objects.forEach((o, i) => { if (!claimed.has(o) && isDeferredType(o.type)) build(o, i); });
-}
-
-/** physics-enabled groups whose ancestor chain has no *other* physics group (so a
- *  nested physics group is absorbed by the outermost one — one body, not many). */
-export function topPhysicsGroups(def: MapDef): GroupDef[] {
-  const groups = def.groups ?? [];
-  const byId = new Map(groups.map((g) => [g.id, g]));
-  const ancestorHasPhysics = (g: GroupDef): boolean => {
-    let p = g.parent ? byId.get(g.parent) : undefined;
-    while (p) { if (p.physics) return true; p = p.parent ? byId.get(p.parent) : undefined; }
-    return false;
-  };
-  return groups.filter((g) => g.physics && !ancestorHasPhysics(g));
-}
-
-/** every object in a group and all its descendant groups */
-export function groupMembersRec(def: MapDef, groupId: string): Placement[] {
-  const groups = def.groups ?? [];
-  const out = def.objects.filter((o) => o.group === groupId);
-  for (const child of groups.filter((g) => g.parent === groupId)) out.push(...groupMembersRec(def, child.id));
-  return out;
 }

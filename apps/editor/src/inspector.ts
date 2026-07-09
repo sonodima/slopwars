@@ -8,7 +8,7 @@
 // parent, so its inspector edits the group's own transform.
 import type { AssetCatalog, CollisionMode, CollisionShape, FogFalloff, MapDef, MaterialDef, MaterialType, ModelMeta, Placement, ShadowQuality, ToneMode, Tuple3 } from "@slopwars/shared";
 import { MATERIAL_TYPES, defaultMaterialDef, envPost, envShadows } from "@slopwars/shared";
-import { objectDefaults } from "@game/objects";
+import { objectDefaults, placementDetail } from "@game/objects";
 import type { ThumbRenderer } from "./preview";
 import { state } from "./state";
 import { tabs } from "./tabs";
@@ -275,7 +275,8 @@ function objectInspector(host: HTMLElement, o: Placement, touch: () => void): vo
   const title = el("h3", "insp-title", o.name || o.type);
   renamable(title, () => o.name ?? "", (v) => { o.name = v || undefined; }, () => state.commit(true));
   host.append(title);
-  const sub = o.name ? o.type + (subLabel(o) ? " · " + subLabel(o) : "") : subLabel(o);
+  const detail = placementDetail(o);
+  const sub = o.name ? o.type + (detail ? " · " + detail : "") : detail;
   if (sub) host.append(el("div", "insp-sub", sub));
 
   group(host, "Transform");
@@ -317,12 +318,6 @@ function paramField(key: string, dflt: unknown, params: Record<string, unknown>,
 /** a param key that holds an rgb triple (gets a colour picker in the inspector) */
 function isColorKey(key: string): boolean {
   return key === "color" || /colou?r$/i.test(key) || key === "tint";
-}
-
-function subLabel(o: Placement): string {
-  if (o.type === "prop" && o.params?.model) return String(o.params.model);
-  if (o.type === "sound" && o.params?.clip) return String(o.params.clip);
-  return "";
 }
 
 // ── world / environment ─────────────────────────────────────────────────────

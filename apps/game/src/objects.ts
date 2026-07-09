@@ -87,6 +87,15 @@ export function isDeferredType(name: string): boolean {
 }
 
 // ── editor introspection ──────────────────────────────────────────────────────
+/** the human sub-label for a placement: the salient param that identifies it (a
+ *  prop's model, a sound's clip), or "" for a plain typed object. Shared by the
+ *  editor outliner + inspector so both name an object the same way. */
+export function placementDetail(o: Placement): string {
+  if (o.type === "prop" && typeof o.params?.model === "string") return o.params.model;
+  if (o.type === "sound" && typeof o.params?.clip === "string") return o.params.clip;
+  return "";
+}
+
 export interface ObjEntry { name: string; category: ObjCategory; defaults: Record<string, unknown> }
 export function objectTypeNames(): string[] { return [...REGISTRY.keys()].sort(); }
 export function objectDefaults(name: string): Record<string, unknown> { return { ...(REGISTRY.get(name)?.defaults ?? {}) }; }
