@@ -1,9 +1,45 @@
-// ─── Remote players: avatar, interpolation buffer, hitboxes ──────────────────
-import { BlinnPhongMaterial, Color, Engine, Entity, MeshRenderer, PrimitiveMesh } from "@galacean/engine";
+// ─── Remote players: animated 3D avatar, interpolation buffer, hitboxes ──────
+// The avatar is a rigged, skeletally-animated humanoid (the "soldier" model in
+// the asset catalog — CS-style, mixamorig skeleton, Idle/Walk/Run clips). The
+// locomotion state is driven from the interpolated movement speed, and the
+// player's current weapon is instantiated into a hand-height holder so remotes
+// are visibly armed. Team play tints the character's materials; prop-hunt swaps
+// the whole humanoid for a crate. If the character model fails to load the avatar
+// falls back to the old cuboid limbs so the game never renders an empty player.
+import {
+  Animator, BlinnPhongMaterial, Color, Engine, Entity, Material, MeshRenderer,
+  PBRMaterial, PrimitiveMesh, SkinnedMeshRenderer,
+} from "@galacean/engine";
 import { AABB, rayAABB } from "./map";
+import { GameModels, instantiate } from "./models";
 import { INTERP_DELAY, PlayerState, Vec3, WeaponId, clamp } from "./types";
 
 interface Sample { time: number; p: [number, number, number]; yaw: number; pitch: number; cr: number }
+
+/** asset-catalog folder name of the rigged character used for every remote avatar */
+const CHARACTER_MODEL = "soldier";
+
+/** which catalog model each weapon shows in a remote's hands (mirrors the
+ *  first-person viewmodels — only the firearms/melee that have a real model) */
+const TP_WEAPON: Partial<Record<WeaponId, string>> = {
+  ak47: "bolt_action_rifle_7_62",
+  usp: "service_pistol",
+  awp: "bolt_action_rifle_7_62",
+  knife: "machete",
+  mol: "bleach_bottle",
+};
+
+// held-weapon placement in the avatar's local space (right hand height, pointing
+// forward along the body's facing −Z). scale + position(m) + euler(deg).
+const TP_TUNE: Record<string, { s: number; p: [number, number, number]; r: [number, number, number] }> = {
+  bolt_action_rifle_7_62: { s: 0.85, p: [0.2, 1.2, -0.32], r: [0, 90, 0] },
+  service_pistol: { s: 1.0, p: [0.22, 1.18, -0.26], r: [0, 90, 0] },
+  machete: { s: 0.85, p: [0.22, 1.2, -0.26], r: [0, 90, 0] },
+  bleach_bottle: { s: 1.0, p: [0.2, 1.18, -0.22], r: [0, 0, 0] },
+};
+
+const LOCO_RUN = 4.5;  // m/s above which the avatar plays Run
+const LOCO_WALK = 0.7; // m/s above which the avatar plays Walk
 
 export class RemotePlayer {
   entity: Entity;
@@ -17,16 +53,88 @@ export class RemotePlayer {
 
   private buf: Sample[] = [];
   private engine: Engine;
-  private bodyMat: BlinnPhongMaterial;
+  private models: GameModels;
   private origColor: number;
   private appliedColor = -2;      // last team colour applied (-1 = original)
-  private parts: Entity[] = [];   // humanoid limbs (hidden while disguised)
+
+  private charRoot: Entity | null = null;   // rigged humanoid (null if it failed to load)
+  private animator: Animator | null = null;
+  private tintMats: { mat: Material & { baseColor: Color }; orig: Color }[] = [];
+  private locoState = "";
+  private wasActive = false;
+
+  private weaponHolder: Entity;
+  private heldWeapon: WeaponId | null = null;
+  private weaponMat: BlinnPhongMaterial;
+
+  private parts: Entity[] = [];   // cuboid fallback limbs / body (hidden while disguised)
+  private bodyMat: BlinnPhongMaterial | null = null; // fallback body tint target
   private crate: Entity | null = null;
 
-  constructor(engine: Engine, parent: Entity, public id: string, public name: string, color: number) {
+  // animation clock (wall time) for locomotion speed sampling
+  private prevX = 0;
+  private prevZ = 0;
+  private prevT = 0;
+
+  constructor(engine: Engine, parent: Entity, public id: string, public name: string, color: number, models: GameModels) {
     this.engine = engine;
+    this.models = models;
     this.origColor = color;
     this.entity = parent.createChild("rp-" + id);
+
+    this.weaponMat = new BlinnPhongMaterial(engine);
+    this.weaponMat.baseColor = new Color(0.08, 0.08, 0.09, 1);
+
+    const char = instantiate(models[CHARACTER_MODEL]);
+    if (char) this.buildCharacter(char);
+    else this.buildCuboidFallback(color);
+
+    this.weaponHolder = this.entity.createChild("held");
+    this.syncWeapon();
+
+    this.entity.isActive = false;
+  }
+
+  // ── avatar construction ─────────────────────────────────────────────────────
+
+  private buildCharacter(char: Entity): void {
+    char.name = "char";
+    this.entity.addChild(char);
+    this.charRoot = char;
+
+    // per-player material clones so team tinting never leaks across avatars, and
+    // remember each clone's base colour to restore when a player leaves a team.
+    // (the humanoid is skinned — getComponentsIncludeChildren matches by exact
+    // type, so query both plain and skinned renderers.)
+    const renderers = [
+      ...char.getComponentsIncludeChildren(SkinnedMeshRenderer, []),
+      ...char.getComponentsIncludeChildren(MeshRenderer, []),
+    ];
+    for (const r of renderers) {
+      r.castShadows = true;
+      const mats = r.getMaterials();
+      for (let i = 0; i < mats.length; i++) {
+        const src = mats[i];
+        if (!src) continue;
+        const clone = src.clone();
+        r.setMaterial(i, clone);
+        if (clone instanceof PBRMaterial || clone instanceof BlinnPhongMaterial) {
+          const c = clone.baseColor;
+          this.tintMats.push({ mat: clone, orig: new Color(c.r, c.g, c.b, c.a) });
+        }
+      }
+    }
+
+    // the glTF loader attaches an Animator (auto-built controller, states named
+    // after the clips). Start it idling so a standing player isn't a frozen T-pose.
+    this.animator = char.getComponentsIncludeChildren(Animator, [])[0] ?? char.getComponent(Animator);
+    // the actual Idle play is forced on first activation (driveAnimation), since
+    // the avatar is built inactive and re-enabling resets the animator's pose.
+  }
+
+  /** legacy blocky avatar — only used when the character model didn't load */
+  private buildCuboidFallback(color: number): void {
+    const engine = this.engine;
     const c = new Color(((color >> 16) & 255) / 255, ((color >> 8) & 255) / 255, (color & 255) / 255, 1);
     const mBody = new BlinnPhongMaterial(engine); mBody.baseColor = c;
     this.bodyMat = mBody;
@@ -46,24 +154,65 @@ export class RemotePlayer {
     this.parts.push(mk("legs", 0, 0.45, 0, 0.5, 0.9, 0.32, mDark));
     this.parts.push(mk("torso", 0, 1.22, 0, 0.62, 0.64, 0.36, mBody));
     this.parts.push(mk("head", 0, 1.72, 0, 0.3, 0.3, 0.3, mSkin));
-    this.parts.push(mk("gun", 0.28, 1.3, -0.35, 0.06, 0.08, 0.55, mDark));
-    this.entity.isActive = false;
   }
+
+  // ── held weapon ─────────────────────────────────────────────────────────────
+
+  /** rebuild the hand weapon when the player's current weapon changes */
+  private syncWeapon(): void {
+    if (this.weapon === this.heldWeapon) return;
+    this.heldWeapon = this.weapon;
+    this.weaponHolder.clearChildren();
+    const folder = TP_WEAPON[this.weapon];
+    if (!folder) return; // grenades etc. — nothing held
+    const m = instantiate(this.models[folder]);
+    if (!m) return;
+    // geometry-only weapon glTFs render with a flat default material — give the
+    // third-person weapon a plain dark matte so it reads as a gun at a distance.
+    for (const r of m.getComponentsIncludeChildren(MeshRenderer, [])) {
+      r.castShadows = true;
+      for (let i = 0; i < r.getMaterials().length; i++) r.setMaterial(i, this.weaponMat);
+    }
+    const t = TP_TUNE[folder];
+    if (t) {
+      m.transform.setPosition(t.p[0], t.p[1], t.p[2]);
+      m.transform.setScale(t.s, t.s, t.s);
+      m.transform.setRotation(t.r[0], t.r[1], t.r[2]);
+    }
+    this.weaponHolder.addChild(m);
+  }
+
+  // ── team colour / disguise ──────────────────────────────────────────────────
 
   /** tint the body for team play, or pass null to restore the player's colour */
   setTeamColor(color: number | null): void {
     const key = color ?? -1;
     if (key === this.appliedColor) return;
     this.appliedColor = key;
-    const c = color ?? this.origColor;
-    this.bodyMat.baseColor = new Color(((c >> 16) & 255) / 255, ((c >> 8) & 255) / 255, (c & 255) / 255, 1);
+
+    if (this.charRoot) {
+      // baseColor multiplies the character's albedo texture, so a team hue tints
+      // the soldier while keeping its detail; null restores each clone's original.
+      for (const { mat, orig } of this.tintMats) {
+        if (color === null) mat.baseColor = new Color(orig.r, orig.g, orig.b, orig.a);
+        else mat.baseColor = new Color(((color >> 16) & 255) / 255, ((color >> 8) & 255) / 255, (color & 255) / 255, 1);
+      }
+      return;
+    }
+    // cuboid fallback: tint just the torso material
+    if (this.bodyMat) {
+      const c = color ?? this.origColor;
+      this.bodyMat.baseColor = new Color(((c >> 16) & 255) / 255, ((c >> 8) & 255) / 255, (c & 255) / 255, 1);
+    }
   }
 
   /** prop-hunt: swap the humanoid for a wooden crate disguise */
   setDisguise(on: boolean): void {
     if (on === this.disguised) return;
     this.disguised = on;
+    if (this.charRoot) this.charRoot.isActive = !on;
     for (const p of this.parts) p.isActive = !on;
+    this.weaponHolder.isActive = !on;
     if (on) {
       if (!this.crate) {
         this.crate = this.entity.createChild("crate");
@@ -107,11 +256,9 @@ export class RemotePlayer {
     this.yaw = a.yaw + dy * k;
     this.crouched = c.cr === 1;
 
-    this.entity.isActive = this.alive;
-    this.entity.transform.setPosition(this.pos.x, this.pos.y, this.pos.z);
-    this.entity.transform.setRotation(0, (this.yaw * 180) / Math.PI, 0);
-    const s = this.disguised ? 1 : this.crouched ? 0.72 : 1; // crate doesn't crouch
-    this.entity.transform.setScale(1, s, 1);
+    this.applyTransform();
+    this.syncWeapon();
+    this.driveAnimation();
   }
 
   /** directly drive the avatar (offline bots — no interpolation buffer) */
@@ -120,11 +267,40 @@ export class RemotePlayer {
     this.yaw = yaw;
     this.crouched = crouched;
     this.alive = alive;
-    this.entity.isActive = alive;
-    this.entity.transform.setPosition(pos.x, pos.y, pos.z);
-    this.entity.transform.setRotation(0, (yaw * 180) / Math.PI, 0);
-    const s = this.disguised ? 1 : crouched ? 0.72 : 1;
+    this.applyTransform();
+    this.syncWeapon();
+    this.driveAnimation();
+  }
+
+  private applyTransform(): void {
+    this.entity.isActive = this.alive;
+    this.entity.transform.setPosition(this.pos.x, this.pos.y, this.pos.z);
+    this.entity.transform.setRotation(0, (this.yaw * 180) / Math.PI, 0);
+    // crouch: settle the whole avatar down a touch (the crate never crouches)
+    const s = this.disguised ? 1 : this.crouched ? 0.82 : 1;
     this.entity.transform.setScale(1, s, 1);
+  }
+
+  /** pick Idle / Walk / Run from the interpolated ground speed and cross-fade */
+  private driveAnimation(): void {
+    if (!this.animator || this.disguised) return;
+    const now = performance.now() / 1000;
+    const dt = now - this.prevT;
+    this.prevT = now;
+    let sp = 0;
+    if (dt > 1e-4 && dt < 0.5) sp = Math.hypot(this.pos.x - this.prevX, this.pos.z - this.prevZ) / dt;
+    this.prevX = this.pos.x; this.prevZ = this.pos.z;
+    // re-enabling the entity resets the animator to its default pose (T-pose), so
+    // force a fresh play whenever the avatar comes (back) on-screen.
+    const justActivated = this.alive && !this.wasActive;
+    this.wasActive = this.alive;
+    if (!this.alive) return;
+    const want = sp > LOCO_RUN ? "Run" : sp > LOCO_WALK ? "Walk" : "Idle";
+    if ((want !== this.locoState || justActivated) && this.animator.findAnimatorState(want)) {
+      this.locoState = want;
+      if (justActivated) this.animator.play(want);
+      else this.animator.crossFade(want, 0.15);
+    }
   }
 
   /** ray test → { dist, head } or null. Ray in world space. */
@@ -139,7 +315,7 @@ export class RemotePlayer {
       const cHit = rayAABB(o, d, crate, maxDist);
       return cHit ? { dist: cHit.dist, head: false } : null;
     }
-    const sy = this.crouched ? 0.72 : 1;
+    const sy = this.crouched ? 0.82 : 1;
     // body AABB (world, yaw-agnostic approximation)
     const body: AABB = {
       min: { x: this.pos.x - 0.36, y: this.pos.y, z: this.pos.z - 0.36 },

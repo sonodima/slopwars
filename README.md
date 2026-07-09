@@ -19,6 +19,20 @@ Remember to add yourself to the list of developers in this file if not already t
 
 At the moment the textures, skybox and 3D models are still human made. We will have to change that.
 
+## Player Characters
+
+Remote players are rendered as a rigged, skeletally-animated humanoid — the
+`soldier` model in the asset catalog (`public/assets/models/soldier/`), a
+CS-style armored trooper with a mixamorig skeleton and `Idle` / `Walk` / `Run`
+clips (free Mixamo character, redistributed by three.js under its MIT license —
+see the folder's `NOTICE.txt`). The avatar loads through the normal
+file-driven model pipeline, so it needs no special-casing: `apps/game/src/remote.ts`
+instantiates it, drives the locomotion state from the interpolated movement
+speed, holds the player's current weapon in a hand-height holder, and tints the
+body per team for TDM (two teams, Alpha red · Bravo blue). If the model ever
+fails to load the avatar falls back to the legacy blocky limbs so a player is
+never invisible.
+
 ## Project Structure
 
 This is a **pnpm workspace** monorepo:

@@ -1656,7 +1656,7 @@ class Game {
   ensureRemote(id: string, name: string): RemotePlayer {
     let r = this.remotes.get(id);
     if (!r) {
-      r = new RemotePlayer(this.engine, this.engine.sceneManager.activeScene.getRootEntity()!, id, name, this.net.colorOf(id));
+      r = new RemotePlayer(this.engine, this.engine.sceneManager.activeScene.getRootEntity()!, id, name, this.net.colorOf(id), this.models);
       this.remotes.set(id, r);
     }
     return r;

@@ -1,0 +1,6 @@
+soldier.glb — animated humanoid character ("Vanguard" soldier), rig + Idle/Walk/Run
+skeletal animations (Mixamo / mixamorig skeleton).
+
+Source: three.js examples (github.com/mrdoob/three.js, examples/models/gltf/Soldier.glb),
+redistributed there under the three.js MIT license. Character/animations authored via
+Adobe Mixamo, free to use. Used here as the runtime player-character avatar.
