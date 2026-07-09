@@ -169,14 +169,36 @@ export function deleteModel(root: string, name: string): { ok?: boolean; error?:
  *  PBR maps are then loaded from the texture editor's right-hand slots (color / normal
  *  / arm), so importing a texture is just "make a group, then fill its maps" — no
  *  up-front multi-file dialog. */
-export function createTexture(root: string): { ok?: boolean; error?: string; name?: string } {
+export function createTexture(root: string, name?: string): { ok?: boolean; error?: string; name?: string } {
   const base = path.join(root, "public", "assets", "textures");
   fs.mkdirSync(base, { recursive: true });
+  // a name may be given up front (the create dialog); otherwise auto-name uniquely.
+  if (name != null && String(name).trim() !== "") {
+    const n = sanitize(name);
+    if (!n) return { error: "invalid texture name" };
+    if (fs.existsSync(path.join(base, n))) return { error: "a texture with that name already exists" };
+    fs.mkdirSync(path.join(base, n), { recursive: true });
+    return { ok: true, name: n };
+  }
   let n = "texture";
   let i = 1;
   while (fs.existsSync(path.join(base, n))) n = `texture_${++i}`;
   fs.mkdirSync(path.join(base, n), { recursive: true });
   return { ok: true, name: n };
+}
+
+/** rename a texture set folder (public/assets/textures/<from> → <to>). Fails if the
+ *  target already exists. Materials that referenced the old name are repointed by the
+ *  caller (the editor shell), mirroring the material rename flow. */
+export function renameTexture(root: string, from: string, to: string): { ok?: boolean; error?: string; name?: string } {
+  const base = path.join(root, "public", "assets", "textures");
+  const a = path.join(base, sanitize(from)), bName = sanitize(to);
+  if (!bName) return { error: "invalid name" };
+  const b = path.join(base, bName);
+  if (!fs.existsSync(a)) return { error: "texture not found" };
+  if (a !== b && fs.existsSync(b)) return { error: "a texture with that name already exists" };
+  fs.renameSync(a, b);
+  return { ok: true, name: bName };
 }
 
 /** delete a whole texture folder (public/assets/textures/<name>/) */

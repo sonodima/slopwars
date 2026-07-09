@@ -19,7 +19,7 @@ import { mountResizers } from "./layout";
 import { objectDropScale } from "@game/objects";
 import { startMcpBridge } from "./mcpbridge";
 import { api } from "./api";
-import { el, clear, button, iconButton, toast, modal, confirmUnsaved } from "./ui";
+import { el, clear, button, iconButton, toast, modal, confirmUnsaved, promptName } from "./ui";
 import { icon, type IconName } from "./icons";
 
 const $ = (id: string): HTMLElement => document.getElementById(id) as HTMLElement;
@@ -57,6 +57,9 @@ async function refreshCatalog(reshade = false): Promise<void> {
   preview.setCatalog(catalog);
   viewport.setMaterials(catalog.materials, false);
   viewport.setModelMetas(catalog.models, reshade);
+  // re-render the open inspector so its asset pickers (texture/material/model slots)
+  // reflect a just-created/renamed/deleted asset without needing an editor restart.
+  refreshInspector();
 }
 
 // ── unsaved-changes tracking (maps + material/model assets) ───────────────────
@@ -79,17 +82,26 @@ function anyDirty(): boolean {
   return dirtyMaterials.size > 0 || dirtyModels.size > 0 || state.documentIds().some((id) => state.isDirty(id));
 }
 
-/** write a material's current def to disk and clear its dirty mark */
+/** write a material's current def to disk and clear its dirty mark. A material edit
+ *  changes how its browser swatch — and any model card using it — should look, so the
+ *  stale cached thumbnails are dropped and the browser re-rendered. */
 async function saveMaterialFile(name: string): Promise<void> {
   const def = catalog.materials.find((m) => m.name === name)?.def;
   if (!def) return;
-  try { await api.saveMaterial(name, def); dirtyMaterials.delete(name); renderTabStrip(); renderSaveButtons(); }
-  catch (e) { toast("material save failed: " + e, true); }
+  try {
+    await api.saveMaterial(name, def); dirtyMaterials.delete(name); renderTabStrip(); renderSaveButtons();
+    thumbs.invalidate((k) => k.startsWith("mat:") || k.startsWith("obj:") || k.startsWith("model:"));
+    await browser?.reload();
+  } catch (e) { toast("material save failed: " + e, true); }
 }
-/** write a model's current meta to disk and clear its dirty mark */
+/** write a model's current meta to disk and clear its dirty mark. Reskinning/recalibrating
+ *  a model changes its card thumbnail, so drop the stale one and re-render the browser. */
 async function saveModelFile(name: string): Promise<void> {
-  try { await api.saveModelMeta(name, liveMeta(name)); dirtyModels.delete(name); renderTabStrip(); renderSaveButtons(); }
-  catch (e) { toast("model save failed: " + e, true); }
+  try {
+    await api.saveModelMeta(name, liveMeta(name)); dirtyModels.delete(name); renderTabStrip(); renderSaveButtons();
+    thumbs.invalidate((k) => k.startsWith("model:") || k.startsWith("obj:"));
+    await browser?.reload();
+  } catch (e) { toast("model save failed: " + e, true); }
 }
 
 /** the live working meta for a model (seeded from the catalog on first access) */
@@ -123,6 +135,7 @@ async function main(): Promise<void> {
     setMap: (name, slot, file) => void setTextureMap(name, slot, file),
     clearMap: (name, slot) => void clearTextureMap(name, slot),
     usedBy: (name) => catalog.materials.filter((m) => m.def.type === "standard" && m.def.texture === name).map((m) => m.name),
+    renamed: (from, to) => { void renameTexture(from, to); },
   });
 
   buildToolbar();
@@ -689,17 +702,43 @@ async function createMaterialFlow(): Promise<void> {
   } catch (e) { toast("create material failed: " + e, true); }
 }
 
-/** create an empty texture group, refresh the browser, and open its editor so the
- *  color/normal/arm maps get loaded from the inspector slots (no import dialog) */
+/** create an empty texture group (naming it up front), refresh the browser, and open
+ *  its editor so the color/normal/arm maps get loaded from the inspector slots (no
+ *  import dialog). Cancelling the name dialog aborts without creating anything. */
 async function createTextureFlow(): Promise<void> {
+  const name = await promptName("New texture set", { label: "Name", placeholder: "e.g. brick_wall", ok: "Create" });
+  if (name == null) return;   // cancelled
   try {
-    const r = await api.createTexture();
+    const r = await api.createTexture(name);
     if (!r.name) { toast("create texture failed: " + (r.error ?? ""), true); return; }
     await refreshCatalog();
     await browser?.reload();
     tabs.openTexture(r.name);
     toast(`created texture set “${r.name}” — add its maps on the right`);
   } catch (e) { toast("create texture failed: " + e, true); }
+}
+
+/** rename a texture set folder + repoint every material that referenced it (persisting
+ *  those materials), then retarget its open tab — mirrors the material rename flow. */
+async function renameTexture(from: string, to: string): Promise<void> {
+  if (!to || to === from) return;
+  try {
+    const r = await api.renameTexture(from, to);
+    if (!r.name) { toast("rename failed: " + (r.error ?? ""), true); return; }
+    // repoint materials that used the old texture set (write them so disk stays consistent)
+    for (const m of catalog.materials) {
+      if (m.def.type === "standard" && m.def.texture === from) {
+        const def = { ...m.def, texture: r.name };
+        try { await api.saveMaterial(m.name, def); } catch (e) { toast("repoint failed: " + e, true); }
+      }
+    }
+    tabs.retargetTexture(from, r.name);
+    await refreshCatalog(true);
+    await browser?.reload();
+    renderTabStrip();
+    refreshInspector();
+    toast(`renamed texture set to “${r.name}”`);
+  } catch (e) { toast("rename failed: " + e, true); }
 }
 
 /** patch the in-memory catalog with a live model-meta edit so the map viewport
@@ -758,6 +797,9 @@ function readB64(file: File): Promise<string> {
  *  the inspector's slots, and re-shade the open texture preview (and any map using it). */
 async function afterTextureEdit(name: string): Promise<void> {
   await refreshCatalog(true);
+  // a set's maps changed → any card that shaded through it (its own texture card, plus
+  // material + model + object thumbnails) must re-render, so drop their cached snapshots.
+  thumbs.invalidate((k) => k.startsWith("tex:") || k.startsWith("mat:") || k.startsWith("model:") || k.startsWith("obj:"));
   await browser?.reload();
   const tab = tabs.active();
   if (tab?.kind === "texture" && tab.texture === name) {

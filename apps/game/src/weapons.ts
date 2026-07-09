@@ -5,7 +5,9 @@ import {
 } from "@galacean/engine";
 import { sfx } from "./audio";
 import { GameModels, instantiate } from "./models";
+import { MaterialLibrary, shadeModelSlots } from "./materials";
 import { Vec3, WEAPONS, WeaponDef, WeaponId, LOADOUT, clamp } from "./types";
+import type { ModelMeta } from "@slopwars/shared";
 
 interface Ammo { mag: number; reserve: number }
 
@@ -40,6 +42,9 @@ export class WeaponSystem {
   private vmVisible = true; // false in lobby (hide weapon from lobby camera)
   private vm!: Entity; // viewmodel root (child of camera)
   private models: Partial<Record<WeaponId, Entity>> = {};
+  // model folder each viewmodel was instantiated from, for applying its meta materials
+  // (models are geometry-only glTFs — surfaces come from the model's assigned materials)
+  private modelFolders: Partial<Record<WeaponId, string>> = {};
   private flash!: Entity;
   private flashLight!: PointLight;
   private flashTtl = 0;
@@ -68,6 +73,23 @@ export class WeaponSystem {
     for (const id of LOADOUT) { const e = this.models[id]; if (e) e.isActive = id === w; }
     sfx.draw();
     this.onAmmoChange?.();
+  }
+
+  /** the distinct model folders the viewmodels were built from (for the host to
+   *  resolve just those models' material textures) */
+  weaponModelFolders(): string[] {
+    return [...new Set(Object.values(this.modelFolders).filter((f): f is string => !!f))];
+  }
+
+  /** shade the glTF viewmodels with their models' assigned materials (models are
+   *  geometry-only, so without this the guns render with the glTF's flat default
+   *  material). Called once textures/materials are ready — the meshes are already in
+   *  the scene, so the textured look simply pops in. */
+  applyModelMaterials(metas: Map<string, ModelMeta>, lib: MaterialLibrary): void {
+    for (const [id, folder] of Object.entries(this.modelFolders) as [WeaponId, string][]) {
+      const e = this.models[id];
+      if (e && folder) shadeModelSlots(e, metas.get(folder), lib);
+    }
   }
 
   /** hide/show whole viewmodel (e.g. in the lobby camera) */
@@ -189,6 +211,7 @@ export class WeaponSystem {
       m.transform.setRotation(t.r[0], t.r[1], t.r[2]);
       this.vm.addChild(m);
       this.models[id] = m;
+      this.modelFolders[id] = folder;
     }
 
     // he grenade
@@ -207,6 +230,7 @@ export class WeaponSystem {
       m.transform.setRotation(t.r[0], t.r[1], t.r[2]);
       this.vm.addChild(m);
       this.models.mol = m;
+      this.modelFolders.mol = "bleach_bottle";
     } else {
       g = this.vm.createChild("mol");
       const amber = new BlinnPhongMaterial(e); amber.baseColor = new Color(0.6, 0.32, 0.08, 1);

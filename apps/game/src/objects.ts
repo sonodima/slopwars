@@ -155,12 +155,13 @@ export function mapTextureFolders(def: MapDef, matDefs?: Map<string, MaterialDef
  *  material makes the box a window, a water material makes it a rippling liquid
  *  surface (drop it thin + wide for a pool). solid=false → decoration you pass
  *  through (water pools and window panes are usually solid=false). */
-defineObject<{ mat: string; tile: [number, number]; solid: boolean }>("box", {
-  defaults: { mat: DEFAULT_MATERIAL, tile: [1, 1], solid: true },
+defineObject<{ mat: string; tile: [number, number]; solid: boolean; castShadows: boolean }>("box", {
+  defaults: { mat: DEFAULT_MATERIAL, tile: [1, 1], solid: true, castShadows: true },
   category: "geometry",
   build(b, t, p) {
     const [x, y, z] = t.at; const [w, h, d] = t.scale;
     const e = b.mesh(x, y, z, w, h, d, p.mat, p.tile[0], p.tile[1]);
+    if (p.castShadows === false) b.setCastShadows(e, false);
     const [rx, ry, rz] = t.rot;
     if (rx || ry || rz) e.transform.setRotation(rx, ry, rz);   // visual only (collision stays AABB)
     if (p.solid !== false) b.pushSolid({ min: { x: x - w / 2, y: y - h / 2, z: z - d / 2 }, max: { x: x + w / 2, y: y + h / 2, z: z + d / 2 } });
@@ -214,13 +215,14 @@ defineObject<{ clip: string; radius: number; volume: number; loop: boolean; spat
 // physics tuning (friction/restitution/damping) is optional: a plain physics prop
 // stores only `physics` + `mass`, and each unset field falls back to the shared PhysX
 // default — so the extra knobs add zero data until an author actually turns one.
-defineObject<{ model: string; solid: boolean; physics: boolean; mass: number; friction?: number; restitution?: number; linearDamping?: number; angularDamping?: number }>("prop", {
-  defaults: { model: "", solid: true, physics: false, mass: 5 },
+defineObject<{ model: string; solid: boolean; castShadows: boolean; physics: boolean; mass: number; friction?: number; restitution?: number; linearDamping?: number; angularDamping?: number }>("prop", {
+  defaults: { model: "", solid: true, castShadows: true, physics: false, mass: 5 },
   category: "prop",
   build(b, t, p) {
     if (!p.model) return;
     const e = b.placeModelTf(p.model, t.at, t.rot, t.scale);
     if (!e) return;
+    if (p.castShadows === false) b.setCastShadows(e, false);   // e.g. a lantern housing its own light
     if (p.physics) {
       b.pushDynamicBody(p.model, e, t.at, t.rot, t.scale, {
         mass: p.mass, friction: p.friction, restitution: p.restitution,
@@ -242,7 +244,10 @@ defineObject<ParticleLook & { tex: string }>("particles", {
   defaults: { tex: "", ...PARTICLE_LOOK }, category: "entity",
   build(b, t, p) {
     const [x, y, z] = t.at;
-    const sprite = p.tex ? b.texOf(p.tex).color : null;
+    // a resolved texture folder's colour map is the sprite; an empty/unknown `tex`
+    // yields null → the soft procedural puff (never the opaque wall texture as a hard
+    // square, which is what a texOf() fallback would silently draw).
+    const sprite = p.tex ? b.texColorOf(p.tex) : null;
     // pooled by placement index so an editor rebuild (every edit/move) re-adopts the
     // same emitter and keeps its particles flowing instead of restarting from empty.
     const e = b.buildParticleEmitter(`particles:${b.buildIndex}`, x, y, z, p, sprite);
