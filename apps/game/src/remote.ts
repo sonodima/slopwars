@@ -29,17 +29,20 @@ const TP_WEAPON: Partial<Record<WeaponId, string>> = {
   mol: "bleach_bottle",
 };
 
-// held-weapon placement in the avatar's local space (right hand height, pointing
-// forward along the body's facing −Z). scale + position(m) + euler(deg).
+// held-weapon placement in the right-hand bone's local frame. The weapon is
+// parented to `mixamorig:RightHand` so it follows the arm through every clip;
+// scale + position are given in world metres and compensated for the bone's
+// world scale at attach time. rotation aligns the grip to the hand (euler deg).
 const TP_TUNE: Record<string, { s: number; p: [number, number, number]; r: [number, number, number] }> = {
-  bolt_action_rifle_7_62: { s: 0.85, p: [0.2, 1.2, -0.32], r: [0, 90, 0] },
-  service_pistol: { s: 1.0, p: [0.22, 1.18, -0.26], r: [0, 90, 0] },
-  machete: { s: 0.85, p: [0.22, 1.2, -0.26], r: [0, 90, 0] },
-  bleach_bottle: { s: 1.0, p: [0.2, 1.18, -0.22], r: [0, 0, 0] },
+  bolt_action_rifle_7_62: { s: 0.9, p: [0, 0.02, 0.06], r: [0, 0, 90] },
+  service_pistol: { s: 1.0, p: [0, 0.01, 0.04], r: [0, 0, 90] },
+  machete: { s: 0.9, p: [0, 0.01, 0.05], r: [0, 0, 90] },
+  bleach_bottle: { s: 1.0, p: [0, 0.02, 0.04], r: [0, 0, 90] },
 };
 
 const LOCO_RUN = 4.5;  // m/s above which the avatar plays Run
 const LOCO_WALK = 0.7; // m/s above which the avatar plays Walk
+const TEAM_TINT = 0.42; // how strongly the team hue blends over the armour albedo
 
 export class RemotePlayer {
   entity: Entity;
@@ -63,8 +66,10 @@ export class RemotePlayer {
   private locoState = "";
   private wasActive = false;
 
-  private weaponHolder: Entity;
+  private weaponHolder: Entity;      // fallback parent when there's no hand bone
+  private handBone: Entity | null = null;
   private heldWeapon: WeaponId | null = null;
+  private heldEntity: Entity | null = null;
   private weaponMat: BlinnPhongMaterial;
 
   private parts: Entity[] = [];   // cuboid fallback limbs / body (hidden while disguised)
@@ -130,6 +135,9 @@ export class RemotePlayer {
     this.animator = char.getComponentsIncludeChildren(Animator, [])[0] ?? char.getComponent(Animator);
     // the actual Idle play is forced on first activation (driveAnimation), since
     // the avatar is built inactive and re-enabling resets the animator's pose.
+
+    // the right-hand bone drives the held weapon so it tracks the arm every frame
+    this.handBone = char.findByName("mixamorig:RightHand") ?? findByNameDeep(char, "RightHand");
   }
 
   /** legacy blocky avatar — only used when the character model didn't load */
@@ -162,7 +170,10 @@ export class RemotePlayer {
   private syncWeapon(): void {
     if (this.weapon === this.heldWeapon) return;
     this.heldWeapon = this.weapon;
-    this.weaponHolder.clearChildren();
+    // drop the previous weapon (destroy the instance — never clearChildren the
+    // hand bone, that would delete the finger bones parented under it).
+    this.heldEntity?.destroy();
+    this.heldEntity = null;
     const folder = TP_WEAPON[this.weapon];
     if (!folder) return; // grenades etc. — nothing held
     const m = instantiate(this.models[folder]);
@@ -173,13 +184,18 @@ export class RemotePlayer {
       r.castShadows = true;
       for (let i = 0; i < r.getMaterials().length; i++) r.setMaterial(i, this.weaponMat);
     }
-    const t = TP_TUNE[folder];
-    if (t) {
-      m.transform.setPosition(t.p[0], t.p[1], t.p[2]);
-      m.transform.setScale(t.s, t.s, t.s);
-      m.transform.setRotation(t.r[0], t.r[1], t.r[2]);
-    }
-    this.weaponHolder.addChild(m);
+    const t = TP_TUNE[folder] ?? { s: 1, p: [0, 0, 0] as [number, number, number], r: [0, 0, 0] as [number, number, number] };
+    // parent to the hand bone (scale/offset compensated for the bone's world
+    // scale, since the skeleton lives in a centimetre-scaled subtree); fall back
+    // to the yaw-aligned holder if the bone is missing.
+    const parent = this.handBone ?? this.weaponHolder;
+    const ws = this.handBone ? this.handBone.transform.lossyWorldScale.x : 1;
+    const inv = Math.abs(ws) > 1e-6 ? 1 / ws : 1;
+    m.transform.setScale(t.s * inv, t.s * inv, t.s * inv);
+    m.transform.setPosition(t.p[0] * inv, t.p[1] * inv, t.p[2] * inv);
+    m.transform.setRotation(t.r[0], t.r[1], t.r[2]);
+    parent.addChild(m);
+    this.heldEntity = m;
   }
 
   // ── team colour / disguise ──────────────────────────────────────────────────
@@ -194,8 +210,17 @@ export class RemotePlayer {
       // baseColor multiplies the character's albedo texture, so a team hue tints
       // the soldier while keeping its detail; null restores each clone's original.
       for (const { mat, orig } of this.tintMats) {
-        if (color === null) mat.baseColor = new Color(orig.r, orig.g, orig.b, orig.a);
-        else mat.baseColor = new Color(((color >> 16) & 255) / 255, ((color >> 8) & 255) / 255, (color & 255) / 255, 1);
+        if (color === null) { mat.baseColor = new Color(orig.r, orig.g, orig.b, orig.a); continue; }
+        // blend the team hue into the original albedo instead of overwriting it —
+        // a muted tint keeps the armour's shading/detail and avoids a garish flat.
+        const tr = ((color >> 16) & 255) / 255, tg = ((color >> 8) & 255) / 255, tb = (color & 255) / 255;
+        const f = TEAM_TINT;
+        mat.baseColor = new Color(
+          orig.r * (1 - f) + tr * f,
+          orig.g * (1 - f) + tg * f,
+          orig.b * (1 - f) + tb * f,
+          orig.a,
+        );
       }
       return;
     }
@@ -334,6 +359,18 @@ export class RemotePlayer {
     const s = Math.sin(this.yaw), c = Math.cos(this.yaw);
     return { x: this.pos.x - s * 0.6 + c * 0.28, y: this.pos.y + 1.3, z: this.pos.z - c * 0.6 - s * 0.28 };
   }
+}
+
+/** recursive fallback for finding a bone whose name merely contains `needle`
+ *  (some rigs prefix bones, e.g. "mixamorig:RightHand" vs "RightHand") */
+function findByNameDeep(e: Entity, needle: string): Entity | null {
+  for (let i = 0; i < e.children.length; i++) {
+    const c = e.children[i];
+    if (c.name.includes(needle)) return c;
+    const hit = findByNameDeep(c, needle);
+    if (hit) return hit;
+  }
+  return null;
 }
 
 function raySphere(o: Vec3, d: Vec3, c: Vec3, r: number, maxDist: number): number | null {
