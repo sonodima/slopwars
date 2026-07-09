@@ -9,7 +9,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { scanAssets, scanMaps } from "../../../packages/shared/src/vite-asset-catalog";
 import type { MapDef } from "../../../packages/shared/src/schema";
-import type { ModelMeta } from "../../../packages/shared/src/catalog";
+import type { CollisionBox, ModelMeta } from "../../../packages/shared/src/catalog";
 import type { MaterialDef, MaterialType } from "../../../packages/shared/src/materials";
 import { defaultMaterialDef } from "../../../packages/shared/src/materials";
 
@@ -130,10 +130,18 @@ export function saveModelMeta(root: string, name: string, meta: ModelMeta): { ok
     if (Array.isArray(meta.collisionBoxes) && meta.collisionBoxes.length) {
       clean.collisionBoxes = meta.collisionBoxes
         .filter((b) => b && Array.isArray(b.at) && Array.isArray(b.size))
-        .map((b) => ({
-          at: [b.at[0], b.at[1], b.at[2]] as [number, number, number],
-          size: [b.size[0], b.size[1], b.size[2]] as [number, number, number],
-        }));
+        .map((b) => {
+          const solid: CollisionBox = {
+            at: [b.at[0], b.at[1], b.at[2]] as [number, number, number],
+            size: [b.size[0], b.size[1], b.size[2]] as [number, number, number],
+          };
+          // preserve the authored orientation + primitive shape (a diagonal beam via
+          // `rot`, a barrel/ball via `shape`) — both are omitted when at their default
+          // (axis-aligned / "box") so a plain solid carries no redundant fields.
+          if (Array.isArray(b.rot) && b.rot.some((n) => n)) solid.rot = [Number(b.rot[0]) || 0, Number(b.rot[1]) || 0, Number(b.rot[2]) || 0];
+          if (b.shape && b.shape !== "box") solid.shape = b.shape;
+          return solid;
+        });
     }
   }
   if (Object.keys(clean).length === 0) { if (fs.existsSync(p)) fs.rmSync(p); return { ok: true, name: n }; }

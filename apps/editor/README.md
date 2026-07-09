@@ -132,6 +132,8 @@ Each model has a collision **mode** (`models/<name>/meta.json`):
 | **Hold RMB + WASD / Q E** | Fly the camera (map viewport) |
 | **W / E / R** | Move / Rotate / Scale tool |
 | **Left-click** | Select an object; drag with a tool to transform it |
+| **Hold Shift (rotate)** | Snap rotation to 30° steps — in the map viewport *and* the model Collision editor |
+| **Scale field 🔒** | Lock the inspector's Scale field to scale all axes proportionally (keep proportions) |
 | **F** | Frame the selected object |
 | **Drag from browser** | Model → a `prop`; audio → a positional `sound`; object → that type |
 | **Double-click asset** | Open its material / model / texture preview tab |

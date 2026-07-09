@@ -13,7 +13,8 @@ import type { ThumbRenderer } from "./preview";
 import { state } from "./state";
 import { tabs } from "./tabs";
 import { assetField } from "./assetfield";
-import { clear, el, numField, vecField, selectField, checkField, textField, colorField, renamable } from "./ui";
+import type { Bounds } from "./ui";
+import { clear, el, numField, vecField, scaleField, selectField, checkField, textField, colorField, renamable } from "./ui";
 import { icon } from "./icons";
 
 // hooks the shell wires up so asset editors can persist edits + re-shade. Model
@@ -21,7 +22,13 @@ import { icon } from "./icons";
 // collision authoring and this inspector mutate the same state).
 // Asset deletion no longer lives in the inspector — it's a right-click action in the
 // asset browser (Unity-style), so these hooks only carry edit/rename operations.
-interface MaterialHooks { changed: (name: string, def: MaterialDef) => void; renamed: (from: string, to: string) => void }
+interface MaterialHooks {
+  changed: (name: string, def: MaterialDef) => void;
+  /** live re-shade during a colour drag — applies the def everywhere WITHOUT recording
+   *  a history entry (the commit on release records one). */
+  live: (name: string, def: MaterialDef) => void;
+  renamed: (from: string, to: string) => void;
+}
 interface ModelHooks {
   meta: (name: string) => ModelMeta;
   changed: (name: string) => void;
@@ -83,6 +90,7 @@ function materialInspector(host: HTMLElement, name: string, def: MaterialDef): v
   host.append(title);
   host.append(el("div", "insp-sub", "material"));
   const edited = (): void => matHooks?.changed(name, def);
+  const liveEdit = (): void => matHooks?.live(name, def);
 
   // shading model picker — switching a material's kind is non-destructive to its
   // file (the def is replaced with that kind's defaults and re-persisted), and the
@@ -103,35 +111,36 @@ function materialInspector(host: HTMLElement, name: string, def: MaterialDef): v
       label: "texture", kind: "texture", catalog, thumbs,
       get: () => d.texture ?? "", set: (v) => { d.texture = v || undefined; }, onChange: edited,
     }));
-    host.append(colorField("color", (d.color ??= [0.7, 0.7, 0.72]), edited));
-    host.append(numField("roughness", () => d.roughness ?? 0.85, (v) => (d.roughness = clampn(v)), edited, 0.02));
-    host.append(numField("metallic", () => d.metallic ?? 0, (v) => (d.metallic = clampn(v)), edited, 0.02));
-    host.append(colorField("emissive", (d.emissive ??= [0, 0, 0]), edited));
+    host.append(colorField("color", (d.color ??= [0.7, 0.7, 0.72]), edited, liveEdit));
+    host.append(numField("roughness", () => d.roughness ?? 0.85, (v) => (d.roughness = v), edited, 0.02, UNIT));
+    host.append(numField("metallic", () => d.metallic ?? 0, (v) => (d.metallic = v), edited, 0.02, UNIT));
+    host.append(colorField("emissive", (d.emissive ??= [0, 0, 0]), edited, liveEdit));
   } else if (def.type === "water") {
     const d = def; const w = defaultMaterialDef("water") as typeof def;
     group(host, "Water");
-    host.append(colorField("color", (d.color ??= w.color!), edited));
-    host.append(colorField("depthColor", (d.depthColor ??= w.depthColor!), edited));
-    host.append(numField("opacity", () => d.opacity ?? w.opacity!, (v) => (d.opacity = clampn(v)), edited, 0.02));
-    host.append(numField("clarity", () => d.clarity ?? w.clarity!, (v) => (d.clarity = clampn(v)), edited, 0.02));
-    host.append(numField("depth", () => d.depth ?? w.depth!, (v) => (d.depth = Math.max(0.1, v)), edited, 0.1));
-    host.append(numField("roughness", () => d.roughness ?? w.roughness!, (v) => (d.roughness = clampn(v)), edited, 0.02));
-    host.append(numField("waves", () => d.waves ?? w.waves!, (v) => (d.waves = Math.max(0, v)), edited, 0.05));
-    host.append(numField("flow", () => d.flow ?? w.flow!, (v) => (d.flow = Math.max(0, v)), edited, 0.01));
-    host.append(numField("ior", () => d.ior ?? w.ior!, (v) => (d.ior = Math.max(1, v)), edited, 0.01));
+    host.append(colorField("color", (d.color ??= w.color!), edited, liveEdit));
+    host.append(colorField("depthColor", (d.depthColor ??= w.depthColor!), edited, liveEdit));
+    host.append(numField("opacity", () => d.opacity ?? w.opacity!, (v) => (d.opacity = v), edited, 0.02, UNIT));
+    host.append(numField("clarity", () => d.clarity ?? w.clarity!, (v) => (d.clarity = v), edited, 0.02, UNIT));
+    host.append(numField("depth", () => d.depth ?? w.depth!, (v) => (d.depth = v), edited, 0.1, { min: 0.1 }));
+    host.append(numField("roughness", () => d.roughness ?? w.roughness!, (v) => (d.roughness = v), edited, 0.02, UNIT));
+    host.append(numField("waves", () => d.waves ?? w.waves!, (v) => (d.waves = v), edited, 0.05, { min: 0 }));
+    host.append(numField("flow", () => d.flow ?? w.flow!, (v) => (d.flow = v), edited, 0.01, { min: 0 }));
+    host.append(numField("ior", () => d.ior ?? w.ior!, (v) => (d.ior = v), edited, 0.01, { min: 1 }));
   } else {
     const d = def; const g = defaultMaterialDef("glass") as typeof def;
     group(host, "Glass");
-    host.append(colorField("color", (d.color ??= g.color!), edited));
-    host.append(colorField("tint", (d.tint ??= g.tint!), edited));
-    host.append(numField("opacity", () => d.opacity ?? g.opacity!, (v) => (d.opacity = clampn(v)), edited, 0.02));
-    host.append(numField("roughness", () => d.roughness ?? g.roughness!, (v) => (d.roughness = clampn(v)), edited, 0.01));
-    host.append(numField("thickness", () => d.thickness ?? g.thickness!, (v) => (d.thickness = Math.max(0, v)), edited, 0.05));
-    host.append(numField("ior", () => d.ior ?? g.ior!, (v) => (d.ior = Math.max(1, v)), edited, 0.01));
+    host.append(colorField("color", (d.color ??= g.color!), edited, liveEdit));
+    host.append(colorField("tint", (d.tint ??= g.tint!), edited, liveEdit));
+    host.append(numField("opacity", () => d.opacity ?? g.opacity!, (v) => (d.opacity = v), edited, 0.02, UNIT));
+    host.append(numField("roughness", () => d.roughness ?? g.roughness!, (v) => (d.roughness = v), edited, 0.01, UNIT));
+    host.append(numField("thickness", () => d.thickness ?? g.thickness!, (v) => (d.thickness = v), edited, 0.05, { min: 0 }));
+    host.append(numField("ior", () => d.ior ?? g.ior!, (v) => (d.ior = v), edited, 0.01, { min: 1 }));
   }
 }
 
-function clampn(v: number): number { return v < 0 ? 0 : v > 1 ? 1 : v; }
+/** the ubiquitous 0..1 range (roughness / metallic / opacity / …) */
+const UNIT: Bounds = { min: 0, max: 1 };
 
 // ── model (calibration meta persisted to models/<name>/meta.json) ─────────────
 // Edits the live working meta the shell owns (so the Collision-view left panel and
@@ -148,7 +157,7 @@ function modelInspector(host: HTMLElement, name: string): void {
 
   group(host, "Placement");
   host.append(numField("base", () => meta.base ?? 0, (v) => (meta.base = v || undefined), save, 0.02));
-  host.append(numField("scale", () => meta.scale ?? 1, (v) => (meta.scale = v > 0 ? v : undefined), save, 0.02));
+  host.append(numField("scale", () => meta.scale ?? 1, (v) => (meta.scale = v), save, 0.02, { min: 0.01 }));
   // base orientation: a per-axis euler baked into the model so it faces the right
   // way once (composed under every placement's own rotation). Cleared to undefined
   // when back at zero so a neutral model carries no baseRot.
@@ -216,7 +225,7 @@ function collisionList(host: HTMLElement, meta: ModelMeta, hooks: ModelHooks, sa
       b.rot = (rot[0] || rot[1] || rot[2]) ? [rot[0], rot[1], rot[2]] as Tuple3 : undefined;
       save();
     }, 1));
-    host.append(vecField("Size", b.size, save, 0.05));
+    host.append(vecField("Size", b.size, save, 0.05, { min: 0.01 }));
   }
 }
 
@@ -236,7 +245,7 @@ function groupInspector(host: HTMLElement, g: { id: string; name: string }): voi
   const push = (): void => state.setGroupWorld(g.id, { at, rot, scale: scl });
   host.append(vecField("Location", at, push, 0.1));
   host.append(vecField("Rotation", rot, push, 1));
-  host.append(vecField("Scale", scl, push, 0.05));
+  host.append(scaleField("Scale", scl, push, 0.05, { min: 0.01 }));
 
   // Physics: simulate the whole group as one movable rigid body (a lantern = mesh +
   // light, a crate stack…). Its members become one shovable body; toggling it on
@@ -249,7 +258,7 @@ function groupInspector(host: HTMLElement, g: { id: string; name: string }): voi
       if (v && def.mass == null) def.mass = 8;
     }, () => { state.commit(true); }));
     if (def.physics) {
-      host.append(numField("mass", () => def.mass ?? 8, (v) => (def.mass = Math.max(0.1, v)), () => state.commit(), 0.5));
+      host.append(numField("mass", () => def.mass ?? 8, (v) => (def.mass = v), () => state.commit(), 0.5, { min: 0.1 }));
       host.append(el("div", "side-note", "Members move & tumble together; their collision is one box."));
     }
   }
@@ -274,7 +283,7 @@ function objectInspector(host: HTMLElement, o: Placement, touch: () => void): vo
   if (!o.rot) o.rot = [0, 0, 0];
   host.append(vecField("Rotation", o.rot, touch, 1));
   if (!o.scale) o.scale = [1, 1, 1];
-  host.append(vecField("Scale", o.scale, touch, 0.05));
+  host.append(scaleField("Scale", o.scale, touch, 0.05, { min: 0.01 }));
 
   const schema = objectDefaults(o.type);
   const keys = Object.keys(schema);
@@ -296,8 +305,9 @@ function paramField(key: string, dflt: unknown, params: Record<string, unknown>,
   if (key === "mat") return asset("material");   // surface material (box, structures…)
   if (key === "tex") return asset("texture");    // particle sprite (raw texture)
   if (key === "axis") return selectField(key, AXES, () => String(get()), (v) => set(v), touch);
-  // rgb-triple params (color, tint, depthColor, …) get a colour swatch
-  if (isColorKey(key) && Array.isArray(dflt) && dflt.length === 3) { const arr = (get() as number[]).slice(); params[key] = arr; return colorField(key, arr, touch); }
+  // rgb-triple params (color, tint, depthColor, …) get a colour swatch. Live drags
+  // only redraw (state.touch); the pick is committed to history once, on `change`.
+  if (isColorKey(key) && Array.isArray(dflt) && dflt.length === 3) { const arr = (get() as number[]).slice(); params[key] = arr; return colorField(key, arr, touch, () => state.touch()); }
   if (Array.isArray(dflt)) { const arr = (get() as number[]).slice(); params[key] = arr; return vecField(key, arr, touch, 0.1); }
   if (typeof dflt === "number") return numField(key, () => get() as number, (v) => set(v), touch, 0.05);
   if (typeof dflt === "boolean") return checkField(key, () => get() as boolean, (v) => set(v), touch);
@@ -330,6 +340,9 @@ function hdriPath(name: string): string {
 function worldInspector(host: HTMLElement, map: MapDef, touch: () => void): void {
   head(host, "World");
   const e = map.env;
+  // colour swatches redraw live while dragging (no history) and commit one undo entry
+  // on release — same split the object inspector uses.
+  const live = (): void => state.touch();
 
   group(host, "Map");
   host.append(textField("name", () => map.meta.name, (v) => (map.meta.name = v), touch));
@@ -346,25 +359,25 @@ function worldInspector(host: HTMLElement, map: MapDef, touch: () => void): void
     onChange: () => state.commit(true),
   }));
   if (!e.sky.solid) e.sky.solid = [0.05, 0.06, 0.08];
-  host.append(colorField("solid", e.sky.solid, touch));
+  host.append(colorField("solid", e.sky.solid, touch, live));
 
   group(host, "Sun");
   host.append(vecField("direction", e.sun.rot, touch, 1));
-  host.append(colorField("color", e.sun.color, touch));
-  host.append(numField("brightness", () => e.sun.intensity ?? 1, (v) => (e.sun.intensity = Math.max(0, v)), touch, 0.05));
+  host.append(colorField("color", e.sun.color, touch, live));
+  host.append(numField("brightness", () => e.sun.intensity ?? 1, (v) => (e.sun.intensity = v), touch, 0.05, { min: 0 }));
 
   group(host, "Ambient");
-  host.append(colorField("color", e.ambient.color, touch));
-  host.append(numField("intensity", () => e.ambient.intensity, (v) => (e.ambient.intensity = Math.max(0, v)), touch, 0.05));
-  host.append(numField("reflections", () => e.ambient.specular ?? 0.85, (v) => (e.ambient.specular = Math.max(0, v)), touch, 0.05));
+  host.append(colorField("color", e.ambient.color, touch, live));
+  host.append(numField("intensity", () => e.ambient.intensity, (v) => (e.ambient.intensity = v), touch, 0.05, { min: 0 }));
+  host.append(numField("reflections", () => e.ambient.specular ?? 0.85, (v) => (e.ambient.specular = v), touch, 0.05, { min: 0 }));
 
   group(host, "Shadows");
   const sh = envShadows(e);
   host.append(selectField("quality", ["off", "low", "medium", "high", "ultra"],
     () => sh.quality, (v) => { (e.shadows ??= {}).quality = v as ShadowQuality; }, () => state.commit(true)));
   if (sh.quality !== "off") {
-    host.append(numField("strength", () => envShadows(e).strength, (v) => { (e.shadows ??= {}).strength = clamp01(v); }, touch, 0.02));
-    host.append(numField("distance", () => envShadows(e).distance, (v) => { (e.shadows ??= {}).distance = Math.max(1, v); }, touch, 5));
+    host.append(numField("strength", () => envShadows(e).strength, (v) => { (e.shadows ??= {}).strength = v; }, touch, 0.02, UNIT));
+    host.append(numField("distance", () => envShadows(e).distance, (v) => { (e.shadows ??= {}).distance = v; }, touch, 5, { min: 1 }));
   }
 
   group(host, "Fog");
@@ -376,12 +389,12 @@ function worldInspector(host: HTMLElement, map: MapDef, touch: () => void): void
     const fog = e.fog;
     host.append(selectField("falloff", ["linear", "exp", "exp2"], () => fog.falloff ?? "linear",
       (v) => (fog.falloff = v as FogFalloff), () => state.commit(true)));
-    host.append(colorField("color", fog.color, touch));
+    host.append(colorField("color", fog.color, touch, live));
     if ((fog.falloff ?? "linear") === "linear") {
-      host.append(numField("start", () => fog.start, (v) => (fog.start = v), touch, 1));
-      host.append(numField("end", () => fog.end, (v) => (fog.end = v), touch, 1));
+      host.append(numField("start", () => fog.start, (v) => (fog.start = v), touch, 1, { min: 0 }));
+      host.append(numField("end", () => fog.end, (v) => (fog.end = v), touch, 1, { min: 0 }));
     } else {
-      host.append(numField("density", () => fog.density ?? 0.015, (v) => (fog.density = Math.max(0, v)), touch, 0.002));
+      host.append(numField("density", () => fog.density ?? 0.015, (v) => (fog.density = v), touch, 0.002, { min: 0 }));
     }
   }
 
@@ -393,10 +406,8 @@ function worldInspector(host: HTMLElement, map: MapDef, touch: () => void): void
     (v) => { ((e.post ??= {}).bloom ??= {}).enabled = v; }, () => state.commit(true)));
   if (post.bloom.enabled) {
     host.append(numField("bloom intensity", () => envPost(e).bloom.intensity,
-      (v) => { ((e.post ??= {}).bloom ??= {}).intensity = Math.max(0, v); }, touch, 0.05));
+      (v) => { ((e.post ??= {}).bloom ??= {}).intensity = v; }, touch, 0.05, { min: 0 }));
     host.append(numField("bloom threshold", () => envPost(e).bloom.threshold,
-      (v) => { ((e.post ??= {}).bloom ??= {}).threshold = Math.max(0, v); }, touch, 0.05));
+      (v) => { ((e.post ??= {}).bloom ??= {}).threshold = v; }, touch, 0.05, { min: 0 }));
   }
 }
-
-function clamp01(v: number): number { return v < 0 ? 0 : v > 1 ? 1 : v; }

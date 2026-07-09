@@ -23,6 +23,10 @@ import { applyWaterLook, attachWaterAnim, WATER_LOOK, type WaterAnim, type Water
 import { buildGlassMaterial } from "@game/materials";
 import type { ModelView } from "./tabs";
 import type { Tool } from "./viewport";
+import {
+  AXIS_IDX, GIZMO_AXES, GIZMO_COL, ROT_SNAP_DEG,
+  clamp, cross, distToSeg, dot, norm, type GizmoHandle as GHandle,
+} from "./vecmath";
 
 /** UV repeat used for the water preview sphere — a couple of tiles keep the fractal
  *  ripples a believable size on a unit sphere (matches how the game tiles by area). */
@@ -422,7 +426,7 @@ export class PreviewScene {
       c.setPointerCapture(e.pointerId);
     });
     c.addEventListener("pointermove", (e) => {
-      if (this.gizmoDrag) { const { x, y } = this.local(e); this.applyGizmo(x, y); return; }
+      if (this.gizmoDrag) { const { x, y } = this.local(e); this.applyGizmo(x, y, e.shiftKey); return; }
       if (!this.dragging) { this.updateGizmoHover(e); return; }
       const dx = e.clientX - this.lastX, dy = e.clientY - this.lastY;
       if (Math.abs(dx) + Math.abs(dy) > 3) this.moved = true;
@@ -609,7 +613,7 @@ export class PreviewScene {
     this.canvas.style.cursor = "grabbing";
   }
 
-  private applyGizmo(px: number, py: number): void {
+  private applyGizmo(px: number, py: number, snap = false): void {
     const d = this.gizmoDrag; if (!d) return;
     const b = this.boxes[this.selBox]; if (!b) return;
     const ddx = px - d.startPx, ddy = py - d.startPy;
@@ -630,7 +634,9 @@ export class PreviewScene {
       const ang = Math.atan2(py - d.cy, px - d.cx);
       const idx = AXIS_IDX[d.handle];
       const sign = d.handle === "y" ? -1 : 1;
-      const sdeg = ((ang - d.startAngle) * 180) / Math.PI * sign;
+      let sdeg = ((ang - d.startAngle) * 180) / Math.PI * sign;
+      // hold Shift → snap to 30° increments, matching the map viewport's rotate gizmo
+      if (snap) sdeg = Math.round(sdeg / ROT_SNAP_DEG) * ROT_SNAP_DEG;
       const nrot = d.rot.slice() as Tuple3; nrot[idx] = round3(d.rot[idx] + sdeg);
       b.rot = (nrot[0] || nrot[1] || nrot[2]) ? nrot : undefined;
     } else {   // scale about the box centre (size changes, position stays)
@@ -740,23 +746,6 @@ export class PreviewScene {
   }
 }
 
-/** gizmo handle: an axis or the all-axes centre */
-type GHandle = "x" | "y" | "z" | "xyz";
-const GIZMO_AXES: { h: GHandle; dir: Tuple3 }[] = [
-  { h: "x", dir: [1, 0, 0] }, { h: "y", dir: [0, 1, 0] }, { h: "z", dir: [0, 0, 1] },
-];
-const GIZMO_COL: Record<GHandle, string> = { x: "#e5484d", y: "#5bd15b", z: "#3b82f6", xyz: "#d6d6d6" };
-const AXIS_IDX: Record<GHandle, number> = { x: 0, y: 1, z: 2, xyz: 0 };
-
-/** shortest distance from point (px,py) to the segment (ax,ay)-(bx,by) */
-function distToSeg(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
-  const vx = bx - ax, vy = by - ay;
-  const wx = px - ax, wy = py - ay;
-  const len2 = vx * vx + vy * vy || 1;
-  const t = clamp((wx * vx + wy * vy) / len2, 0, 1);
-  return Math.hypot(px - (ax + t * vx), py - (ay + t * vy));
-}
-function dot(a: number[], b: number[]): number { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
 function round3(n: number): number { return Math.round(n * 1000) / 1000; }
 
 /** a full WaterLook from a (possibly partial) water material def — defaults fill any
@@ -771,11 +760,6 @@ function waterLookOf(def: MaterialDef): WaterLook {
     clarity: d.clarity ?? WATER_LOOK.clarity,
   };
 }
-
-// ── small vector helpers ────────────────────────────────────────────────────────
-function clamp(v: number, a: number, b: number): number { return v < a ? a : v > b ? b : v; }
-function cross(a: number[], b: number[]): number[] { return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]; }
-function norm(a: number[]): number[] { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; }
 
 /** ray vs a collision box (centre `at`, full `size`, optional euler `rot`); entry
  *  dist or null. A rotated box is tested in its local frame (inverse-rotate the ray). */

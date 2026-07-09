@@ -107,6 +107,7 @@ async function main(): Promise<void> {
   setInspectorThumbs(thumbs);
   setInspectorMaterialHooks({
     changed: (name, def) => onMaterialChanged(name, def),
+    live: (name, def) => applyMaterialEffects(name, def),   // re-shade live, no history entry
     renamed: (from, to) => { void renameMaterial(from, to); },
   });
   setInspectorModelHooks({
@@ -528,9 +529,17 @@ function trackCursor(): void {
   window.addEventListener("pointermove", update);
   canvas.addEventListener("pointerleave", () => { cursor.inside = false; });
 }
+/** whether a key event's target is a text-entry field we shouldn't hijack. Only
+ *  TEXT-like inputs count: a focused colour swatch / checkbox has no native Ctrl+Z,
+ *  so treating it as "typing" would swallow undo/redo after a colour pick — the exact
+ *  reason Ctrl+Z did nothing on colour params. Those non-text inputs fall through so
+ *  the shortcut reaches the map/asset history. */
 function isTypingTarget(el: EventTarget | null): boolean {
   const n = el as HTMLElement | null;
-  return !!n && (n.tagName === "INPUT" || n.tagName === "SELECT" || n.tagName === "TEXTAREA" || n.isContentEditable);
+  if (!n) return false;
+  if (n.isContentEditable || n.tagName === "SELECT" || n.tagName === "TEXTAREA") return true;
+  if (n.tagName === "INPUT") { const t = (n as HTMLInputElement).type; return t !== "color" && t !== "checkbox" && t !== "range"; }
+  return false;
 }
 function bindUndoRedo(): void {
   window.addEventListener("keydown", (e) => {
