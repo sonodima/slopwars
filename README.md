@@ -22,16 +22,20 @@ At the moment the textures, skybox and 3D models are still human made. We will h
 ## Player Characters
 
 Remote players are rendered as a rigged, skeletally-animated humanoid — the
-`soldier` model in the asset catalog (`public/assets/models/soldier/`), a
-CS-style armored trooper with a mixamorig skeleton and `Idle` / `Walk` / `Run`
-clips (free Mixamo character, redistributed by three.js under its MIT license —
-see the folder's `NOTICE.txt`). The avatar loads through the normal
-file-driven model pipeline, so it needs no special-casing: `apps/game/src/remote.ts`
-instantiates it, drives the locomotion state from the interpolated movement
-speed, holds the player's current weapon in a hand-height holder, and tints the
-body per team for TDM (two teams, Alpha red · Bravo blue). If the model ever
-fails to load the avatar falls back to the legacy blocky limbs so a player is
-never invisible.
+`operator` model in the asset catalog (`public/assets/models/operator/`), a
+realistic CS-style tactical operator with a mixamorig skeleton and `Idle` /
+`Walk` / `Run` / `Jump` (+ rifle Fire / Reload / Strafe / Grenade) clips. It's a
+free Adobe Mixamo character (`Ch15` + the *Basic Shooter Pack*) exported to FBX
+and converted to a single ~2.7 MB glTF binary — see the folder's `NOTICE.txt`.
+
+The avatar loads through the normal file-driven model pipeline, so it needs no
+special-casing: `apps/game/src/remote.ts` instantiates it, drives the animation
+state from the interpolated motion (Idle/Walk/Run by ground speed, Jump when
+airborne), parents the player's current weapon to the **right-hand bone** so it
+tracks the arm through every clip, and marks teams for TDM with an **emissive
+team hue** (Alpha red · Bravo blue) — additive, so it reads on the dark kit where
+a plain colour multiply can't. If the model ever fails to load the avatar falls
+back to the legacy blocky limbs so a player is never invisible.
 
 ## Project Structure
 

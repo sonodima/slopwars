@@ -1,13 +1,14 @@
 // ─── Remote players: animated 3D avatar, interpolation buffer, hitboxes ──────
-// The avatar is a rigged, skeletally-animated humanoid (the "soldier" model in
-// the asset catalog — CS-style, mixamorig skeleton, Idle/Walk/Run clips). The
-// locomotion state is driven from the interpolated movement speed, and the
-// player's current weapon is instantiated into a hand-height holder so remotes
-// are visibly armed. Team play tints the character's materials; prop-hunt swaps
-// the whole humanoid for a crate. If the character model fails to load the avatar
-// falls back to the old cuboid limbs so the game never renders an empty player.
+// The avatar is a rigged, skeletally-animated humanoid (the "operator" model in
+// the asset catalog — a realistic CS-style tactical operator, mixamorig skeleton,
+// Idle/Walk/Run/Jump + rifle clips). The locomotion state is driven from the
+// interpolated motion, and the player's current weapon is parented to the right
+// hand bone so it tracks the arm. Team play adds an emissive team hue (which reads
+// on the dark kit where a multiplicative tint can't); prop-hunt swaps the whole
+// humanoid for a crate. If the model fails to load the avatar falls back to the
+// old cuboid limbs so the game never renders an empty player.
 import {
-  Animator, BlinnPhongMaterial, Color, Engine, Entity, Material, MeshRenderer,
+  Animator, BlinnPhongMaterial, Color, Engine, Entity, MeshRenderer,
   PBRMaterial, PrimitiveMesh, SkinnedMeshRenderer,
 } from "@galacean/engine";
 import { AABB, rayAABB } from "./map";
@@ -17,7 +18,7 @@ import { INTERP_DELAY, PlayerState, Vec3, WeaponId, clamp } from "./types";
 interface Sample { time: number; p: [number, number, number]; yaw: number; pitch: number; cr: number }
 
 /** asset-catalog folder name of the rigged character used for every remote avatar */
-const CHARACTER_MODEL = "soldier";
+const CHARACTER_MODEL = "operator";
 
 /** which catalog model each weapon shows in a remote's hands (mirrors the
  *  first-person viewmodels — only the firearms/melee that have a real model) */
@@ -42,7 +43,7 @@ const TP_TUNE: Record<string, { s: number; p: [number, number, number]; r: [numb
 
 const LOCO_RUN = 4.5;  // m/s above which the avatar plays Run
 const LOCO_WALK = 0.7; // m/s above which the avatar plays Walk
-const TEAM_TINT = 0.42; // how strongly the team hue blends over the armour albedo
+const TEAM_TINT = 0.15; // additive emissive team-hue strength on the operator kit
 
 export class RemotePlayer {
   entity: Entity;
@@ -62,7 +63,7 @@ export class RemotePlayer {
 
   private charRoot: Entity | null = null;   // rigged humanoid (null if it failed to load)
   private animator: Animator | null = null;
-  private tintMats: { mat: Material & { baseColor: Color }; orig: Color }[] = [];
+  private tintMats: (PBRMaterial | BlinnPhongMaterial)[] = [];
   private locoState = "";
   private wasActive = false;
 
@@ -79,6 +80,7 @@ export class RemotePlayer {
   // animation clock (wall time) for locomotion speed sampling
   private prevX = 0;
   private prevZ = 0;
+  private prevY = 0;
   private prevT = 0;
 
   constructor(engine: Engine, parent: Entity, public id: string, public name: string, color: number, models: GameModels) {
@@ -107,10 +109,8 @@ export class RemotePlayer {
     this.entity.addChild(char);
     this.charRoot = char;
 
-    // per-player material clones so team tinting never leaks across avatars, and
-    // remember each clone's base colour to restore when a player leaves a team.
-    // (the humanoid is skinned — getComponentsIncludeChildren matches by exact
-    // type, so query both plain and skinned renderers.)
+    // per-player material clones so team tinting never leaks across shared avatars.
+    // (the humanoid is skinned — query both plain and skinned renderers.)
     const renderers = [
       ...char.getComponentsIncludeChildren(SkinnedMeshRenderer, []),
       ...char.getComponentsIncludeChildren(MeshRenderer, []),
@@ -123,10 +123,7 @@ export class RemotePlayer {
         if (!src) continue;
         const clone = src.clone();
         r.setMaterial(i, clone);
-        if (clone instanceof PBRMaterial || clone instanceof BlinnPhongMaterial) {
-          const c = clone.baseColor;
-          this.tintMats.push({ mat: clone, orig: new Color(c.r, c.g, c.b, c.a) });
-        }
+        if (clone instanceof PBRMaterial || clone instanceof BlinnPhongMaterial) this.tintMats.push(clone);
       }
     }
 
@@ -207,21 +204,13 @@ export class RemotePlayer {
     this.appliedColor = key;
 
     if (this.charRoot) {
-      // baseColor multiplies the character's albedo texture, so a team hue tints
-      // the soldier while keeping its detail; null restores each clone's original.
-      for (const { mat, orig } of this.tintMats) {
-        if (color === null) { mat.baseColor = new Color(orig.r, orig.g, orig.b, orig.a); continue; }
-        // blend the team hue into the original albedo instead of overwriting it —
-        // a muted tint keeps the armour's shading/detail and avoids a garish flat.
-        const tr = ((color >> 16) & 255) / 255, tg = ((color >> 8) & 255) / 255, tb = (color & 255) / 255;
-        const f = TEAM_TINT;
-        mat.baseColor = new Color(
-          orig.r * (1 - f) + tr * f,
-          orig.g * (1 - f) + tg * f,
-          orig.b * (1 - f) + tb * f,
-          orig.a,
-        );
-      }
+      // The operator's kit is a dark camo texture — a multiplicative baseColor tint
+      // can't recolour near-black cloth. Use an *additive* emissive team hue instead,
+      // which reads clearly on dark gear without washing out the material detail.
+      const er = color === null ? 0 : (((color >> 16) & 255) / 255) * TEAM_TINT;
+      const eg = color === null ? 0 : (((color >> 8) & 255) / 255) * TEAM_TINT;
+      const eb = color === null ? 0 : ((color & 255) / 255) * TEAM_TINT;
+      for (const mat of this.tintMats) mat.emissiveColor = new Color(er, eg, eb, 1);
       return;
     }
     // cuboid fallback: tint just the torso material
@@ -306,21 +295,26 @@ export class RemotePlayer {
     this.entity.transform.setScale(1, s, 1);
   }
 
-  /** pick Idle / Walk / Run from the interpolated ground speed and cross-fade */
+  /** pick Jump / Run / Walk / Idle from the interpolated motion and cross-fade */
   private driveAnimation(): void {
     if (!this.animator || this.disguised) return;
     const now = performance.now() / 1000;
     const dt = now - this.prevT;
     this.prevT = now;
-    let sp = 0;
-    if (dt > 1e-4 && dt < 0.5) sp = Math.hypot(this.pos.x - this.prevX, this.pos.z - this.prevZ) / dt;
-    this.prevX = this.pos.x; this.prevZ = this.pos.z;
+    let sp = 0, vy = 0;
+    if (dt > 1e-4 && dt < 0.5) {
+      sp = Math.hypot(this.pos.x - this.prevX, this.pos.z - this.prevZ) / dt;
+      vy = (this.pos.y - this.prevY) / dt;
+    }
+    this.prevX = this.pos.x; this.prevZ = this.pos.z; this.prevY = this.pos.y;
     // re-enabling the entity resets the animator to its default pose (T-pose), so
     // force a fresh play whenever the avatar comes (back) on-screen.
     const justActivated = this.alive && !this.wasActive;
     this.wasActive = this.alive;
     if (!this.alive) return;
-    const want = sp > LOCO_RUN ? "Run" : sp > LOCO_WALK ? "Walk" : "Idle";
+    // airborne (rising, or falling fast) → jump clip; else locomotion by speed
+    const airborne = vy > 1.8 || vy < -5.5;
+    const want = airborne ? "Jump" : sp > LOCO_RUN ? "Run" : sp > LOCO_WALK ? "Walk" : "Idle";
     if ((want !== this.locoState || justActivated) && this.animator.findAnimatorState(want)) {
       this.locoState = want;
       if (justActivated) this.animator.play(want);
