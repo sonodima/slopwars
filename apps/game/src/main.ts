@@ -9,10 +9,12 @@ import { sfx } from "./audio";
 import { loadHDRCube } from "./assets";
 import { Hud } from "./hud";
 import { GameMap } from "./map";
+import catalog from "virtual:asset-catalog";
 import { resolveTextures } from "./textures";
 import { mapTextureFolders } from "./objects";
+import { MaterialLibrary, materialTextureFolders } from "./materials";
 import { GameModels } from "./models";
-import { MapEnv, ShadowQuality, envSunColor } from "./maps/schema";
+import { MapEnv, ModelMeta, ShadowQuality, envSunColor, modelMaterials } from "./maps/schema";
 import { applyFogFalloff, applyPost, applyShadows } from "./rendersettings";
 import {
   DEFAULT_MAP, loadMapPool, mapById, mapMetas, pickVotedMap, randomMapId, tallyVotes,
@@ -256,6 +258,7 @@ class Game {
     this.lobbyStageRoot = root.createChild("lobby-avatars");
     this.buildSelfAvatar(root);
     this.ws = new WeaponSystem(engine, this.camEntity, this.models);
+    void this.applyWeaponMaterials();   // texture the geometry-only gun viewmodels (async; pops in)
     this.ws.onShoot = (def, spread) => {
       if (def.throwable) this.throwNade(def.id as NadeKind);
       else this.fireHitscan(def, spread);
@@ -1377,6 +1380,26 @@ class Game {
     this.buildPickups(this.root);
     this.buildPowerups(this.root);
     this.updateAmbientWater();
+  }
+
+  /** shade the weapon viewmodels with their models' assigned materials. Guns are
+   *  geometry-only glTFs (all textures live in the material library), so this loads
+   *  just the texture folders those materials need, builds a one-off material library,
+   *  and hands it to the weapon system — otherwise the guns render untextured. */
+  private async applyWeaponMaterials(): Promise<void> {
+    const folders = this.ws.weaponModelFolders();
+    if (!folders.length) return;
+    const metas = new Map<string, ModelMeta>();
+    const matNames = new Set<string>();
+    for (const f of folders) {
+      const meta = catalog.models.find((m) => m.name === f)?.meta ?? {};
+      metas.set(f, meta);
+      for (const mat of modelMaterials(meta)) matNames.add(mat);
+    }
+    if (!matNames.size) return;
+    const tex = await resolveTextures(this.engine, materialTextureFolders(matNames));
+    const lib = new MaterialLibrary(this.engine, tex);
+    this.ws.applyModelMaterials(metas, lib);
   }
 
   /** apply a map's skybox / fog / lighting identity (awaits its HDRI if any) */

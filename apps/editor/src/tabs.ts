@@ -105,6 +105,13 @@ class TabManager {
     if (changed) this.emit();
   }
 
+  /** rename target of a texture tab (after a texture-set rename) so it stays open */
+  retargetTexture(from: string, to: string): void {
+    let changed = false;
+    for (const t of this.tabs) if (t.kind === "texture" && t.texture === from) { t.texture = to; changed = true; }
+    if (changed) this.emit();
+  }
+
   /** set a model tab's sub-view (model geometry vs. collision authoring) */
   setModelView(id: string, view: ModelView): void {
     const t = this.find(id);

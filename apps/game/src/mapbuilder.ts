@@ -10,9 +10,9 @@ import { buildParticles, reconfigureParticles, type ParticleLook } from "./parti
 import catalog from "virtual:asset-catalog";
 import { GameModels, instantiate } from "./models";
 import { MapTextures, PbrSet, DEFAULT_FOLDER } from "./textures";
-import { MaterialLibrary } from "./materials";
+import { MaterialLibrary, shadeModelSlots } from "./materials";
 import type { GroupDef, MaterialDef, ModelMeta, PhysicsProps, Tuple3 } from "@slopwars/shared";
-import { rotateEuler, modelSlotMaterial } from "@slopwars/shared";
+import { rotateEuler } from "@slopwars/shared";
 import type { AABB, GameMap } from "./map";
 
 /** author-tuned per-model defaults (base offset / scale / material override),
@@ -83,6 +83,21 @@ export class MapBuilder {
    *  consumers like the particle emitter that need an image, not a material. */
   texOf(folder?: string): PbrSet {
     return (folder && this.tex.get(folder)) || this.tex.get(DEFAULT_FOLDER) || this.tex.values().next().value!;
+  }
+
+  /** the colour map of a texture folder for use as a raw sprite (particle emitter),
+   *  or null if the folder isn't loaded. Unlike texOf, this does NOT fall back to the
+   *  default folder: a particle whose `tex` can't be resolved shows the procedural
+   *  soft puff (see particles.ts) instead of the opaque wall texture as a hard square. */
+  texColorOf(folder?: string): Texture2D | null {
+    const set = folder ? this.tex.get(folder) : null;
+    return set ? set.color : null;
+  }
+
+  /** enable/disable shadow casting on every mesh of a placed entity (e.g. a lantern
+   *  that houses its own light shouldn't also cast a hard shadow of its shell). */
+  setCastShadows(e: Entity, cast: boolean): void {
+    for (const r of e.getComponentsIncludeChildren(MeshRenderer, [])) r.castShadows = cast;
   }
 
   /** report a freshly created entity to the (editor-only) build hook so it can be
@@ -164,13 +179,7 @@ export class MapBuilder {
     // shade each surface with the material assigned to its glTF slot (the model's MAIN
     // materials): a slot with an assignment is rebuilt from that material asset, an
     // unassigned slot keeps the glTF's own material (e.g. a transparent glass part).
-    if (meta.materials || meta.material) {
-      for (const r of e.getComponentsIncludeChildren(MeshRenderer, [])) {
-        const slot = r.getMaterial()?.name ?? "";
-        const name = modelSlotMaterial(meta, slot);
-        if (name) r.setMaterial(this.lib.build(name));
-      }
-    }
+    shadeModelSlots(e, meta, this.lib);
     this.root.addChild(e);
     this.map.tris += 500;
     return this.track(e);

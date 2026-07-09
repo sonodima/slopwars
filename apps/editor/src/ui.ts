@@ -325,6 +325,32 @@ export function confirmUnsaved(what: string): Promise<"save" | "discard" | "canc
   });
 }
 
+/** a single-line name prompt (modal). Resolves the trimmed value on OK/Enter, or null
+ *  if cancelled/dismissed. `initial` pre-fills + selects the field so it can be edited
+ *  or accepted as-is. Used for naming a new asset (e.g. a texture set) up front. */
+export function promptName(title: string, opts: { label?: string; initial?: string; placeholder?: string; ok?: string } = {}): Promise<string | null> {
+  return new Promise((resolve) => {
+    const body = el("div", "confirm");
+    const row = el("label", "field");
+    row.append(el("span", "field-label", opts.label ?? "Name"));
+    const inp = el("input", "field-input") as HTMLInputElement;
+    inp.type = "text"; inp.value = opts.initial ?? ""; if (opts.placeholder) inp.placeholder = opts.placeholder;
+    row.append(inp);
+    body.append(row);
+    const actions = el("div", "confirm-actions");
+    let done = false;
+    const finish = (v: string | null): void => { if (done) return; done = true; dlg.close(); resolve(v); };
+    const submit = (): void => { const v = inp.value.trim(); if (v) finish(v); };
+    const dlg = modal(title, body);
+    actions.append(button("Cancel", () => finish(null)), button(opts.ok ?? "Create", submit, "primary"));
+    body.append(actions);
+    inp.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); submit(); } });
+    // Escape / backdrop dismissal (handled by modal) resolves as cancel
+    const iv = window.setInterval(() => { if (!document.body.contains(body)) { window.clearInterval(iv); finish(null); } }, 150);
+    setTimeout(() => { inp.focus(); inp.select(); }, 20);
+  });
+}
+
 /** a confirm dialog for an irreversible action; runs `onYes` only if confirmed. */
 export function confirmDelete(what: string, onYes: () => void): void {
   const body = el("div", "confirm");

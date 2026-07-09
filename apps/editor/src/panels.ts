@@ -155,10 +155,10 @@ export function renderBrowser(host: HTMLElement, ctx: PanelCtx): BrowserControl 
     for (const t of ctx.catalog.textures) {
       if (!match(t.name)) continue;
       const c = card(t.name, "image", () => ({ kind: "texture", name: t.name }));
-      c.title = "double-click to edit maps · drag onto a material's texture slot · right-click for actions";
+      c.title = "double-click to open · drag onto a material's texture slot · right-click for actions";
       c.addEventListener("dblclick", () => ctx.onOpenTexture(t.name));
       ctxMenu(c, () => [
-        { label: "Edit maps", icon: "eye", onClick: () => ctx.onOpenTexture(t.name) },
+        { label: "Open", icon: "eye", onClick: () => ctx.onOpenTexture(t.name) },
         { sep: true },
         { label: "Delete", icon: "trash", danger: true, onClick: () => confirmDelete(`texture "${t.name}"`, () => ctx.onDeleteTexture(t.name)) },
       ]);

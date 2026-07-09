@@ -52,6 +52,8 @@ interface TextureHooks {
   clearMap: (name: string, slot: TexSlot) => void;
   /** names of the materials that reference this texture set (for "used by") */
   usedBy: (name: string) => string[];
+  /** rename the texture set (folder) — repoints referencing materials */
+  renamed: (from: string, to: string) => void;
 }
 let matHooks: MaterialHooks | null = null;
 let modelHooks: ModelHooks | null = null;
@@ -171,7 +173,9 @@ const TEX_SLOTS: { slot: TexSlot; label: string; hint: string }[] = [
 ];
 
 function textureInspector(host: HTMLElement, name: string): void {
-  host.append(el("h3", "insp-title", name));
+  const title = el("h3", "insp-title", name);
+  if (texHooks) renamable(title, () => name, (v) => { if (v && v !== name) texHooks!.renamed(name, v); }, () => { /* rename persists */ });
+  host.append(title);
   host.append(el("div", "insp-sub", "texture set"));
   if (!texHooks) { host.append(el("div", "empty", "texture editing unavailable")); return; }
   const maps = texHooks.maps(name);

@@ -296,6 +296,16 @@ export class ThumbRenderer {
     return out;
   }
 
+  /** drop memoized thumbnails so the next request re-renders them. An asset edit
+   *  (material/model/texture) invalidates the affected keys (a thumbnail is keyed by
+   *  its asset, which doesn't change on edit, so without this the browser card would
+   *  keep showing the pre-edit render). Pass a predicate to clear a subset, or nothing
+   *  to clear all. */
+  invalidate(pred?: (key: string) => boolean): void {
+    if (!pred) { this.cache.clear(); return; }
+    for (const k of [...this.cache.keys()]) if (pred(k)) this.cache.delete(k);
+  }
+
   /** serialize renders (one engine, one framebuffer), memoize by key, and wait
    *  for init before touching the engine so early requests still resolve. */
   private enqueue(key: string, run: () => Promise<string | null>): Promise<string | null> {

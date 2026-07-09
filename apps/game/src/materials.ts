@@ -8,9 +8,10 @@
 // attaches a WaterAnim to the entity (via `animate` below) — so *any box* with a
 // water material becomes a rippling liquid surface, no bespoke object. Textures are
 // inputs a standard material consumes, never applied to geometry directly.
-import { Color, Engine, Entity, PBRMaterial, RefractionMode, Vector4 } from "@galacean/engine";
+import { Color, Engine, Entity, MeshRenderer, PBRMaterial, RefractionMode, Vector4 } from "@galacean/engine";
 import catalog from "virtual:asset-catalog";
-import type { MaterialDef, StandardMaterialDef, GlassMaterialDef, WaterMaterialDef } from "@slopwars/shared";
+import type { MaterialDef, ModelMeta, StandardMaterialDef, GlassMaterialDef, WaterMaterialDef } from "@slopwars/shared";
+import { modelSlotMaterial } from "@slopwars/shared";
 import { MapTextures, PbrSet, DEFAULT_FOLDER } from "./textures";
 import { WATER_LOOK, applyWaterLook, attachWaterAnim, type WaterLook } from "./water";
 
@@ -122,6 +123,20 @@ export class MaterialLibrary {
 
   private buildGlass(d: GlassMaterialDef): PBRMaterial {
     return buildGlassMaterial(this.engine, d);
+  }
+}
+
+/** shade a model instance's surfaces with the materials assigned to its glTF slots
+ *  (the model's MAIN materials, from models/<name>/meta.json). A slot with an
+ *  assignment is rebuilt from that material asset; an unassigned slot keeps the glTF's
+ *  own material. Shared by every model placement (mapbuilder.placeModelTf) AND the
+ *  weapon viewmodels, so a model is textured identically wherever it appears. */
+export function shadeModelSlots(entity: Entity, meta: ModelMeta | undefined, lib: MaterialLibrary): void {
+  if (!meta || (!meta.materials && !meta.material)) return;
+  for (const r of entity.getComponentsIncludeChildren(MeshRenderer, [])) {
+    const slot = r.getMaterial()?.name ?? "";
+    const name = modelSlotMaterial(meta, slot);
+    if (name) r.setMaterial(lib.build(name));
   }
 }
 

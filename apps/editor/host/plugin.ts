@@ -18,7 +18,7 @@ import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { Bridge } from "./bridge";
 import { createMcp } from "./mcp";
-import { createMaterial, createTexture, deleteAssetFile, deleteMap, deleteMaterial, deleteModel, deleteTexture, deleteTextureMap, importAsset, loadMap, renameMaterial, saveMap, saveMaterial, saveModelMeta, scanAssets, scanMaps } from "./files";
+import { createMaterial, createTexture, deleteAssetFile, deleteMap, deleteMaterial, deleteModel, deleteTexture, deleteTextureMap, importAsset, loadMap, renameMaterial, renameTexture, saveMap, saveMaterial, saveModelMeta, scanAssets, scanMaps } from "./files";
 
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -99,7 +99,8 @@ export function editorHostPlugin(opts: Options = {}): Plugin {
         if (method === "POST" && url === "/__editor/texture") {
           readBody(req).then((body) => {
             const b = JSON.parse(body);
-            const r = b.op === "create" ? createTexture(root)
+            const r = b.op === "create" ? createTexture(root, b.name)
+              : b.op === "rename" ? renameTexture(root, b.from, b.to)
               : b.op === "clearMap" ? deleteTextureMap(root, b.name, b.slot)
               : deleteTexture(root, b.name);
             json(res, (r as { error?: string }).error ? 400 : 200, r);
