@@ -76,7 +76,9 @@ The viewport is **tabbed** (Unreal-style): several maps plus interactive
 in the browser to open its preview tab — a material shows a lit sphere in a
 selectable HDRI environment, a model is orbitable with a **Model / Collision**
 toggle for authoring per-model collision solids (`auto` whole-mesh box, or `manual`
-solids so e.g. only a tree's trunk blocks the player). See `apps/editor/README.md`.
+solids so e.g. only a tree's trunk blocks the player), and a **texture** is a PBR
+*set* (a texture group) whose editor lets you add/replace/clear its color / normal /
+arm maps — materials reference the whole set. See `apps/editor/README.md`.
 
 Editor controls (Unreal-style):
 

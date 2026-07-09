@@ -13,7 +13,7 @@ import { ThumbRenderer } from "./preview";
 import { state } from "./state";
 import { tabs, type Tab } from "./tabs";
 import { mountSceneGraph } from "./scenegraph";
-import { renderInspector, refreshInspector, setInspectorCatalog, setInspectorThumbs, setInspectorMaterialHooks, setInspectorModelHooks } from "./inspector";
+import { renderInspector, refreshInspector, setInspectorCatalog, setInspectorThumbs, setInspectorMaterialHooks, setInspectorModelHooks, setInspectorTextureHooks } from "./inspector";
 import { renderBrowser, Payload, type BrowserControl } from "./panels";
 import { mountResizers } from "./layout";
 import { objectDropScale } from "@game/objects";
@@ -118,6 +118,12 @@ async function main(): Promise<void> {
     collAdd: () => collAdd(),
     collDelete: (i) => collDelete(i),
   });
+  setInspectorTextureHooks({
+    maps: (name) => catalog.textures.find((t) => t.name === name)?.maps ?? {},
+    setMap: (name, slot, file) => void setTextureMap(name, slot, file),
+    clearMap: (name, slot) => void clearTextureMap(name, slot),
+    usedBy: (name) => catalog.materials.filter((m) => m.def.type === "standard" && m.def.texture === name).map((m) => m.name),
+  });
 
   buildToolbar();
   // the floating preview-environment button (static in the HTML) gets its icon here
@@ -188,7 +194,7 @@ function syncViewport(): void {
   renderModes();
   renderEnvButton();
 
-  const key = tab ? `${tab.kind}:${tab.material ?? tab.model ?? ""}:${tab.view ?? ""}` : "";
+  const key = tab ? `${tab.kind}:${tab.material ?? tab.model ?? tab.texture ?? ""}:${tab.view ?? ""}` : "";
   if (isPreview && key !== previewKey && preview.ready) {
     if (tab!.kind === "material") {
       const m = catalog.materials.find((x) => x.name === tab!.material);
@@ -197,6 +203,8 @@ function syncViewport(): void {
       selBox = -1;
       ensureMetaHist(tab!.model!);
       void preview.showModel(tab!.model!, tab!.view ?? "model", liveMeta(tab!.model!));
+    } else if (tab!.kind === "texture") {
+      void preview.showTexture(tab!.texture!, catalog.textures.find((t) => t.name === tab!.texture)?.maps ?? {});
     }
   }
   previewKey = isPreview ? key : "";
@@ -341,10 +349,10 @@ function metaRedo(name: string): void {
 }
 
 // ── viewport tab strip + view-mode control ───────────────────────────────────
-const TAB_ICON: Record<Tab["kind"], IconName> = { map: "map", material: "material", model: "box" };
+const TAB_ICON: Record<Tab["kind"], IconName> = { map: "map", material: "material", model: "box", texture: "image" };
 function tabTitle(t: Tab): string {
   if (t.kind === "map") return state.mapName(t.id);
-  return t.material ?? t.model ?? t.kind;
+  return t.material ?? t.model ?? t.texture ?? t.kind;
 }
 function renderTabStrip(): void {
   const bar = $("vp-tabs");
@@ -457,7 +465,7 @@ function renderLeftPanel(): void {
 function renderEnvButton(): void {
   const btn = $("vp-envbtn") as HTMLButtonElement;
   const kind = tabs.activeKind();
-  const show = kind === "material" || kind === "model";
+  const show = kind === "material" || kind === "model" || kind === "texture";
   btn.classList.toggle("on", show);
   btn.onclick = show ? openEnvPicker : null;
 }
@@ -655,6 +663,7 @@ function buildDock(): void {
     listMaps: () => api.maps(),
     onOpenMaterial: (name) => tabs.openMaterial(name),
     onOpenModel: (name) => tabs.openModel(name),
+    onOpenTexture: (name) => tabs.openTexture(name),
     onCreateMaterial: () => void createMaterialFlow(),
     onLoadMap: (file) => void openMap(file),
     onCreateMap: () => { tabs.newMap(); },
@@ -714,10 +723,54 @@ async function deleteTextureFlow(name: string): Promise<void> {
   try {
     const r = await api.deleteTexture(name);
     if (r.error) { toast("delete failed: " + r.error, true); return; }
+    tabs.closeAsset("texture", name);
     await refreshCatalog(true);
     await browser?.reload();
     toast(`deleted texture "${name}"`);
   } catch (e) { toast("delete failed: " + e, true); }
+}
+
+/** read a File as a base64 string (no data-url prefix) — for texture-map uploads */
+function readB64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => { const s = String(r.result); resolve(s.slice(s.indexOf(",") + 1)); };
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(file);
+  });
+}
+
+/** after a texture set's maps change on disk: reload the catalog + browser, re-render
+ *  the inspector's slots, and re-shade the open texture preview (and any map using it). */
+async function afterTextureEdit(name: string): Promise<void> {
+  await refreshCatalog(true);
+  await browser?.reload();
+  const tab = tabs.active();
+  if (tab?.kind === "texture" && tab.texture === name) {
+    void preview.showTexture(name, catalog.textures.find((t) => t.name === name)?.maps ?? {}, true);
+  }
+  refreshInspector();
+}
+
+/** set/replace one PBR map of a texture set from a picked image file */
+async function setTextureMap(name: string, slot: "color" | "normal" | "arm", file: File): Promise<void> {
+  try {
+    const data = await readB64(file);
+    const r = await api.importAsset({ kind: "texture", name, files: [{ name: file.name, slot, data }] });
+    if (r.error) { toast("set map failed: " + r.error, true); return; }
+    await afterTextureEdit(name);
+    toast(`updated ${slot} of “${name}”`);
+  } catch (e) { toast("set map failed: " + e, true); }
+}
+
+/** clear one PBR map of a texture set (leaves the set + other maps intact) */
+async function clearTextureMap(name: string, slot: "color" | "normal" | "arm"): Promise<void> {
+  try {
+    const r = await api.clearTextureMap(name, slot);
+    if (r.error) { toast("clear map failed: " + r.error, true); return; }
+    await afterTextureEdit(name);
+    toast(`cleared ${slot} of “${name}”`);
+  } catch (e) { toast("clear map failed: " + e, true); }
 }
 
 /** delete a single-file asset (skybox / audio) by its catalog path, then refresh */

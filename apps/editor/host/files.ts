@@ -7,7 +7,7 @@
 // agree on exactly what an asset "is".
 import fs from "node:fs";
 import path from "node:path";
-import { scanAssets, scanMaps } from "../../../packages/shared/src/vite-asset-catalog";
+import { scanAssets, scanMaps, texSlot } from "../../../packages/shared/src/vite-asset-catalog";
 import type { MapDef } from "../../../packages/shared/src/schema";
 import type { CollisionBox, ModelMeta } from "../../../packages/shared/src/catalog";
 import type { MaterialDef, MaterialType } from "../../../packages/shared/src/materials";
@@ -163,6 +163,31 @@ export function deleteTexture(root: string, name: string): { ok?: boolean; error
   return { ok: true };
 }
 
+/** remove every image file backing one PBR slot (color / normal / arm) of a texture
+ *  folder. Shared by the "clear a map" editor action and by a re-import that replaces
+ *  a slot (so a color.png swapped for a color.jpg never leaves two color maps behind).
+ *  Returns how many files were removed. */
+function clearTextureSlot(dir: string, slot: string): number {
+  if (!fs.existsSync(dir)) return 0;
+  let n = 0;
+  for (const f of fs.readdirSync(dir)) {
+    if (texSlot(f) === slot) { fs.rmSync(path.join(dir, f), { force: true }); n++; }
+  }
+  return n;
+}
+
+/** clear a single PBR map of a texture set (public/assets/textures/<name>/), leaving
+ *  the folder + its other maps intact. Used by the texture editor's per-map "clear". */
+export function deleteTextureMap(root: string, name: string, slot: string): { ok?: boolean; error?: string } {
+  const n = sanitize(name);
+  if (!n) return { error: "invalid texture name" };
+  if (!["color", "normal", "arm"].includes(slot)) return { error: `bad texture slot: ${slot}` };
+  const dir = path.join(root, "public", "assets", "textures", n);
+  if (!fs.existsSync(dir)) return { error: "texture not found" };
+  clearTextureSlot(dir, slot);
+  return { ok: true };
+}
+
 /** delete an asset file by its catalog-relative path (e.g. "hdri/sky.hdr",
  *  "audio/clip.mp3"). Guarded so it can only remove files inside public/assets/. */
 export function deleteAssetFile(root: string, file: string): { ok?: boolean; error?: string } {
@@ -192,12 +217,16 @@ export function importAsset(root: string, req: ImportRequest): ImportResult {
 
   if (req.kind === "texture") {
     if (!name) return { error: "texture needs a name" };
+    const dir = path.join(root, "public", "assets", "textures", name);
     const written: string[] = [];
     for (const f of files) {
       const slot = f.slot;
       const ext = extOf(f.name);
       if (!slot || !["color", "normal", "arm"].includes(slot)) return { error: `bad texture slot: ${slot}` };
       if (!IMG_EXT.has(ext)) return { error: `unsupported image type: .${ext}` };
+      // replacing a slot: drop any existing file for it first (differently-named or a
+      // different extension) so the set never ends up with two of the same map.
+      clearTextureSlot(dir, slot);
       const rel = `textures/${name}/${slot}.${ext}`;
       writeAssetB64(root, rel, f.data);
       written.push(rel);

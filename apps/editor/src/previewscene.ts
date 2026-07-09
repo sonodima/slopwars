@@ -16,7 +16,7 @@ import {
   MeshRenderer, PBRMaterial, PrimitiveMesh, RenderFace, SkyBoxMaterial,
   TextureCube, UnlitMaterial, Vector3, Vector4, WebGLEngine,
 } from "@galacean/engine";
-import type { AssetCatalog, CollisionBox, MaterialDef, ModelMeta, Tuple3 } from "@slopwars/shared";
+import type { AssetCatalog, CollisionBox, MaterialDef, ModelMeta, TextureMaps, Tuple3 } from "@slopwars/shared";
 import { rotateEulerInv } from "@slopwars/shared";
 import { loadGLTF, loadHDRCube, loadTexture2D } from "@game/assets";
 import { applyWaterLook, attachWaterAnim, WATER_LOOK, type WaterAnim, type WaterLook } from "@game/water";
@@ -38,7 +38,8 @@ const DEG = Math.PI / 180;
 type Content =
   | { kind: "none" }
   | { kind: "material"; name: string }
-  | { kind: "model"; name: string; view: ModelView };
+  | { kind: "model"; name: string; view: ModelView }
+  | { kind: "texture"; name: string };
 
 export class PreviewScene {
   private engine!: WebGLEngine;
@@ -237,6 +238,36 @@ export class PreviewScene {
       applyWaterLook(this.engine, m, waterLookOf(def), WATER_PREVIEW_TILING);
     }
     return m;
+  }
+
+  // ── content: texture set ──────────────────────────────────────────────────────
+  /** render a lit PBR sphere for a raw texture set (color/normal/arm), so you can see
+   *  the maps shading a surface in the chosen HDRI environment while editing them in
+   *  the inspector. No material tint/params — it's the maps as-is. `keepCamera` keeps
+   *  the orbit across a live map edit (add/replace/clear). */
+  async showTexture(name: string, maps: TextureMaps, keepCamera = false): Promise<void> {
+    if (!this.ready) return;
+    this.content = { kind: "texture", name };
+    this.clearHolder();
+    this.clearCollision();
+    if (!keepCamera) { this.target.set(0, 0, 0); this.dist = 3.2; this.applyCamera(); }
+    const e = this.holder.createChild("sphere");
+    const r = e.addComponent(MeshRenderer);
+    r.mesh = PrimitiveMesh.createSphere(this.engine, 1, 64);
+    const m = new PBRMaterial(this.engine);
+    m.tilingOffset = new Vector4(1, 1, 0, 0);
+    const [color, normal, arm] = await Promise.all([
+      maps.color ? loadTexture2D(this.engine, maps.color) : null,
+      maps.normal ? loadTexture2D(this.engine, maps.normal) : null,
+      maps.arm ? loadTexture2D(this.engine, maps.arm) : null,
+    ]);
+    // guard: a slower load may have been superseded by another tab
+    if (this.content.kind !== "texture" || this.content.name !== name || e.destroyed) return;
+    if (color) m.baseTexture = color;
+    if (normal) m.normalTexture = normal;
+    if (arm) { m.roughnessMetallicTexture = arm; m.occlusionTexture = arm; } else { m.roughness = 0.85; m.metallic = 0; }
+    if (!color) m.baseColor = new Color(0.6, 0.6, 0.62, 1);   // no color map → neutral gray
+    r.setMaterial(m);
   }
 
   /** set (or clear) the HDRI environment used for the material preview. Drives both

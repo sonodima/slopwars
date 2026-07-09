@@ -42,8 +42,9 @@ function readFilesFlat(dir: string): string[] {
   return fs.readdirSync(dir, { withFileTypes: true }).filter((d) => d.isFile()).map((d) => d.name);
 }
 
-/** classify a texture map file by its role (color / normal / arm / …) */
-function texSlot(file: string): string {
+/** classify a texture map file by its role (color / normal / arm / …). Exported so
+ *  the editor host can find (and replace/clear) the file backing a given PBR slot. */
+export function texSlot(file: string): string {
   const f = file.toLowerCase();
   if (/(^|[_-])(color|albedo|diff|basecolor|base_color)([_.-]|$)/.test(f) || /^color\./.test(f)) return "color";
   if (/(^|[_-])(normal|nor|nor_gl)([_.-]|$)/.test(f) || /^normal\./.test(f)) return "normal";

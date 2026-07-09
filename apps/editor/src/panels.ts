@@ -3,9 +3,10 @@
 // Audio · Maps) instead of one long scroll. The active tab shows a search box + a
 // context action: Import (models/textures/skyboxes/audio bring files into the
 // project), or Create (materials are *created* not imported; maps too). Cards are
-// draggable onto the viewport / inspector slots. Double-clicking a model/material
-// opens its preview tab (or a map loads it); textures show as flat bitmaps with no
-// preview tab. Right-clicking any card opens Unity-style context actions (Delete…).
+// draggable onto the viewport / inspector slots. Double-clicking a model/material/
+// texture opens its preview/editor tab (or a map loads it); a texture card shows the
+// PBR maps its set holds as an auto-fitting grid. Right-clicking any card opens
+// Unity-style context actions (Open / Delete…).
 import type { AssetCatalog, MapCatalogEntry } from "@slopwars/shared";
 import { objectCatalog } from "@game/objects";
 import { clear, el, contextMenu, confirmDelete, type MenuItem } from "./ui";
@@ -20,6 +21,7 @@ export interface PanelCtx {
   listMaps: () => Promise<MapCatalogEntry[]>;
   onOpenMaterial: (name: string) => void;
   onOpenModel: (name: string) => void;
+  onOpenTexture: (name: string) => void;
   onCreateMaterial: () => void;
   onLoadMap: (file: string) => void;
   onCreateMap: () => void;
@@ -143,17 +145,21 @@ export function renderBrowser(host: HTMLElement, ctx: PanelCtx): BrowserControl 
       grid.append(c);
     }
   };
-  // Textures render the flat image (the actual bitmap), not a lit sphere: you're
-  // looking at raw image data here, and materials are what turn it into a surface.
+  // A texture is a *set* of PBR maps (a texture group). The card shows the maps it
+  // holds as an auto-fitting grid of flat bitmaps — you're looking at raw image data;
+  // materials are what turn a set into a surface. Double-click opens the set editor.
   const drawTextures = (): void => {
     for (const t of ctx.catalog.textures) {
       if (!match(t.name)) continue;
       const c = card(t.name, "image", () => ({ kind: "texture", name: t.name }));
-      c.title = "drag onto a material's texture slot · right-click for actions";
+      c.title = "double-click to edit maps · drag onto a material's texture slot · right-click for actions";
+      c.addEventListener("dblclick", () => ctx.onOpenTexture(t.name));
       ctxMenu(c, () => [
+        { label: "Edit maps", icon: "eye", onClick: () => ctx.onOpenTexture(t.name) },
+        { sep: true },
         { label: "Delete", icon: "trash", danger: true, onClick: () => confirmDelete(`texture "${t.name}"`, () => ctx.onDeleteTexture(t.name)) },
       ]);
-      if (t.maps.color) fillImg(c, ASSET(t.maps.color));
+      fillTexGrid(c, t.maps);
       grid.append(c);
     }
   };
@@ -243,12 +249,19 @@ function fillThumb(c: HTMLElement, p: Promise<string | null>): void {
   });
 }
 
-/** put a flat image straight into a card's thumbnail slot (textures) */
-function fillImg(c: HTMLElement, src: string): void {
+/** fill a texture card's thumb with the maps its set holds, as an auto-fitting grid
+ *  (1 map → fills the slot; 2–3 → squares that shrink to fit). Keeps the icon
+ *  fallback when the set has no maps at all. */
+const TEX_ORDER = ["color", "normal", "arm"] as const;
+function fillTexGrid(c: HTMLElement, maps: Record<string, string | undefined>): void {
   const slot = c.querySelector(".asset-thumb");
   if (!slot) return;
-  const img = el("img", "thumb-img"); img.src = src; img.loading = "lazy";
-  slot.replaceChildren(img);
+  const present = TEX_ORDER.map((k) => maps[k]).filter((p): p is string => !!p);
+  if (!present.length) return;   // keep the placeholder icon
+  const gridEl = el("div", "tex-grid");
+  gridEl.style.gridTemplateColumns = `repeat(${Math.min(present.length, 2)}, 1fr)`;
+  for (const p of present) { const img = el("img", "thumb-img"); img.src = ASSET(p); img.loading = "lazy"; gridEl.append(img); }
+  slot.replaceChildren(gridEl);
 }
 
 export interface Payload { kind: "object" | "model" | "audio" | "texture" | "material" | "hdri"; name: string }

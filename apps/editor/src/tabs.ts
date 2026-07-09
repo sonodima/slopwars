@@ -14,7 +14,7 @@
 import { state } from "./state";
 import { emptyMap, type MapDef } from "@slopwars/shared";
 
-export type TabKind = "map" | "material" | "model";
+export type TabKind = "map" | "material" | "model" | "texture";
 export type ModelView = "model" | "collision";
 
 export interface Tab {
@@ -24,6 +24,8 @@ export interface Tab {
   material?: string;
   /** model tabs: the model name */
   model?: string;
+  /** texture tabs: the texture-set (folder) name */
+  texture?: string;
   /** model tabs: model geometry vs. collision authoring */
   view?: ModelView;
 }
@@ -86,6 +88,16 @@ class TabManager {
     return tab.id;
   }
 
+  /** open (or focus) a texture-set editor tab. */
+  openTexture(name: string): string {
+    const existing = this.tabs.find((t) => t.kind === "texture" && t.texture === name);
+    if (existing) { this.focus(existing.id); return existing.id; }
+    const tab: Tab = { id: this.id("tex"), kind: "texture", texture: name };
+    this.tabs.push(tab);
+    this.focus(tab.id);
+    return tab.id;
+  }
+
   /** rename target of a material tab (after a material rename) so it stays open */
   retargetMaterial(from: string, to: string): void {
     let changed = false;
@@ -118,8 +130,8 @@ class TabManager {
   }
 
   /** close any preview tab targeting a now-deleted asset */
-  closeAsset(kind: "material" | "model", name: string): void {
-    const match = this.tabs.filter((t) => t.kind === kind && (t.material === name || t.model === name));
+  closeAsset(kind: "material" | "model" | "texture", name: string): void {
+    const match = this.tabs.filter((t) => t.kind === kind && (t.material === name || t.model === name || t.texture === name));
     for (const t of match) this.close(t.id);
   }
 

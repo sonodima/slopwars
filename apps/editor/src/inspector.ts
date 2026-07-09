@@ -6,7 +6,7 @@
 // model's calibration meta, a texture's preview — each with a Delete action. The
 // "World" row edits the map's sky / lighting / effects. A group is a first-class
 // parent, so its inspector edits the group's own transform.
-import type { AssetCatalog, CollisionMode, CollisionShape, FogFalloff, MapDef, MaterialDef, MaterialType, ModelMeta, Placement, ShadowQuality, ToneMode, Tuple3 } from "@slopwars/shared";
+import type { AssetCatalog, CollisionMode, CollisionShape, FogFalloff, MapDef, MaterialDef, MaterialType, ModelMeta, Placement, ShadowQuality, TextureMaps, ToneMode, Tuple3 } from "@slopwars/shared";
 import { MATERIAL_TYPES, defaultMaterialDef, envPost, envShadows } from "@slopwars/shared";
 import { objectDefaults, placementDetail } from "@game/objects";
 import type { ThumbRenderer } from "./preview";
@@ -41,10 +41,24 @@ interface ModelHooks {
   /** delete collision solid `i` */
   collDelete: (i: number) => void;
 }
+/** the three PBR maps a texture set can hold, in editor display order */
+type TexSlot = "color" | "normal" | "arm";
+interface TextureHooks {
+  /** current maps of a texture set (from the catalog) */
+  maps: (name: string) => TextureMaps;
+  /** set/replace one PBR map from a picked image file (uploads + refreshes) */
+  setMap: (name: string, slot: TexSlot, file: File) => void;
+  /** clear one PBR map, leaving the set + its other maps intact */
+  clearMap: (name: string, slot: TexSlot) => void;
+  /** names of the materials that reference this texture set (for "used by") */
+  usedBy: (name: string) => string[];
+}
 let matHooks: MaterialHooks | null = null;
 let modelHooks: ModelHooks | null = null;
+let texHooks: TextureHooks | null = null;
 export function setInspectorMaterialHooks(h: MaterialHooks): void { matHooks = h; }
 export function setInspectorModelHooks(h: ModelHooks): void { modelHooks = h; }
+export function setInspectorTextureHooks(h: TextureHooks): void { texHooks = h; }
 
 const AXES = ["x+", "x-", "z+", "z-"];
 
@@ -69,6 +83,7 @@ export function renderInspector(host: HTMLElement): void {
     host.append(el("div", "empty", "material not found")); return;
   }
   if (tab?.kind === "model" && tab.model) return modelInspector(host, tab.model);
+  if (tab?.kind === "texture" && tab.texture) return textureInspector(host, tab.texture);
 
   const map = state.map;
   if (!map) { host.append(el("div", "empty", "No map open")); return; }
@@ -141,6 +156,77 @@ function materialInspector(host: HTMLElement, name: string, def: MaterialDef): v
 
 /** the ubiquitous 0..1 range (roughness / metallic / opacity / …) */
 const UNIT: Bounds = { min: 0, max: 1 };
+
+// ── texture set (a PBR group: color / normal / arm maps) ──────────────────────
+// A "texture" here is a *set* of maps (the folder public/assets/textures/<name>/),
+// exactly like a texture group in Unreal/Unity. This editor exposes each PBR map as
+// its own slot so you can add a normal/arm to a bare color set (or swap one) after
+// import; materials then reference the whole set by name. The 3D preview shows the
+// maps shading a lit sphere.
+const ASSET = (p: string): string => `${import.meta.env.BASE_URL}assets/${p}`;
+const TEX_SLOTS: { slot: TexSlot; label: string; hint: string }[] = [
+  { slot: "color", label: "Color", hint: "base colour / albedo" },
+  { slot: "normal", label: "Normal", hint: "tangent-space normal map" },
+  { slot: "arm", label: "AO · Rough · Metal", hint: "packed occlusion / roughness / metallic" },
+];
+
+function textureInspector(host: HTMLElement, name: string): void {
+  host.append(el("h3", "insp-title", name));
+  host.append(el("div", "insp-sub", "texture set"));
+  if (!texHooks) { host.append(el("div", "empty", "texture editing unavailable")); return; }
+  const maps = texHooks.maps(name);
+
+  group(host, "Maps");
+  for (const { slot, label, hint } of TEX_SLOTS) host.append(textureMapSlot(name, slot, label, hint, maps[slot]));
+
+  group(host, "Used by");
+  const users = texHooks.usedBy(name);
+  if (!users.length) host.append(el("div", "side-note", "No material uses this set yet — create a material and drop this texture on its slot."));
+  else {
+    const list = el("div", "tex-users");
+    for (const u of users) {
+      const row = el("button", "tex-user");
+      row.append(icon("material", "tex-user-ico"), el("span", undefined, u));
+      row.addEventListener("click", () => tabs.openMaterial(u));
+      list.append(row);
+    }
+    host.append(list);
+  }
+}
+
+/** one PBR-map slot: an image preview (or an empty drop target), a browse/replace
+ *  file picker, and a clear button. Dropping or picking an image uploads it into the
+ *  set's <slot> file; clearing removes just that map. */
+function textureMapSlot(name: string, slot: TexSlot, label: string, hint: string, current?: string): HTMLElement {
+  const row = el("div", "tex-slot");
+  const head = el("div", "tex-slot-head");
+  head.append(el("span", "tex-slot-label", label));
+  if (current) {
+    const clr = el("button", "btn mini"); clr.title = "clear this map"; clr.append(icon("x"));
+    clr.addEventListener("click", (e) => { e.stopPropagation(); texHooks?.clearMap(name, slot); });
+    head.append(clr);
+  }
+  row.append(head);
+
+  const drop = el("div", "tex-slot-drop" + (current ? " has" : ""));
+  drop.title = current ? "click or drop an image to replace" : `click or drop an image to add the ${hint}`;
+  if (current) { const img = el("img", "tex-slot-img"); img.src = ASSET(current); img.loading = "lazy"; drop.append(img); }
+  else { const ph = el("div", "tex-slot-empty"); ph.append(icon("image"), el("span", undefined, "Add map")); drop.append(ph); }
+
+  const input = el("input") as HTMLInputElement;
+  input.type = "file"; input.accept = "image/*"; input.style.display = "none";
+  input.addEventListener("change", () => { const f = input.files?.[0]; if (f) texHooks?.setMap(name, slot, f); });
+  drop.addEventListener("click", () => input.click());
+  drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("drop"); });
+  drop.addEventListener("dragleave", () => drop.classList.remove("drop"));
+  drop.addEventListener("drop", (e) => {
+    e.preventDefault(); e.stopPropagation(); drop.classList.remove("drop");
+    const f = Array.from(e.dataTransfer?.files ?? []).find((x) => x.type.startsWith("image/"));
+    if (f) texHooks?.setMap(name, slot, f);
+  });
+  row.append(drop, input);
+  return row;
+}
 
 // ── model (calibration meta persisted to models/<name>/meta.json) ─────────────
 // Edits the live working meta the shell owns (so the Collision-view left panel and

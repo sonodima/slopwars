@@ -155,23 +155,51 @@ function importTexture(onDone: () => void): void {
   }, dlg));
 }
 
+/** does a file look like a glTF scene / its binary buffer? (for whole-dialog routing) */
+function isGltf(f: string): boolean { return /\.(gltf|glb)$/i.test(f); }
+function isBin(f: string): boolean { return /\.bin$/i.test(f); }
+
 function importModel(onDone: () => void): void {
   const body = el("div", "imp-body");
   const name = textRow("Name", "e.g. crate_new");
-  const files = dropZone("Files (.gltf/.glb + .bin)", ".gltf,.glb,.bin", true, (f) => {
-    if (!name.input.value.trim()) { const g = f.find((x) => /\.(gltf|glb)$/i.test(x.name)); if (g) name.input.value = baseName(g.name); }
+  // one file per slot, picked/dropped separately — a .glb is self-contained (leave the
+  // others empty); a .gltf usually needs its .bin, and may reference image files.
+  const model = dropZone("Model (.gltf / .glb)", ".gltf,.glb", false, (f) => {
+    if (!name.input.value.trim() && f[0]) name.input.value = baseName(f[0].name);
   });
+  const bin = dropZone("Binary (.bin, optional)", ".bin", false);
+  const textures = dropZone("Textures (optional)", "image/*", true);
+  const slots: DropZone[] = [model, bin, textures];
+
   body.append(
-    el("div", "imp-hint", "Geometry only → public/assets/models/<name>/. Drop the .gltf/.glb (+ its .bin). Models carry no textures: import textures separately, build a material from them, then assign that material to the model (in its preview tab)."),
-    name.row, files.row,
+    el("div", "imp-hint", "Geometry only → public/assets/models/<name>/. A .glb is one file; a .gltf needs its .bin (and any images it references). Pick each file below, or drop them all at once and they’re sorted by type. Models carry no material — import a texture, build a material, then assign it to the model in its preview tab."),
+    name.row, model.row, bin.row, textures.row,
   );
   const dlg = modal("Import model", body);
+
+  // drop several files anywhere on the dialog → auto-route each to its slot by type
+  // (mirrors the texture dialog); a single-file drop belongs to the slot under it.
+  body.addEventListener("dragover", (e) => { e.preventDefault(); });
+  body.addEventListener("drop", (e) => {
+    const dropped = Array.from(e.dataTransfer?.files ?? []);
+    if (dropped.length < 2) return;
+    e.preventDefault(); e.stopPropagation();
+    const imgs: File[] = [...textures.files()];
+    for (const f of dropped) {
+      if (isGltf(f.name)) model.set([f]);
+      else if (isBin(f.name)) bin.set([f]);
+      else imgs.push(f);
+    }
+    if (imgs.length) textures.set(imgs);
+    if (!name.input.value.trim() && model.files()[0]) name.input.value = baseName(model.files()[0].name);
+  });
+
   body.append(footer(async () => {
-    const list = files.files();
     if (!name.input.value.trim()) { toast("enter a name", true); return; }
-    if (!list.length) { toast("pick model files", true); return; }
+    const gltf = model.files()[0];
+    if (!gltf) { toast("pick a .gltf or .glb model file", true); return; }
     const payload: ImportFile[] = [];
-    for (const f of list) payload.push({ name: f.name, data: await readB64(f) });
+    for (const zone of slots) for (const f of zone.files()) payload.push({ name: f.name, data: await readB64(f) });
     await send("model", name.input.value.trim(), payload, dlg, onDone);
   }, dlg));
 }
