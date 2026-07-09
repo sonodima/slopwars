@@ -17,6 +17,7 @@ import {
   type PointLightLook, type DirLightLook, type SpotLightLook,
 } from "./lights";
 import type { MapDef, Placement, MaterialDef } from "./maps/schema";
+import { modelMaterials, type ModelMeta } from "@slopwars/shared";
 
 export const BARREL_HP = 120;
 
@@ -109,8 +110,13 @@ export function objectCatalog(): ObjEntry[] {
  *  seeded so their textures are always loaded even if no object names them. */
 const STRUCTURE_MATERIALS = ["metal", "stone", "crate", "wall"];
 
-/** every material a map references: each object's `mat` (merged over defaults)
- *  plus the ones structures use internally, and the default. */
+/** per-model calibration metas, keyed by folder name (for resolving the materials a
+ *  placed model's slots reference — those textures must load too). */
+const MODEL_META = new Map<string, ModelMeta>(catalog.models.map((m) => [m.name, m.meta ?? {}]));
+
+/** every material a map references: each object's `mat` (merged over defaults), the
+ *  materials each placed model's slots use, the ones structures use internally, and
+ *  the default. */
 export function mapMaterials(def: MapDef): string[] {
   const set = new Set<string>([DEFAULT_MATERIAL, ...STRUCTURE_MATERIALS]);
   for (const o of def.objects) {
@@ -118,6 +124,10 @@ export function mapMaterials(def: MapDef): string[] {
     if (!t) continue;
     const merged = { ...t.defaults, ...(o.params ?? {}) } as Record<string, unknown>;
     if (typeof merged.mat === "string" && merged.mat) set.add(merged.mat);
+    // a placed model shades its surfaces through its own materials → load them too
+    if (typeof merged.model === "string" && merged.model) {
+      for (const m of modelMaterials(MODEL_META.get(merged.model))) set.add(m);
+    }
   }
   return [...set];
 }

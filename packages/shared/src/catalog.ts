@@ -42,7 +42,16 @@ export interface ModelMeta {
    *  way once, composed under every placement's own rotation. Omit → no reorient. */
   baseRot?: Tuple3;
   scale?: number;   // default uniform scale applied on top of a placement's scale
-  material?: string; // material name to override every surface of the model with
+  /** the model's surfaces, as first-class materials — one per glTF material slot.
+   *  Keyed by the glTF material name (see ModelAsset.slots); the value is a material
+   *  asset name. This is the model's MAIN material (not an override on top of the
+   *  glTF's own textures): a slot listed here is shaded by the referenced material,
+   *  a slot left out keeps whatever the glTF authored (e.g. a transparent glass part).
+   *  Every model ships calibrated so each opaque slot points at its own material. */
+  materials?: Record<string, string>;
+  /** legacy single-material field — applied to EVERY surface when `materials` doesn't
+   *  cover a slot. Kept only so old metas still load; the editor writes `materials`. */
+  material?: string;
   /** collision derivation mode (default "auto"). "manual" uses `collisionBoxes`. */
   collision?: CollisionMode;
   /** authored collision solids (model-local space), honoured when collision="manual" */
@@ -55,6 +64,30 @@ export interface ModelAsset {
   name: string;            // folder name = canonical asset key
   gltf: string;            // path under assets/ e.g. "models/Barrel_01/Barrel_01.gltf"
   meta?: ModelMeta;
+  /** the model's material slots (glTF `materials[].name`, in order), scanned from the
+   *  .gltf so the editor can offer a per-slot material assignment. Empty/undefined for
+   *  a .glb (binary — not parsed) or a model with no named materials. */
+  slots?: string[];
+}
+
+/** the material asset a given glTF slot should render with (undefined → keep the glTF
+ *  material). Prefers the per-slot `materials` map, falling back to the legacy single
+ *  `material`. Shared by the game renderer and the editor preview so both agree. */
+export function modelSlotMaterial(meta: ModelMeta | undefined, slot: string): string | undefined {
+  if (!meta) return undefined;
+  const perSlot = meta.materials?.[slot];
+  if (perSlot) return perSlot;
+  return typeof meta.material === "string" && meta.material ? meta.material : undefined;
+}
+
+/** every material asset name a model references across its slots (for preloading the
+ *  textures those materials consume). */
+export function modelMaterials(meta: ModelMeta | undefined): string[] {
+  if (!meta) return [];
+  const out = new Set<string>();
+  if (meta.materials) for (const v of Object.values(meta.materials)) if (v) out.add(v);
+  if (typeof meta.material === "string" && meta.material) out.add(meta.material);
+  return [...out];
 }
 
 /** which of the standard PBR maps a texture folder provides */

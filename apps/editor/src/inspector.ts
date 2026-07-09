@@ -253,17 +253,49 @@ function modelInspector(host: HTMLElement, name: string): void {
     save();
   }, 1));
 
-  group(host, "Material");
-  host.append(assetField({
-    label: "material", kind: "material", catalog, thumbs,
-    get: () => meta.material ?? "", set: (v) => { meta.material = v || undefined; }, onChange: save,
-  }));
+  // Materials — one slot per glTF material (the model's MAIN materials). Assigning a
+  // material shades that surface with it; clearing a slot falls back to the glTF's own
+  // material (e.g. keep a transparent glass part). A model with no named slots (a .glb,
+  // or a legacy single-material meta) gets one "all surfaces" slot.
+  group(host, "Materials");
+  const slots = asset.slots ?? [];
+  if (slots.length) {
+    for (const slot of slots) {
+      host.append(assetField({
+        label: prettySlot(slot, name), kind: "material", catalog, thumbs,
+        get: () => (meta.materials ?? {})[slot] ?? "",
+        set: (v) => setSlotMaterial(meta, slot, v),
+        onChange: save,
+      }));
+    }
+  } else {
+    host.append(assetField({
+      label: "all surfaces", kind: "material", catalog, thumbs,
+      get: () => meta.material ?? "", set: (v) => { meta.material = v || undefined; }, onChange: save,
+    }));
+  }
 
   group(host, "Collision");
   host.append(selectField("mode", ["auto", "manual"], () => meta.collision ?? "auto",
     (v) => { meta.collision = v as CollisionMode; if (v === "manual" && !meta.collisionBoxes) meta.collisionBoxes = []; },
     () => { save(); refreshInspector(); }));
   if ((meta.collision ?? "auto") !== "auto") collisionList(host, meta, modelHooks, save);
+}
+
+/** a readable label for a glTF material slot — drop a redundant model-name prefix
+ *  (a slot literally named after the model reads as "surface"). */
+function prettySlot(slot: string, model: string): string {
+  if (slot === model) return "surface";
+  const stripped = slot.startsWith(model + "_") ? slot.slice(model.length + 1) : slot;
+  return stripped.replace(/[_-]+/g, " ").trim() || slot;
+}
+
+/** assign (or clear) the material for one glTF slot, pruning an emptied `materials`
+ *  map so a model with no assignments carries none. */
+function setSlotMaterial(meta: ModelMeta, slot: string, value: string): void {
+  const map = meta.materials ?? {};
+  if (value) map[slot] = value; else delete map[slot];
+  meta.materials = Object.keys(map).length ? map : undefined;
 }
 
 /** the collision-primitive options a manual solid can take */

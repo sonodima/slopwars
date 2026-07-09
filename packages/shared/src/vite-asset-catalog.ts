@@ -66,7 +66,17 @@ function scanModels(assets: string): ModelAsset[] {
     const metaFile = files.find((f) => f === `${name}.meta.json` || f === "meta.json");
     let meta: Record<string, unknown> | undefined;
     if (metaFile) { try { meta = JSON.parse(fs.readFileSync(path.join(dir, metaFile), "utf8")); } catch { /* ignore */ } }
-    return { name, gltf: `models/${name}/${any}`, meta };
+    // parse the glTF's named material slots (JSON only — a .glb is binary, skipped) so
+    // the editor can offer a per-slot material assignment without loading the mesh.
+    let slots: string[] | undefined;
+    if (/\.gltf$/i.test(any)) {
+      try {
+        const gltf = JSON.parse(fs.readFileSync(path.join(dir, any), "utf8")) as { materials?: { name?: string }[] };
+        const names = (gltf.materials ?? []).map((m, i) => m.name ?? `material_${i}`);
+        if (names.length) slots = names;
+      } catch { /* ignore malformed gltf */ }
+    }
+    return { name, gltf: `models/${name}/${any}`, meta, slots };
   }).filter((m): m is ModelAsset => m !== null).sort((a, b) => a.name.localeCompare(b.name));
 }
 

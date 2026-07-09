@@ -12,7 +12,7 @@ import { GameModels, instantiate } from "./models";
 import { MapTextures, PbrSet, DEFAULT_FOLDER } from "./textures";
 import { MaterialLibrary } from "./materials";
 import type { GroupDef, MaterialDef, ModelMeta, Tuple3 } from "@slopwars/shared";
-import { rotateEuler } from "@slopwars/shared";
+import { rotateEuler, modelSlotMaterial } from "@slopwars/shared";
 import type { AABB, GameMap } from "./map";
 
 /** author-tuned per-model defaults (base offset / scale / material override),
@@ -143,8 +143,8 @@ export class MapBuilder {
 
   /** instantiate a model with a full transform (per-axis scale + euler rotation),
    *  applying the model's calibrated meta (models/<id>/meta.json): a uniform `scale`
-   *  multiplier, a `base` vertical offset so it rests on its footing, and a
-   *  `material` override that reskins every surface. Used by every model placement
+   *  multiplier, a `base` vertical offset so it rests on its footing, and per-slot
+   *  `materials` that shade each glTF surface. Used by every model placement
    *  (props, veg, explodables, lanterns) so a model is tuned once. */
   placeModelTf(id: string, at: Vec3T, rot: Vec3T, scale: Vec3T): Entity | null {
     const e = instantiate(this.models[id]);
@@ -161,9 +161,15 @@ export class MapBuilder {
     } else {
       e.transform.setRotation(rot[0], rot[1], rot[2]);
     }
-    if (typeof meta.material === "string" && meta.material) {
-      const m = this.lib.build(meta.material);
-      for (const r of e.getComponentsIncludeChildren(MeshRenderer, [])) r.setMaterial(m);
+    // shade each surface with the material assigned to its glTF slot (the model's MAIN
+    // materials): a slot with an assignment is rebuilt from that material asset, an
+    // unassigned slot keeps the glTF's own material (e.g. a transparent glass part).
+    if (meta.materials || meta.material) {
+      for (const r of e.getComponentsIncludeChildren(MeshRenderer, [])) {
+        const slot = r.getMaterial()?.name ?? "";
+        const name = modelSlotMaterial(meta, slot);
+        if (name) r.setMaterial(this.lib.build(name));
+      }
     }
     this.root.addChild(e);
     this.map.tris += 500;

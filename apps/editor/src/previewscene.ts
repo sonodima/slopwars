@@ -17,7 +17,7 @@ import {
   TextureCube, UnlitMaterial, Vector3, Vector4, WebGLEngine,
 } from "@galacean/engine";
 import type { AssetCatalog, CollisionBox, MaterialDef, ModelMeta, TextureMaps, Tuple3 } from "@slopwars/shared";
-import { rotateEulerInv } from "@slopwars/shared";
+import { rotateEulerInv, modelSlotMaterial } from "@slopwars/shared";
 import { loadGLTF, loadHDRCube, loadTexture2D } from "@game/assets";
 import { applyWaterLook, attachWaterAnim, WATER_LOOK, type WaterAnim, type WaterLook } from "@game/water";
 import { buildGlassMaterial } from "@game/materials";
@@ -319,7 +319,7 @@ export class PreviewScene {
     if (this.modelBase) e.transform.setPosition(0, this.modelBase, 0);
     const radius = keep ? this.holderRadius() : this.frameHolder();
     this.indicatorRadius = radius;
-    if (meta.material) this.applyModelMaterial(e, meta.material);
+    if (meta.materials || meta.material) this.applyModelMaterials(e, meta);
     if (view === "collision") {
       this.dimModel(e);
       this.renderCollision(meta, radius);
@@ -330,15 +330,18 @@ export class PreviewScene {
    *  solid somewhere visible instead of at the origin). */
   modelCenter(): Tuple3 { const c = this.holderBox().center; return [round3(c.x), round3(c.y), round3(c.z)]; }
 
-  /** apply a material override (by name) to every surface of the previewed model,
-   *  so the isolated preview matches what the game will render. */
-  private applyModelMaterial(e: Entity, name: string): void {
-    const def = this.catalog.materials.find((m) => m.name === name)?.def;
-    if (!def) return;
-    void this.buildMaterial(def).then((m) => {
-      if (e.destroyed) return;
-      for (const r of e.getComponentsIncludeChildren(MeshRenderer, [])) r.setMaterial(m);
-    });
+  /** shade each surface of the previewed model with the material assigned to its glTF
+   *  slot (mirroring the game's placeModelTf), so the isolated preview matches what the
+   *  game will render. An unassigned slot keeps the glTF's own material. */
+  private applyModelMaterials(e: Entity, meta: ModelMeta): void {
+    for (const r of e.getComponentsIncludeChildren(MeshRenderer, [])) {
+      const slot = r.getMaterial()?.name ?? "";
+      const name = modelSlotMaterial(meta, slot);
+      if (!name) continue;
+      const def = this.catalog.materials.find((m) => m.name === name)?.def;
+      if (!def) continue;
+      void this.buildMaterial(def).then((m) => { if (!r.destroyed && !e.destroyed) r.setMaterial(m); });
+    }
   }
 
   /** re-render just the collision boxes (after an inspector edit / add / delete) */

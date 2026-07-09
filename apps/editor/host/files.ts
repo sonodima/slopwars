@@ -125,6 +125,13 @@ export function saveModelMeta(root: string, name: string, meta: ModelMeta): { ok
     clean.baseRot = [Number(meta.baseRot[0]) || 0, Number(meta.baseRot[1]) || 0, Number(meta.baseRot[2]) || 0];
   }
   if (typeof meta.scale === "number") clean.scale = meta.scale;
+  // per-slot materials (the model's main materials) — keep only non-empty string
+  // assignments; drop the map entirely when nothing is assigned.
+  if (meta.materials && typeof meta.materials === "object") {
+    const slots: Record<string, string> = {};
+    for (const [k, v] of Object.entries(meta.materials)) if (typeof v === "string" && v) slots[k] = v;
+    if (Object.keys(slots).length) clean.materials = slots;
+  }
   if (typeof meta.material === "string" && meta.material) clean.material = meta.material;
   // collision: only persist "manual" (auto is the default) + its authored boxes
   if (meta.collision === "manual") {
