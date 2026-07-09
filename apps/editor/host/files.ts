@@ -158,6 +158,96 @@ export function saveModelMeta(root: string, name: string, meta: ModelMeta): { ok
   return { ok: true, name: n };
 }
 
+// ── geometry-only models (strip textures out of an imported glTF) ─────────────
+// A model in this project is *geometry only*: every surface is a first-class library
+// material, resolved by the glTF material (slot) name through meta.materials. A fresh
+// import still carries the exporter's images/textures/material-bindings, which (a) makes
+// the glTF 404 on texture files that were never imported → Galacean aborts the load and
+// the model renders as nothing, and (b) bypasses the material library. `geometryOnlyModel`
+// strips all of that and writes meta.materials, so an imported model loads immediately.
+// Mirrors scripts/geometry-only-models.mjs (kept for batch repair). Idempotent.
+
+const nearly = (a: number, b: number): boolean => Math.abs(a - b) < 0.02;
+
+/** a standard material def from a glTF slot's texture group + baked pbr factors */
+function standardDefFromPbr(group: string, pbr: any, emissive?: number[]): MaterialDef {
+  const def: any = { type: "standard", texture: group };
+  const bc = pbr?.baseColorFactor;
+  if (Array.isArray(bc) && !(nearly(bc[0], 1) && nearly(bc[1], 1) && nearly(bc[2], 1))) def.color = [bc[0], bc[1], bc[2]];
+  if (typeof pbr?.roughnessFactor === "number" && !nearly(pbr.roughnessFactor, 1)) def.roughness = pbr.roughnessFactor;
+  if (typeof pbr?.metallicFactor === "number" && !nearly(pbr.metallicFactor, 1)) def.metallic = pbr.metallicFactor;
+  if (Array.isArray(emissive) && (emissive[0] || emissive[1] || emissive[2])) def.emissive = [emissive[0], emissive[1], emissive[2]];
+  return def;
+}
+
+/** a glass material def carrying the glTF slot's tint/opacity */
+function glassDefFromPbr(pbr: any): MaterialDef {
+  const base = defaultMaterialDef("glass") as any;
+  const bc = pbr?.baseColorFactor;
+  if (Array.isArray(bc)) { base.color = [bc[0], bc[1], bc[2]]; if (typeof bc[3] === "number") base.opacity = bc[3]; }
+  return base;
+}
+
+/** strip an imported model's glTF to geometry, ensure a library material per slot, and
+ *  write meta.materials. No-op for a .glb (binary — its materials stay embedded). */
+export function geometryOnlyModel(root: string, name: string): void {
+  const dir = path.join(root, "public", "assets", "models", sanitize(name));
+  if (!fs.existsSync(dir)) return;
+  const gltfFile = fs.readdirSync(dir).find((f) => f.toLowerCase().endsWith(".gltf"));
+  if (!gltfFile) return;
+  const gltfPath = path.join(dir, gltfFile);
+  let gltf: any;
+  try { gltf = JSON.parse(fs.readFileSync(gltfPath, "utf8")); } catch { return; }
+
+  const materials: any[] = gltf.materials ?? [];
+  const images: any[] = gltf.images ?? [];
+  const textures: any[] = gltf.textures ?? [];
+  // texture group a slot's colour map lives in: from the glTF image uri when it's already
+  // "textures/<group>/…" (a re-import of a consolidated model), else the slot name.
+  const groupOf = (m: any, fallback: string): string => {
+    const ref = m.pbrMetallicRoughness?.baseColorTexture;
+    const uri = ref && textures[ref.index] != null ? images[textures[ref.index].source]?.uri : undefined;
+    const mm = typeof uri === "string" && uri.match(/^(?:\.\.\/\.\.\/)?textures\/([^/]+)\//);
+    return mm ? mm[1] : fallback;
+  };
+
+  const assignments: Record<string, string> = {};
+  materials.forEach((m: any, mi: number) => {
+    const slot = m.name ?? `${sanitize(name)}_material_${mi}`;
+    const asset = sanitize(slot);
+    const pbr = m.pbrMetallicRoughness ?? {};
+    const matFile = matPath(root, asset);
+    // only create a material if one doesn't already exist (idempotent / respects edits)
+    if (!fs.existsSync(matFile)) {
+      const def = /glass/i.test(slot) ? glassDefFromPbr(pbr) : standardDefFromPbr(groupOf(m, asset), pbr, m.emissiveFactor);
+      fs.mkdirSync(path.join(root, MAT_DIR), { recursive: true });
+      fs.writeFileSync(matFile, JSON.stringify(def, null, 2) + "\n");
+    }
+    assignments[slot] = asset;
+  });
+
+  // strip to geometry: no images/textures/samplers, no material→texture bindings or
+  // shading extensions (the library material owns all shading). Also drop the top-level
+  // extensionsUsed/Required so an unsupported ext (KHR_materials_specular/ior) can't abort
+  // the load.
+  delete gltf.images; delete gltf.textures; delete gltf.samplers;
+  delete gltf.extensionsUsed; delete gltf.extensionsRequired;
+  for (const m of materials) {
+    const pbr = m.pbrMetallicRoughness;
+    if (pbr) { delete pbr.baseColorTexture; delete pbr.metallicRoughnessTexture; }
+    delete m.normalTexture; delete m.occlusionTexture; delete m.emissiveTexture; delete m.extensions;
+  }
+  fs.writeFileSync(gltfPath, JSON.stringify(gltf, null, 2) + "\n");
+
+  // record the per-slot material assignment on the model's meta (drop the legacy field)
+  const metaFile = path.join(dir, "meta.json");
+  let meta: any = {};
+  if (fs.existsSync(metaFile)) { try { meta = JSON.parse(fs.readFileSync(metaFile, "utf8")); } catch { meta = {}; } }
+  meta.materials = { ...(meta.materials ?? {}), ...assignments };
+  delete meta.material;
+  fs.writeFileSync(metaFile, JSON.stringify(meta, null, 2) + "\n");
+}
+
 /** delete a whole model folder (public/assets/models/<name>/) */
 export function deleteModel(root: string, name: string): { ok?: boolean; error?: string } {
   const dir = path.join(root, "public", "assets", "models", sanitize(name));
@@ -295,6 +385,10 @@ export function importAsset(root: string, req: ImportRequest): ImportResult {
       writeAssetB64(root, rel, f.data);
       written.push(rel);
     }
+    // make the model geometry-only: strip the glTF's textures/material bindings and
+    // write meta.materials, so it loads + shades from the material library right away
+    // (an un-stripped glTF 404s on missing texture files and renders as nothing).
+    geometryOnlyModel(root, name);
     return { ok: true, name, files: written };
   }
 

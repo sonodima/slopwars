@@ -56,7 +56,11 @@ async function refreshCatalog(reshade = false): Promise<void> {
   setInspectorCatalog(catalog);
   preview.setCatalog(catalog);
   viewport.setMaterials(catalog.materials, false);
-  viewport.setModelMetas(catalog.models, reshade);
+  viewport.setModelMetas(catalog.models, false);
+  // load the geometry of any newly imported models (the compiled-in virtual catalog
+  // loadModels() used is a dev-server-start snapshot); this re-renders when something
+  // new loaded, so an imported model appears without an editor/dev-server restart.
+  void viewport.refreshModels(catalog.models, reshade);
   // re-render the open inspector so its asset pickers (texture/material/model slots)
   // reflect a just-created/renamed/deleted asset without needing an editor restart.
   refreshInspector();

@@ -16,7 +16,7 @@ import { GameMap } from "@game/map";
 import { GameModels, loadModels } from "@game/models";
 import { resolveTextures, type MapTextures } from "@game/textures";
 import { mapTextureFolders, objectCategory } from "@game/objects";
-import { loadHDRCube } from "@game/assets";
+import { loadHDRCube, loadGLTF } from "@game/assets";
 import "@game/objects"; // side effect: register built-in object types
 import { state } from "./state";
 import {
@@ -226,6 +226,22 @@ export class Viewport {
     if (rebuild && this.ready && state.map) void this.render(state.map);
   }
 
+  /** load the geometry of any catalog models not already loaded (e.g. just imported),
+   *  straight from the live editor catalog. The compiled-in `virtual:asset-catalog`
+   *  that loadModels() uses is a dev-server-start snapshot and never sees post-start
+   *  imports, so without this a freshly imported model renders as nothing until the
+   *  dev server restarts. Re-renders when anything new loaded (or `rebuild`). */
+  async refreshModels(models: ModelAsset[], rebuild = false): Promise<void> {
+    if (!this.ready) return;
+    const missing = models.filter((m) => !(m.name in this.models));
+    await Promise.all(missing.map((m) =>
+      loadGLTF(this.engine, m.gltf)
+        .then((r) => { this.models[m.name] = r; })
+        .catch((e) => { console.warn("[model] load failed:", m.name, e); this.models[m.name] = null; }),
+    ));
+    if ((rebuild || missing.length > 0) && state.map) await this.render(state.map);
+  }
+
   async render(def: MapDef): Promise<void> {
     if (!this.ready) return;
     const folders = mapTextureFolders(def, this.matDefs);
@@ -353,9 +369,15 @@ export class Viewport {
     if (dolly) { const f = this.forward(); this.pos.x += f[0] * dolly; this.pos.y += f[1] * dolly; this.pos.z += f[2] * dolly; }
     this.applyCamera();
   }
-  /** PNG data-URL of the current viewport (needs preserveDrawingBuffer) */
+  /** PNG data-URL of the current viewport (needs preserveDrawingBuffer). Forces one
+   *  synchronous frame first: the engine's rAF render loop is throttled to ~0 fps when
+   *  the editor tab/window is backgrounded, which would otherwise return a stale image
+   *  and make camera/scene changes look like they never applied. */
   screenshot(): string | null {
-    try { return this.canvas.toDataURL("image/png"); } catch { return null; }
+    try {
+      if (this.ready) { this.applyCamera(); this.engine.update(); }
+      return this.canvas.toDataURL("image/png");
+    } catch { return null; }
   }
 
   // ── env (mirrors the game's applyEnv so the preview is faithful) ───────────
