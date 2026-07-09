@@ -37,6 +37,9 @@ export const api = {
   // models: calibration meta (base/scale/material) + delete
   saveModelMeta: (name: string, meta: ModelMeta): Promise<{ name?: string; error?: string }> => jpost("/__editor/model", { op: "save", name, meta }) as Promise<{ name?: string; error?: string }>,
   deleteModel: (name: string): Promise<{ error?: string }> => jpost("/__editor/model", { op: "delete", name }) as Promise<{ error?: string }>,
+  // textures are a *group* of PBR maps: create an empty set, then fill its maps in the
+  // texture editor (no up-front multi-file import dialog).
+  createTexture: (): Promise<{ name?: string; error?: string }> => jpost("/__editor/texture", { op: "create" }) as Promise<{ name?: string; error?: string }>,
   deleteTexture: (name: string): Promise<{ error?: string }> => jpost("/__editor/texture", { op: "delete", name }) as Promise<{ error?: string }>,
   // clear a single PBR map (color/normal/arm) of a texture set, leaving the set intact
   clearTextureMap: (name: string, slot: "color" | "normal" | "arm"): Promise<{ error?: string }> => jpost("/__editor/texture", { op: "clearMap", name, slot }) as Promise<{ error?: string }>,

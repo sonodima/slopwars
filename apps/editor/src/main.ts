@@ -665,6 +665,7 @@ function buildDock(): void {
     onOpenModel: (name) => tabs.openModel(name),
     onOpenTexture: (name) => tabs.openTexture(name),
     onCreateMaterial: () => void createMaterialFlow(),
+    onCreateTexture: () => void createTextureFlow(),
     onLoadMap: (file) => void openMap(file),
     onCreateMap: () => { tabs.newMap(); },
     onDeleteModel: (name) => void deleteModelFlow(name),
@@ -686,6 +687,19 @@ async function createMaterialFlow(): Promise<void> {
     browser?.showMaterials();
     tabs.openMaterial(r.name);
   } catch (e) { toast("create material failed: " + e, true); }
+}
+
+/** create an empty texture group, refresh the browser, and open its editor so the
+ *  color/normal/arm maps get loaded from the inspector slots (no import dialog) */
+async function createTextureFlow(): Promise<void> {
+  try {
+    const r = await api.createTexture();
+    if (!r.name) { toast("create texture failed: " + (r.error ?? ""), true); return; }
+    await refreshCatalog();
+    await browser?.reload();
+    tabs.openTexture(r.name);
+    toast(`created texture set “${r.name}” — add its maps on the right`);
+  } catch (e) { toast("create texture failed: " + e, true); }
 }
 
 /** patch the in-memory catalog with a live model-meta edit so the map viewport

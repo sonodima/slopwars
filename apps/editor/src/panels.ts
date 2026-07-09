@@ -23,6 +23,7 @@ export interface PanelCtx {
   onOpenModel: (name: string) => void;
   onOpenTexture: (name: string) => void;
   onCreateMaterial: () => void;
+  onCreateTexture: () => void;
   onLoadMap: (file: string) => void;
   onCreateMap: () => void;
   // right-click deletes (Unity-style context actions; delete is no longer an
@@ -48,8 +49,9 @@ function ctxMenu(card: HTMLElement, items: () => MenuItem[]): void {
 
 type Tab = "Objects" | "Models" | "Materials" | "Textures" | "Skyboxes" | "Audio" | "Maps";
 const TABS: Tab[] = ["Objects", "Models", "Materials", "Textures", "Skyboxes", "Audio", "Maps"];
-/** which tabs import files vs create in-place vs neither */
-const IMPORT_KIND: Partial<Record<Tab, ImportKind>> = { Models: "model", Textures: "texture", Skyboxes: "hdri", Audio: "audio" };
+/** which tabs import files vs create in-place vs neither. Textures are CREATED (an
+ *  empty group you then fill map-by-map in the editor), not imported via a dialog. */
+const IMPORT_KIND: Partial<Record<Tab, ImportKind>> = { Models: "model", Skyboxes: "hdri", Audio: "audio" };
 
 export interface BrowserControl { reload: () => Promise<void>; refreshMaps: () => void; showMaterials: () => void }
 
@@ -92,6 +94,7 @@ export function renderBrowser(host: HTMLElement, ctx: PanelCtx): BrowserControl 
     const imp = IMPORT_KIND[active];
     if (imp) setAction("download", "Import", () => openImport(imp, () => void reload()));
     else if (active === "Materials") setAction("plus", "New", ctx.onCreateMaterial);
+    else if (active === "Textures") setAction("plus", "New", ctx.onCreateTexture);
     else if (active === "Maps") setAction("plus", "New", ctx.onCreateMap);
     else { action.style.display = "none"; action.onclick = null; }
 

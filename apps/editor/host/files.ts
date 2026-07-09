@@ -165,6 +165,20 @@ export function deleteModel(root: string, name: string): { ok?: boolean; error?:
   return { ok: true };
 }
 
+/** create a new, EMPTY texture set with a unique auto name and return it. The set's
+ *  PBR maps are then loaded from the texture editor's right-hand slots (color / normal
+ *  / arm), so importing a texture is just "make a group, then fill its maps" — no
+ *  up-front multi-file dialog. */
+export function createTexture(root: string): { ok?: boolean; error?: string; name?: string } {
+  const base = path.join(root, "public", "assets", "textures");
+  fs.mkdirSync(base, { recursive: true });
+  let n = "texture";
+  let i = 1;
+  while (fs.existsSync(path.join(base, n))) n = `texture_${++i}`;
+  fs.mkdirSync(path.join(base, n), { recursive: true });
+  return { ok: true, name: n };
+}
+
 /** delete a whole texture folder (public/assets/textures/<name>/) */
 export function deleteTexture(root: string, name: string): { ok?: boolean; error?: string } {
   const dir = path.join(root, "public", "assets", "textures", sanitize(name));
