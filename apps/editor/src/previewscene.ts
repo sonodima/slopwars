@@ -323,7 +323,38 @@ export class PreviewScene {
     if (view === "collision") {
       this.dimModel(e);
       this.renderCollision(meta, radius);
+    } else {
+      this.renderGripMarker(e, meta, radius);   // Model view: show the hand-attach point
     }
+  }
+
+  /** draw the model's `grip` anchor (the hand-attach point) as a small marker with
+   *  axes, parented to the model so it tracks the base lift. A child of `e`, so it's
+   *  torn down with the model on the next showModel(); only shown in Model view. */
+  private renderGripMarker(model: Entity, meta: ModelMeta, radius: number): void {
+    const grip = meta.anchors?.grip;
+    if (!grip) return;
+    const marker = model.createChild("grip-marker");
+    marker.transform.setPosition(grip.at[0], grip.at[1], grip.at[2]);
+    if (grip.rot) marker.transform.setRotation(grip.rot[0], grip.rot[1], grip.rot[2]);
+    const s = Math.max(0.03, radius * 0.05);
+    // centre bead — bright unlit green so it reads against any model surface
+    const bead = marker.createChild("bead");
+    const br = bead.addComponent(MeshRenderer);
+    br.mesh = PrimitiveMesh.createSphere(this.engine, s, 16);
+    const bm = new UnlitMaterial(this.engine); bm.baseColor = new Color(0.2, 1.0, 0.55, 1);
+    br.setMaterial(bm);
+    // XYZ axes (thin unlit bars) so the held orientation is legible
+    const axis = (dir: "x" | "y" | "z", col: [number, number, number]): void => {
+      const len = s * 5, th = s * 0.35;
+      const a = marker.createChild("ax");
+      a.transform.setPosition(dir === "x" ? len / 2 : 0, dir === "y" ? len / 2 : 0, dir === "z" ? len / 2 : 0);
+      const r = a.addComponent(MeshRenderer);
+      r.mesh = PrimitiveMesh.createCuboid(this.engine, dir === "x" ? len : th, dir === "y" ? len : th, dir === "z" ? len : th);
+      const m = new UnlitMaterial(this.engine); m.baseColor = new Color(col[0], col[1], col[2], 1);
+      r.setMaterial(m);
+    };
+    axis("x", [1, 0.3, 0.3]); axis("y", [0.4, 1, 0.4]); axis("z", [0.4, 0.55, 1]);
   }
 
   /** model-local centre of the previewed geometry (for spawning a new collision

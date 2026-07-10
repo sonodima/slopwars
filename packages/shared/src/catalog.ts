@@ -31,6 +31,16 @@ export interface CollisionBox {
  *  a tree's canopy doesn't block the player, only its trunk does). */
 export type CollisionMode = "auto" | "manual";
 
+/** a named attachment point on a model, in model-local space. The one the game reads
+ *  today is `grip` — where a held item (a weapon, a pickup) sits in the hand: the
+ *  point authored here is snapped onto the holder's hand and oriented by `rot`. The
+ *  anchors map is deliberately keyed by name so more anchors (muzzle, sight, …) can
+ *  be added later with no schema change. */
+export interface ModelAnchor {
+  at: Tuple3;         // model-local position of the anchor
+  rot?: Tuple3;       // model-local euler degrees applied when the item is attached
+}
+
 /** author-tunable per-model defaults, persisted to models/{name}/meta.json. Applied
  *  every time the model is instantiated (props, veg, explodables, drops), so a
  *  model can be calibrated once — sit it on its base, size it, reskin it, author its
@@ -60,6 +70,9 @@ export interface ModelMeta {
    *  editor's model options to add the model to the pool a hider is randomly disguised
    *  as (instead of the fixed crate). */
   propHunt?: boolean;
+  /** named attachment points (model-local). `anchors.grip` positions the model when
+   *  it's held in a hand (weapons, pickups); more names can be added later. */
+  anchors?: Record<string, ModelAnchor>;
   [k: string]: unknown;
 }
 
@@ -82,6 +95,12 @@ export function modelSlotMaterial(meta: ModelMeta | undefined, slot: string): st
   const perSlot = meta.materials?.[slot];
   if (perSlot) return perSlot;
   return typeof meta.material === "string" && meta.material ? meta.material : undefined;
+}
+
+/** a model's named anchor (model-local), or undefined if it has none. `grip` is the
+ *  hand-attach point read by the held-weapon code. */
+export function modelAnchor(meta: ModelMeta | undefined, name: string): ModelAnchor | undefined {
+  return meta?.anchors?.[name];
 }
 
 /** every material asset name a model references across its slots (for preloading the

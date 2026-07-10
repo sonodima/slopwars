@@ -286,6 +286,12 @@ function modelInspector(host: HTMLElement, name: string): void {
     () => { save(); refreshInspector(); }));
   if ((meta.collision ?? "auto") !== "auto") collisionList(host, meta, modelHooks, save);
 
+  // Hold anchor — where the model sits in a hand when it's a held item (a weapon, a
+  // pickup). Authoring it here (with a live marker in the preview) replaces the need
+  // to hand-tune placement in code. Extensible: the schema keys anchors by name, so
+  // more (muzzle, sight, …) can be added later without touching this.
+  anchorSection(host, meta, save);
+
   // Prop Hunt: opt this model into the pool a hider can be disguised as. Off by default;
   // when no model opts in the game falls back to the built-in crate disguise.
   group(host, "Prop Hunt");
@@ -307,6 +313,43 @@ function setSlotMaterial(meta: ModelMeta, slot: string, value: string): void {
   const map = meta.materials ?? {};
   if (value) map[slot] = value; else delete map[slot];
   meta.materials = Object.keys(map).length ? map : undefined;
+}
+
+/** the "grip" anchor editor: a toggle that adds/removes the hand-attach point, and —
+ *  while present — position + rotation fields. The preview draws a marker there so the
+ *  point can be placed against the model visually. */
+function anchorSection(host: HTMLElement, meta: ModelMeta, save: () => void): void {
+  group(host, "Hold anchor");
+  host.append(checkField("held in hand", () => !!meta.anchors?.grip,
+    (v) => { if (v) ensureGrip(meta); else removeGrip(meta); },
+    () => { save(); refreshInspector(); }));
+  const grip = meta.anchors?.grip;
+  if (!grip) {
+    host.append(el("div", "side-note", "Turn on for weapons / pickups to mark where the model is held. The preview shows the point as a marker."));
+    return;
+  }
+  const at = grip.at.slice() as number[];
+  host.append(vecField("grip pos", at, () => { grip.at = [at[0], at[1], at[2]] as Tuple3; save(); }, 0.01));
+  const rot = (grip.rot ?? [0, 0, 0]).slice() as number[];
+  host.append(vecField("grip rot", rot, () => {
+    grip.rot = (rot[0] || rot[1] || rot[2]) ? [rot[0], rot[1], rot[2]] as Tuple3 : undefined;
+    save();
+  }, 1));
+  host.append(el("div", "side-note", "The green marker is the point that snaps into the hand; its axes show the held orientation."));
+}
+
+/** ensure the model has a `grip` anchor (default at the origin) */
+function ensureGrip(meta: ModelMeta): void {
+  const anchors = meta.anchors ?? {};
+  if (!anchors.grip) anchors.grip = { at: [0, 0, 0] };
+  meta.anchors = anchors;
+}
+
+/** remove the `grip` anchor, pruning an emptied anchors map */
+function removeGrip(meta: ModelMeta): void {
+  if (!meta.anchors) return;
+  delete meta.anchors.grip;
+  if (!Object.keys(meta.anchors).length) meta.anchors = undefined;
 }
 
 /** the collision-primitive options a manual solid can take */

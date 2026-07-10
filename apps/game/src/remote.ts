@@ -8,10 +8,11 @@
 // (a model from the map's prop-hunt pool, or a plain crate when the pool is empty).
 import {
   Animator, AnimatorCullingMode, BlinnPhongMaterial, Color, Engine, Entity, MeshRenderer,
-  PrimitiveMesh, SkinnedMeshRenderer,
+  PrimitiveMesh, SkinnedMeshRenderer, Vector3,
 } from "@galacean/engine";
+import { modelAnchor } from "@slopwars/shared";
 import { AABB, rayAABB } from "./map";
-import { GameModels, buildProp, instantiate } from "./models";
+import { GameModels, buildProp, instantiate, modelMetaOf } from "./models";
 import type { MaterialLibrary } from "./materials";
 import { INTERP_DELAY, PlayerState, Vec3, WeaponId, clamp } from "./types";
 
@@ -151,8 +152,21 @@ export class RemotePlayer {
     const ws = this.handBone ? this.handBone.transform.lossyWorldScale.x : 1;
     const inv = Math.abs(ws) > 1e-6 ? 1 / ws : 1;
     m.transform.setScale(t.s * inv, t.s * inv, t.s * inv);
-    m.transform.setPosition(t.p[0] * inv, t.p[1] * inv, t.p[2] * inv);
-    m.transform.setRotation(t.r[0], t.r[1], t.r[2]);
+    // Authored grip anchor wins over the hardcoded position: orient by the anchor,
+    // then offset so the anchor's model-local point lands exactly at the hand origin
+    // (P = −R·S·gripPos). Falls back to the tuned offset when no anchor is set, so
+    // un-anchored weapons are unchanged.
+    const grip = modelAnchor(modelMetaOf(folder), "grip");
+    if (grip) {
+      const gr = grip.rot ?? [0, 0, 0];
+      m.transform.setRotation(gr[0], gr[1], gr[2]);
+      const g = new Vector3(grip.at[0] * t.s * inv, grip.at[1] * t.s * inv, grip.at[2] * t.s * inv);
+      Vector3.transformByQuat(g, m.transform.rotationQuaternion, g);
+      m.transform.setPosition(-g.x, -g.y, -g.z);
+    } else {
+      m.transform.setPosition(t.p[0] * inv, t.p[1] * inv, t.p[2] * inv);
+      m.transform.setRotation(t.r[0], t.r[1], t.r[2]);
+    }
     parent.addChild(m);
     this.heldEntity = m;
   }
