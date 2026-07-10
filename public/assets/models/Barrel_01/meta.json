@@ -1,5 +1,6 @@
 {
   "materials": {
     "Barrel_01": "Barrel_01"
-  }
+  },
+  "propHunt": true
 }

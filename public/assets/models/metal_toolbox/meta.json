@@ -1,5 +1,6 @@
 {
   "materials": {
     "metal_toolbox": "metal_toolbox"
-  }
+  },
+  "propHunt": true
 }

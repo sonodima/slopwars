@@ -8,7 +8,7 @@
 // PBR maps its set holds as an auto-fitting grid. Right-clicking any card opens
 // Unity-style context actions (Open / Delete…).
 import type { AssetCatalog, MapCatalogEntry } from "@slopwars/shared";
-import { objectCatalog } from "@game/objects";
+import { objectCatalog, objectIcon } from "@game/objects";
 import { clear, el, contextMenu, confirmDelete, type MenuItem } from "./ui";
 import { icon, type IconName } from "./icons";
 import { ThumbRenderer } from "./preview";
@@ -37,10 +37,6 @@ export interface PanelCtx {
 }
 
 const ASSET = (p: string): string => `${import.meta.env.BASE_URL}assets/${p}`;
-
-const CAT_ICON: Record<string, IconName> = {
-  geometry: "box", marker: "flag", sound: "volume", light: "bulb", entity: "zap", structure: "building", prop: "package",
-};
 
 /** attach a right-click context menu (Unity-style) to an asset card */
 function ctxMenu(card: HTMLElement, items: () => MenuItem[]): void {
@@ -109,12 +105,16 @@ export function renderBrowser(host: HTMLElement, ctx: PanelCtx): BrowserControl 
     if (!grid.childElementCount) grid.append(el("div", "empty", query ? "No matches" : "Nothing here"));
   };
 
+  // categories whose real built geometry makes a meaningful thumbnail. Everything else
+  // (markers, sounds, lights, particle emitters, the bare prop) keeps its icon — a
+  // rendered ball/blob for those says nothing, its icon says what it is.
+  const THUMB_CATS = new Set(["geometry", "structure"]);
   const drawObjects = (): void => {
     for (const o of objectCatalog()) {
       if (!match(o.name)) continue;
-      const c = card(o.name, CAT_ICON[o.category] ?? "package", () => ({ kind: "object", name: o.name }));
+      const c = card(o.name, objectIcon(o.name) as IconName, () => ({ kind: "object", name: o.name }));
       c.title = "drag into the viewport to place";
-      fillThumb(c, ctx.thumbs.objectThumb(o.name, o.category));
+      if (THUMB_CATS.has(o.category)) fillThumb(c, ctx.thumbs.objectThumb(o.name, o.category));
       grid.append(c);
     }
   };

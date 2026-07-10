@@ -4,15 +4,14 @@
 // Idle/Walk/Run/Jump + rifle clips). The locomotion state is driven from the
 // interpolated motion, and the player's current weapon is parented to the right
 // hand bone so it tracks the arm. The operator always shows its own standard
-// textures (no team tint); prop-hunt swaps the whole humanoid for a crate. If the
-// model fails to load the avatar falls back to the old cuboid limbs so the game
-// never renders an empty player.
+// textures (no team tint); prop-hunt swaps the whole humanoid for a disguise prop
+// (a model from the map's prop-hunt pool, or a plain crate when the pool is empty).
 import {
   Animator, AnimatorCullingMode, BlinnPhongMaterial, Color, Engine, Entity, MeshRenderer,
   PrimitiveMesh, SkinnedMeshRenderer,
 } from "@galacean/engine";
 import { AABB, rayAABB } from "./map";
-import { GameModels, instantiate } from "./models";
+import { GameModels, buildProp, instantiate } from "./models";
 import { INTERP_DELAY, PlayerState, Vec3, WeaponId, clamp } from "./types";
 
 interface Sample { time: number; p: [number, number, number]; yaw: number; pitch: number; cr: number }
@@ -57,8 +56,6 @@ export class RemotePlayer {
   private buf: Sample[] = [];
   private engine: Engine;
   private models: GameModels;
-  private origColor: number;
-  private appliedColor = -2;      // last team colour applied (-1 = original)
 
   private charRoot: Entity | null = null;   // rigged humanoid (null if it failed to load)
   private animator: Animator | null = null;
@@ -71,9 +68,8 @@ export class RemotePlayer {
   private heldEntity: Entity | null = null;
   private weaponMat: BlinnPhongMaterial;
 
-  private parts: Entity[] = [];   // cuboid fallback limbs / body (hidden while disguised)
-  private bodyMat: BlinnPhongMaterial | null = null; // fallback body tint target
-  private crate: Entity | null = null;
+  private disguise: Entity | null = null;   // prop-hunt disguise prop (built lazily)
+  private disguiseModel: string | null = null;  // which model the current disguise is
 
   // animation clock (wall time) for locomotion speed sampling
   private prevX = 0;
@@ -81,10 +77,9 @@ export class RemotePlayer {
   private prevY = 0;
   private prevT = 0;
 
-  constructor(engine: Engine, parent: Entity, public id: string, public name: string, color: number, models: GameModels) {
+  constructor(engine: Engine, parent: Entity, public id: string, public name: string, _color: number, models: GameModels) {
     this.engine = engine;
     this.models = models;
-    this.origColor = color;
     this.entity = parent.createChild("rp-" + id);
 
     this.weaponMat = new BlinnPhongMaterial(engine);
@@ -92,7 +87,6 @@ export class RemotePlayer {
 
     const char = instantiate(models[CHARACTER_MODEL]);
     if (char) this.buildCharacter(char);
-    else this.buildCuboidFallback(color);
 
     this.weaponHolder = this.entity.createChild("held");
     this.syncWeapon();
@@ -125,30 +119,6 @@ export class RemotePlayer {
     // the right-hand bone drives the held weapon so it tracks the arm every frame.
     // (glTF tooling may strip the "mixamorig:" prefix's colon, so match by suffix.)
     this.handBone = char.findByName("mixamorig:RightHand") ?? findBoneBySuffix(char, "RightHand");
-  }
-
-  /** legacy blocky avatar — only used when the character model didn't load */
-  private buildCuboidFallback(color: number): void {
-    const engine = this.engine;
-    const c = new Color(((color >> 16) & 255) / 255, ((color >> 8) & 255) / 255, (color & 255) / 255, 1);
-    const mBody = new BlinnPhongMaterial(engine); mBody.baseColor = c;
-    this.bodyMat = mBody;
-    const mDark = new BlinnPhongMaterial(engine); mDark.baseColor = new Color(0.15, 0.14, 0.13, 1);
-    const mSkin = new BlinnPhongMaterial(engine); mSkin.baseColor = new Color(0.85, 0.65, 0.5, 1);
-
-    const mk = (name: string, x: number, y: number, z: number, w: number, h: number, d: number, m: BlinnPhongMaterial): Entity => {
-      const e = this.entity.createChild(name);
-      e.transform.setPosition(x, y, z);
-      const r = e.addComponent(MeshRenderer);
-      r.mesh = PrimitiveMesh.createCuboid(engine, w, h, d);
-      r.setMaterial(m);
-      r.castShadows = true;
-      return e;
-    };
-
-    this.parts.push(mk("legs", 0, 0.45, 0, 0.5, 0.9, 0.32, mDark));
-    this.parts.push(mk("torso", 0, 1.22, 0, 0.62, 0.64, 0.36, mBody));
-    this.parts.push(mk("head", 0, 1.72, 0, 0.3, 0.3, 0.3, mSkin));
   }
 
   // ── held weapon ─────────────────────────────────────────────────────────────
@@ -185,44 +155,41 @@ export class RemotePlayer {
     this.heldEntity = m;
   }
 
-  // ── team colour / disguise ──────────────────────────────────────────────────
+  // ── disguise (prop hunt) ─────────────────────────────────────────────────────
 
-  /** team play used to tint the avatar; the operator now always shows its own
-   *  standard textures, so this only recolours the blocky fallback body. */
-  setTeamColor(color: number | null): void {
-    const key = color ?? -1;
-    if (key === this.appliedColor) return;
-    this.appliedColor = key;
-    if (this.charRoot) return; // realistic operator keeps its standard colours
-    if (this.bodyMat) {
-      const c = color ?? this.origColor;
-      this.bodyMat.baseColor = new Color(((c >> 16) & 255) / 255, ((c >> 8) & 255) / 255, (c & 255) / 255, 1);
-    }
-  }
-
-  /** prop-hunt: swap the humanoid for a wooden crate disguise */
-  setDisguise(on: boolean): void {
+  /** prop-hunt: swap the humanoid for a disguise prop. `model` names a model from the
+   *  prop-hunt pool (rebuilt if it changed); a null/missing model falls back to a plain
+   *  crate so a hider is always *something*. */
+  setDisguise(on: boolean, model: string | null = null): void {
+    if (on && (this.disguise === null || model !== this.disguiseModel)) this.buildDisguise(model);
     if (on === this.disguised) return;
     this.disguised = on;
     if (this.charRoot) this.charRoot.isActive = !on;
-    for (const p of this.parts) p.isActive = !on;
     this.weaponHolder.isActive = !on;
-    if (on) {
-      if (!this.crate) {
-        this.crate = this.entity.createChild("crate");
-        const m = new BlinnPhongMaterial(this.engine);
-        m.baseColor = new Color(0.42, 0.3, 0.16, 1);
-        const box = this.crate.createChild("c");
-        box.transform.setPosition(0, 0.42, 0);
-        const r = box.addComponent(MeshRenderer);
-        r.mesh = PrimitiveMesh.createCuboid(this.engine, 0.84, 0.84, 0.84);
-        r.setMaterial(m);
-        r.castShadows = true;
-      }
-      this.crate.isActive = true;
-    } else if (this.crate) {
-      this.crate.isActive = false;
+    if (this.disguise) this.disguise.isActive = on;
+  }
+
+  /** (re)build the disguise prop: the named pool model (calibrated) or a plain crate */
+  private buildDisguise(model: string | null): void {
+    this.disguise?.destroy();
+    this.disguiseModel = model;
+    const holder = this.entity.createChild("disguise");
+    const prop = model ? buildProp(this.models, model) : null;
+    if (prop) {
+      for (const r of prop.getComponentsIncludeChildren(MeshRenderer, [])) r.castShadows = true;
+      holder.addChild(prop);
+    } else {
+      const m = new BlinnPhongMaterial(this.engine);
+      m.baseColor = new Color(0.42, 0.3, 0.16, 1);
+      const box = holder.createChild("c");
+      box.transform.setPosition(0, 0.42, 0);
+      const r = box.addComponent(MeshRenderer);
+      r.mesh = PrimitiveMesh.createCuboid(this.engine, 0.84, 0.84, 0.84);
+      r.setMaterial(m);
+      r.castShadows = true;
     }
+    holder.isActive = this.disguised;
+    this.disguise = holder;
   }
 
   push(s: PlayerState, time: number): void {

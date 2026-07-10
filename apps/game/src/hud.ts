@@ -115,12 +115,18 @@ export class Hud {
     $("menu-conn").classList.toggle("hidden", !on);
   }
 
-  /** reflect a local, bots-only session (host couldn't reach the lobby server): swap
-   *  the "share this code" prompt for an explanation and show an OFFLINE badge in-game. */
+  /** reflect a local, bots-only session (host couldn't reach the lobby server). In the
+   *  lobby we simply omit the (unshareable) code and show an explanation; in-game the
+   *  usual lobby-code slot becomes a red OFFLINE badge. */
   setOffline(on: boolean): void {
     $("lobby-offline").classList.toggle("hidden", !on);
-    $("game-offline").classList.toggle("hidden", !on);
-    $("lobby-code-label").textContent = on ? "no connection" : "share this code";
+    // lobby: hide the code + its label entirely offline — there's nothing to share
+    $("lobby-code").classList.toggle("hidden", on);
+    $("lobby-code-label").classList.toggle("hidden", on);
+    // in-game: repurpose the code slot as a red OFFLINE badge
+    const gc = $("game-code");
+    gc.classList.toggle("offline", on);
+    if (on) gc.textContent = "OFFLINE";
     $("sb-code").classList.toggle("hidden", on); // the scoreboard "join code" is meaningless offline
   }
 

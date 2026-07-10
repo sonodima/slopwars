@@ -56,6 +56,10 @@ export interface ModelMeta {
   collision?: CollisionMode;
   /** authored collision solids (model-local space), honoured when collision="manual" */
   collisionBoxes?: CollisionBox[];
+  /** may this model be used as a Prop-Hunt disguise? Off by default; flip it on in the
+   *  editor's model options to add the model to the pool a hider is randomly disguised
+   *  as (instead of the fixed crate). */
+  propHunt?: boolean;
   [k: string]: unknown;
 }
 

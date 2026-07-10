@@ -34,7 +34,24 @@ export interface ObjectType<P extends object> {
   category: ObjCategory;
   /** built in a second pass, after all geometry (floor-relative markers) */
   deferred?: boolean;
+  /** editor icon name (from the editor's icon set) — drawn on the object's viewport
+   *  marker and used as its asset-browser card art, so a light/marker/sound reads as
+   *  itself instead of a meaningless coloured dot. Falls back to a per-category icon. */
+  icon?: string;
   build(b: MapBuilder, t: Transform, p: P): void;
+}
+
+/** per-category fallback icon (editor icon-set names) when a type declares none */
+const CATEGORY_ICON: Record<ObjCategory, string> = {
+  geometry: "box", prop: "package", entity: "zap", structure: "building",
+  marker: "flag", sound: "volume", light: "bulb",
+};
+
+/** the editor icon name for an object type (its own `icon`, else its category's) */
+export function objectIcon(name: string): string {
+  const t = REGISTRY.get(name);
+  if (!t) return "package";
+  return t.icon ?? CATEGORY_ICON[t.category];
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -58,6 +75,7 @@ export function definePreset<P extends object>(
     defaults: { ...bt.defaults, ...preset },
     category: category ?? bt.category,
     deferred: bt.deferred,
+    icon: bt.icon,
     build: bt.build,
   });
 }
@@ -169,15 +187,15 @@ defineObject<{ mat: string; tile: [number, number]; solid: boolean; castShadows:
 // ─── markers (built after geometry so floor heights resolve) ──────────────────
 
 defineObject<object>("spawn", {
-  defaults: {}, category: "marker", deferred: true,
+  defaults: {}, category: "marker", deferred: true, icon: "flag",
   build(b, t) { const [x, , z] = t.at; b.map.spawns.push({ p: { x, y: b.map.floorY(x, z) + 0.05, z }, yaw: t.rot[1] }); },
 });
 defineObject<object>("pickup", {
-  defaults: {}, category: "marker", deferred: true,
+  defaults: {}, category: "marker", deferred: true, icon: "package",
   build(b, t) { const [x, y, z] = t.at; b.map.pickupSpots.push({ x, y, z }); },
 });
 defineObject<object>("powerup", {
-  defaults: {}, category: "marker", deferred: true,
+  defaults: {}, category: "marker", deferred: true, icon: "zap",
   build(b, t) { const [x, y, z] = t.at; b.map.powerupSpots.push({ x, y, z }); },
 });
 

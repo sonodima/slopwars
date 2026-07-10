@@ -5,6 +5,7 @@
 // code changes. Models are referenced everywhere by their folder name directly
 // (e.g. "Barrel_01", "bolt_action_rifle_7_62") — there is no aliasing layer.
 import { Engine, Entity, GLTFResource } from "@galacean/engine";
+import type { ModelMeta } from "@slopwars/shared";
 import catalog from "virtual:asset-catalog";
 import { loadGLTF } from "./assets";
 
@@ -14,6 +15,35 @@ export type GameModels = Record<string, GLTFResource | null>;
 
 /** how many models the pipeline will load — drives the loading bar denominator */
 export const MODEL_LOAD_COUNT = catalog.models.length;
+
+/** per-model calibration metas (from models/<name>/meta.json), keyed by folder name */
+const MODEL_META = new Map<string, ModelMeta>(catalog.models.map((m) => [m.name, (m.meta ?? {}) as ModelMeta]));
+
+/** a model's calibration meta (empty object if none) */
+export function modelMetaOf(name: string): ModelMeta { return MODEL_META.get(name) ?? {}; }
+
+/** the pool of models flagged usable as Prop-Hunt disguises (meta.propHunt). Empty
+ *  when no model opts in — callers fall back to the built-in crate disguise. */
+export function propHuntPool(): string[] {
+  return catalog.models.filter((m) => (m.meta as ModelMeta | undefined)?.propHunt).map((m) => m.name);
+}
+
+/** instantiate a calibrated static disguise prop (its own meta scale / base offset /
+ *  base rotation applied), parented nowhere and resting with its footing at y=0 so the
+ *  caller can drop it at a player's feet. null when the model isn't loaded. */
+export function buildProp(models: GameModels, name: string): Entity | null {
+  const e = instantiate(models[name]);
+  if (!e) return null;
+  const meta = modelMetaOf(name);
+  const ms = meta.scale ?? 1;
+  e.transform.setScale(ms, ms, ms);
+  const base = (meta.base ?? 0) * ms;
+  e.transform.setPosition(0, base, 0);
+  if (meta.baseRot && (meta.baseRot[0] || meta.baseRot[1] || meta.baseRot[2])) {
+    e.transform.setRotation(meta.baseRot[0], meta.baseRot[1], meta.baseRot[2]);
+  }
+  return e;
+}
 
 const pretty = (name: string): string => name.replace(/[_-]+/g, " ").trim();
 

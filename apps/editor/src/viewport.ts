@@ -15,10 +15,11 @@ import { applyFogFalloff, applyPost, applyShadows } from "@game/rendersettings";
 import { GameMap } from "@game/map";
 import { GameModels, loadModels } from "@game/models";
 import { resolveTextures, type MapTextures } from "@game/textures";
-import { mapTextureFolders, objectCategory } from "@game/objects";
+import { mapTextureFolders, objectCategory, objectIcon } from "@game/objects";
 import { loadHDRCube, loadGLTF } from "@game/assets";
 import "@game/objects"; // side effect: register built-in object types
 import { state } from "./state";
+import { iconMarkup } from "./icons";
 import {
   AXIS_DIR, AXIS_IDX, GIZMO_AXES, GIZMO_COL as AXIS_COL, ROT_SNAP_DEG,
   clamp, cross, distToSeg, dot, norm, rotateAxis, type GizmoHandle as Handle,
@@ -59,6 +60,8 @@ export class Viewport {
   private canvas!: HTMLCanvasElement;
   private overlay!: HTMLCanvasElement;
   private octx!: CanvasRenderingContext2D;
+  // rasterized marker icons, cached by "iconName|color" (built from the editor icon set)
+  private iconCache = new Map<string, HTMLImageElement>();
 
   // per-object-index → entities produced for it (for 3D picking + highlighting)
   private objEntities: Entity[][] = [];
@@ -523,24 +526,61 @@ export class Viewport {
     ctx.clearRect(0, 0, this.overlay.width, this.overlay.height);
     const map = state.map; if (!map) return;
 
-    // object markers
+    // object markers. Objects with no 3D mesh to click (lights, spawns, pickups,
+    // sounds) get a big legible icon badge instead of a 3px dot — otherwise they're
+    // near-impossible to hit in the viewport; meshed objects keep a small dot since
+    // the mesh itself is the click target.
     for (let i = 0; i < map.objects.length; i++) {
       const o = map.objects[i];
       const p = this.project(this.worldAt(o));
       if (!p.visible) continue;
       const selected = state.isSelected(o);
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, selected ? 5 : 3, 0, Math.PI * 2);
-      ctx.fillStyle = selected ? "#f5a623" : markerColor(o.type);
-      ctx.globalAlpha = selected ? 1 : 0.55;
-      ctx.fill();
-      ctx.globalAlpha = 1;
+      if (markerlessType(o.type)) this.drawMarkerIcon(ctx, p.x, p.y, o.type, selected);
+      else {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, selected ? 5 : 3, 0, Math.PI * 2);
+        ctx.fillStyle = selected ? "#f5a623" : markerColor(o.type);
+        ctx.globalAlpha = selected ? 1 : 0.55;
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
     }
 
     // (selection is highlighted in 3D by refreshHighlight — see below)
     // a single transform gizmo at the selection pivot
     const pivot = this.selPivot();
     if (pivot) this.drawGizmo(pivot);
+  }
+
+  /** an icon badge for a markerless object: a rounded backing (so it's a big click
+   *  target that reads against any scene) plus the object type's icon. */
+  private drawMarkerIcon(ctx: CanvasRenderingContext2D, x: number, y: number, type: string, selected: boolean): void {
+    const R = MARKER_ICON_R;
+    ctx.beginPath();
+    ctx.arc(x, y, R, 0, Math.PI * 2);
+    ctx.fillStyle = selected ? "rgba(245,166,35,0.92)" : "rgba(12,11,8,0.66)";
+    ctx.fill();
+    ctx.lineWidth = selected ? 2 : 1.5;
+    ctx.strokeStyle = selected ? "#f5a623" : markerColor(type);
+    ctx.stroke();
+    const img = this.markerIcon(objectIcon(type), selected ? "#1a1206" : markerColor(type));
+    if (img.complete && img.naturalWidth) {
+      const s = R * 1.35;
+      ctx.drawImage(img, x - s / 2, y - s / 2, s, s);
+    }
+  }
+
+  /** an <img> of an editor icon stroked in `color` (rasterized SVG, cached) */
+  private markerIcon(name: string, color: string): HTMLImageElement {
+    const key = `${name}|${color}`;
+    let img = this.iconCache.get(key);
+    if (!img) {
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${iconMarkup(name)}</svg>`;
+      img = new Image();
+      img.src = `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+      this.iconCache.set(key, img);
+    }
+    return img;
   }
 
   /** world position of a placement, resolving its group chain (local → world) */
@@ -732,6 +772,7 @@ export class Viewport {
     const ov = this.canvas;
     ov.addEventListener("contextmenu", (e) => e.preventDefault());
     ov.addEventListener("pointerdown", (e) => this.onDown(e));
+    ov.addEventListener("dblclick", (e) => this.onDblClick(e));
     window.addEventListener("pointermove", (e) => this.onMove(e));
     window.addEventListener("pointerup", () => this.endDrag());
     // Esc (or any external unlock) while dragging → finish the drag cleanly
@@ -781,11 +822,58 @@ export class Viewport {
     if (hit < 0) { state.select(-1, "viewport"); return; }
     const additive = e.ctrlKey || e.metaKey || e.shiftKey;   // toggle in a multi-select
     if (additive) { state.select(hit, "viewport", true); return; }
-    // a plain click on a grouped object selects the whole (top-level) group so it
-    // moves together; Alt-click drills in to the single object.
+    // a plain click on a grouped object selects the whole (top-level) group so it moves
+    // together; Alt-click drills straight to the single object. If we're already focused
+    // inside a group the click landed in, keep that focus (don't pop back to the top) so
+    // successive double-clicks can descend the hierarchy level by level.
     const o = map.objects[hit];
-    if (o.group && !e.altKey) state.selectGroup(this.topGroup(o.group), "viewport");
-    else state.select(hit, "viewport");
+    if (o.group && !e.altKey) {
+      if (state.selGroup && this.isAncestorGroup(state.selGroup, o)) state.selectGroup(state.selGroup, "viewport");
+      else state.selectGroup(this.topGroup(o.group), "viewport");
+    } else state.select(hit, "viewport");
+  }
+
+  /** double-click drills one level down the clicked object's group hierarchy: from the
+   *  currently-focused container toward the object itself (group → sub-group → … →
+   *  object). Repeated double-clicks descend one step each; an ungrouped object selects
+   *  directly. */
+  private onDblClick(e: MouseEvent): void {
+    const rc = this.rect();
+    const px = clamp(e.clientX - rc.left, 0, rc.width), py = clamp(e.clientY - rc.top, 0, rc.height);
+    const map = state.map; if (!map) return;
+    let hit = this.pick3D(px, py);
+    if (hit < 0) hit = this.pick(px, py);
+    if (hit < 0) return;
+    const o = map.objects[hit];
+    if (!o.group) { state.select(hit, "viewport"); return; }
+    const chain = this.ancestryChain(o);   // [topGroupId, …, directParentId, object]
+    // deepest chain element currently selected → descend one past it
+    let depth = -1;
+    for (let i = 0; i < chain.length; i++) {
+      const c = chain[i];
+      if (typeof c === "string") { if (state.selGroup === c) depth = i; }
+      else if (!state.selGroup && state.selObj === c) depth = i;
+    }
+    const next = depth < 0 ? 0 : Math.min(depth + 1, chain.length - 1);
+    const sel = chain[next];
+    if (typeof sel === "string") state.selectGroup(sel, "viewport");
+    else state.select(map.objects.indexOf(sel), "viewport");
+  }
+
+  /** an object's group ancestry, outermost-first, ending with the object itself:
+   *  [topGroupId, …, directParentGroupId, object]. */
+  private ancestryChain(o: Placement): (string | Placement)[] {
+    const groups: string[] = [];
+    let g: string | undefined = o.group;
+    while (g) { groups.unshift(g); g = state.groupById(g)?.parent; }
+    return [...groups, o];
+  }
+
+  /** is `groupId` an ancestor of (or the direct group of) object `o`? */
+  private isAncestorGroup(groupId: string, o: Placement): boolean {
+    let g: string | undefined = o.group;
+    while (g) { if (g === groupId) return true; g = state.groupById(g)?.parent; }
+    return false;
   }
 
   /** RMB fly: capture + hide the cursor so it can't leave the viewport */
@@ -866,15 +954,19 @@ export class Viewport {
     if (wasTransform) this.onEditCommit?.();
   }
 
-  /** nearest object marker to a pixel, within a threshold (−1 if none) */
+  /** nearest object marker to a pixel, within its grab radius (−1 if none). A
+   *  markerless object (light/marker/sound — no mesh) uses the full icon-badge radius
+   *  so it's easy to click; a meshed object keeps a tight dot radius (its mesh is the
+   *  real target, picked by pick3D first). */
   private pick(px: number, py: number): number {
     const map = state.map; if (!map) return -1;
-    let best = 16 * 16, idx = -1;
+    let best = Infinity, idx = -1;
     for (let i = 0; i < map.objects.length; i++) {
       const p = this.project(this.worldAt(map.objects[i]));
       if (!p.visible) continue;
-      const d = (p.x - px) ** 2 + (p.y - py) ** 2;
-      if (d < best) { best = d; idx = i; }
+      const rad = markerlessType(map.objects[i].type) ? MARKER_ICON_R + 5 : 12;
+      const d = Math.hypot(p.x - px, p.y - py);
+      if (d <= rad && d < best) { best = d; idx = i; }
     }
     return idx;
   }
@@ -1024,6 +1116,15 @@ function rayBox(o: number[], d: number[], b: Box): number | null {
     }
   }
   return tmin > 0 ? tmin : null;
+}
+
+/** radius (px) of the icon badge drawn for a markerless object's viewport marker */
+const MARKER_ICON_R = 13;
+
+/** an object type with no clickable 3D mesh — its viewport handle is the icon badge */
+function markerlessType(type: string): boolean {
+  const c = objectCategory(type);
+  return c === "marker" || c === "sound" || c === "light";
 }
 
 function markerColor(type: string): string {

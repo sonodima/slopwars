@@ -285,6 +285,12 @@ function modelInspector(host: HTMLElement, name: string): void {
     (v) => { meta.collision = v as CollisionMode; if (v === "manual" && !meta.collisionBoxes) meta.collisionBoxes = []; },
     () => { save(); refreshInspector(); }));
   if ((meta.collision ?? "auto") !== "auto") collisionList(host, meta, modelHooks, save);
+
+  // Prop Hunt: opt this model into the pool a hider can be disguised as. Off by default;
+  // when no model opts in the game falls back to the built-in crate disguise.
+  group(host, "Prop Hunt");
+  host.append(checkField("usable as prop", () => !!meta.propHunt, (v) => { meta.propHunt = v || undefined; }, save));
+  host.append(el("div", "side-note", "When on, a Prop-Hunt hider may be disguised as this model (chosen at random from every prop-hunt model)."));
 }
 
 /** a readable label for a glTF material slot — drop a redundant model-name prefix
@@ -361,20 +367,23 @@ function groupInspector(host: HTMLElement, g: { id: string; name: string }): voi
   host.append(el("div", "insp-sub", `group · ${members.length} object${members.length === 1 ? "" : "s"}`));
 
   // A group owns a transform like any object; its members are stored relative to it,
-  // so editing these moves/rotates/scales the whole group as a unit.
-  group(host, "Transform");
-  const w = state.groupWorld(g.id);
-  const at = w.at.slice() as Tuple3, rot = w.rot.slice() as Tuple3, scl = w.scale.slice() as Tuple3;
-  const push = (): void => state.setGroupWorld(g.id, { at, rot, scale: scl });
-  host.append(vecField("Location", at, push, 0.1));
-  host.append(vecField("Rotation", rot, push, 1));
-  host.append(scaleField("Scale", scl, push, 0.05, { min: 0.01 }));
-
-  // Physics: simulate the whole group as one movable rigid body (a lantern = mesh +
-  // light, a crate stack…). Its members become one shovable body; toggling it on
-  // seeds a default mass. Only meaningful in the game (the editor leaves it static).
+  // so editing these moves/rotates/scales the whole group as a unit. The fields are
+  // the group's OWN (parent-relative) transform — a nested group reads relative to its
+  // parent group, matching how a member object's transform is relative to this group.
   const def = state.groupById(g.id);
   if (def) {
+    group(host, "Transform");
+    if (!def.at) def.at = [0, 0, 0];
+    if (!def.rot) def.rot = [0, 0, 0];
+    if (!def.scale) def.scale = [1, 1, 1];
+    const push = (): void => state.commit();
+    host.append(vecField("Location", def.at, push, 0.1));
+    host.append(vecField("Rotation", def.rot, push, 1));
+    host.append(scaleField("Scale", def.scale, push, 0.05, { min: 0.01 }));
+
+    // Physics: simulate the whole group as one movable rigid body (a lantern = mesh +
+    // light, a crate stack…). Its members become one shovable body; toggling it on
+    // seeds a default mass. Only meaningful in the game (the editor leaves it static).
     group(host, "Physics");
     host.append(checkField("dynamic body", () => !!def.physics, (v) => {
       def.physics = v || undefined;

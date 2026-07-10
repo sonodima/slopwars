@@ -25,7 +25,7 @@ import { PhysicsWorld, type PropSim } from "./physics";
 import { PhysxProps, createGameEngine } from "./physxprops";
 import { Input, PlayerBody } from "./player";
 import { RemotePlayer } from "./remote";
-import { MODEL_LOAD_COUNT, instantiate, loadModels } from "./models";
+import { MODEL_LOAD_COUNT, buildProp, instantiate, loadModels, propHuntPool } from "./models";
 import {
   BOT_TUNING, DEFAULT_CONFIG, GamePhase, GameSnapshot, INTERMISSION, MatchConfig, MAX_HP, ModeId, Msg,
   PICKUP_HEAL, PICKUP_RADIUS, PICKUP_RESPAWN, PlayerState, POWERUPS, POWERUP_INTERVAL,
@@ -417,18 +417,37 @@ class Game {
     return this.inGame && this.mode === "prophunt" && this.myRole === ROLE_HIDE;
   }
 
-  /** build the local player's third-person avatar (a Prop-Hunt crate) */
+  /** build the local player's third-person avatar container (a Prop-Hunt disguise) */
   buildSelfAvatar(root: Entity): void {
     this.selfAvatar = root.createChild("self-avatar");
-    const m = new BlinnPhongMaterial(this.engine);
-    m.baseColor = new Color(0.42, 0.3, 0.16, 1);
-    const box = this.selfAvatar.createChild("c");
-    box.transform.setPosition(0, 0.42, 0);
-    const r = box.addComponent(MeshRenderer);
-    r.mesh = PrimitiveMesh.createCuboid(this.engine, 0.84, 0.84, 0.84);
-    r.setMaterial(m);
-    r.castShadows = true;
     this.selfAvatar.isActive = false;
+  }
+
+  /** which model the local disguise is currently built from (avoids rebuilding it) */
+  private selfDisguiseModel: string | null | undefined = undefined;
+
+  /** (re)build the local player's disguise prop — the model from the prop-hunt pool
+   *  assigned to this player, or a plain crate when the pool is empty. */
+  refreshSelfDisguise(): void {
+    if (!this.selfAvatar) return;
+    const model = this.propForPlayer(this.net.myId);
+    if (model === this.selfDisguiseModel && this.selfAvatar.children.length) return;
+    this.selfDisguiseModel = model;
+    this.selfAvatar.clearChildren();
+    const prop = model ? buildProp(this.models, model) : null;
+    if (prop) {
+      for (const r of prop.getComponentsIncludeChildren(MeshRenderer, [])) r.castShadows = true;
+      this.selfAvatar.addChild(prop);
+    } else {
+      const m = new BlinnPhongMaterial(this.engine);
+      m.baseColor = new Color(0.42, 0.3, 0.16, 1);
+      const box = this.selfAvatar.createChild("c");
+      box.transform.setPosition(0, 0.42, 0);
+      const r = box.addComponent(MeshRenderer);
+      r.mesh = PrimitiveMesh.createCuboid(this.engine, 0.84, 0.84, 0.84);
+      r.setMaterial(m);
+      r.castShadows = true;
+    }
   }
 
   /** position the camera + local avatar for the current perspective */
@@ -485,6 +504,7 @@ class Game {
     if (this.mode === "gungame") { this.applyTier(this.tiers[this.net.myId] ?? 0); return; }
     if (this.mode === "prophunt" && this.myRole === ROLE_HIDE) {
       // hider: an unarmed prop — no viewmodel, no weapon
+      this.refreshSelfDisguise();
       this.ws.showViewmodel(false);
       this.ws.select("knife");
       this.applyScopeFov();
@@ -516,20 +536,25 @@ class Game {
     return this.mode !== "gungame" && !(this.mode === "prophunt" && this.myRole === ROLE_HIDE);
   }
 
-  /** per-frame: team colours + prop-hunt disguises on remote avatars */
+  /** per-frame: prop-hunt disguises on remote avatars */
   updateModeVisuals(): void {
+    const disguise = this.mode === "prophunt";
     for (const r of this.remotes.values()) {
-      if (this.mode === "tdm") {
-        r.setDisguise(false);
-        r.setTeamColor(TEAM_COLORS[this.teams[r.id] ?? 0]);
-      } else if (this.mode === "prophunt") {
-        r.setDisguise(this.teams[r.id] === ROLE_HIDE);
-        r.setTeamColor(null);
-      } else {
-        r.setDisguise(false);
-        r.setTeamColor(null);
-      }
+      r.setDisguise(disguise && this.teams[r.id] === ROLE_HIDE, this.propForPlayer(r.id));
     }
+  }
+
+  /** the disguise-prop pool for the current map (models flagged usable for prop hunt) */
+  private propPool: string[] = propHuntPool();
+
+  /** deterministic disguise-prop model for a player id (host + guests agree without any
+   *  extra networking). null when the pool is empty → callers fall back to the crate. */
+  propForPlayer(id: string): string | null {
+    const pool = this.propPool;
+    if (!pool.length) return null;
+    let h = 0;
+    for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+    return pool[h % pool.length];
   }
 
   /** per-frame: mode HUD (team score / gungame tier / prop-hunt role) */
@@ -2203,12 +2228,11 @@ class Game {
 
   /** lobby showcase avatar: the rigged operator model, idling. Shows its own
    *  standard textures (no team tint — it read badly on the dark kit, matching the
-   *  in-match avatar). Falls back to a blocky, colour-coded cuboid if the character
-   *  model never loaded, so the stage is never empty. */
-  buildAvatar(parent: Entity, color: number): Entity {
+   *  in-match avatar). Returns an empty holder if the character model never loaded. */
+  buildAvatar(parent: Entity, _color: number): Entity {
     const root = parent.createChild("avatar");
     const char = instantiate(this.models["operator"]);
-    if (!char) { this.buildCuboidAvatar(root, color); return root; }
+    if (!char) return root;
     root.addChild(char);
     // the lobby stage holds only a handful of static, on-screen avatars, so — unlike
     // the in-match crowd (shadows off for perf) — they can afford to cast shadows.
@@ -2218,25 +2242,6 @@ class Game {
     const anim = char.getComponentsIncludeChildren(Animator, [])[0] ?? char.getComponent(Animator);
     if (anim?.findAnimatorState("Idle")) anim.play("Idle");
     return root;
-  }
-
-  /** legacy blocky character — fallback when the operator model didn't load */
-  private buildCuboidAvatar(e: Entity, color: number): void {
-    const c = new Color(((color >> 16) & 255) / 255, ((color >> 8) & 255) / 255, (color & 255) / 255, 1);
-    const body = new BlinnPhongMaterial(this.engine); body.baseColor = c;
-    const dark = new BlinnPhongMaterial(this.engine); dark.baseColor = new Color(0.15, 0.14, 0.13, 1);
-    const skin = new BlinnPhongMaterial(this.engine); skin.baseColor = new Color(0.85, 0.65, 0.5, 1);
-    const mk = (x: number, y: number, z: number, w: number, h: number, d: number, m: BlinnPhongMaterial): void => {
-      const p = e.createChild("p");
-      p.transform.setPosition(x, y, z);
-      const r = p.addComponent(MeshRenderer);
-      r.mesh = PrimitiveMesh.createCuboid(this.engine, w, h, d);
-      r.setMaterial(m);
-      r.castShadows = true;
-    };
-    mk(0, 0.45, 0, 0.5, 0.9, 0.32, dark);   // legs
-    mk(0, 1.22, 0, 0.62, 0.64, 0.36, body); // torso
-    mk(0, 1.72, 0, 0.3, 0.3, 0.3, skin);    // head
   }
 
   /** gentle swaying camera looking at the avatar line */
