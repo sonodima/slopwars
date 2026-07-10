@@ -25,5 +25,8 @@ export default defineConfig({
     editorHostPlugin({ root: repoRoot }),
   ],
   build: { target: "es2020", chunkSizeWarningLimit: 4096 },
-  server: { allowedHosts: true },
+  // Fixed port so the built-in MCP server always lives at http://localhost:5210/mcp
+  // (the editor host + MCP client reference it); strictPort fails loudly rather than
+  // silently hopping to another port and breaking those references.
+  server: { port: 5210, strictPort: true, allowedHosts: true },
 });

@@ -6,7 +6,7 @@ working tree** (the git-first workflow — you edit, commit, and the client pick
 it up on the next scan).
 
 ```bash
-pnpm dev:editor      # → http://localhost:5173
+pnpm dev:editor      # → http://localhost:5210
 ```
 
 ## Architecture
@@ -28,14 +28,14 @@ camera); the **host owns the files**. MCP tools are routed accordingly.
 ## MCP server (built in)
 
 The editor host exposes a Model Context Protocol server over **Streamable HTTP**
-at `http://localhost:5173/mcp`, so AI tools (Claude Code, Codex, …) can drive the
+at `http://localhost:5210/mcp`, so AI tools (Claude Code, Codex, …) can drive the
 editor. There is no separate process to run — just start the editor.
 
 - **File tools** (`editor_import_texture` / `_model` / `_audio` / `_hdri`) run
   server-side against the repo and work with **no editor window open**.
 - **Live tools** (objects, camera, screenshots, `editor_save_map` / `_load_map` /
   `_new_map`, listings) forward to the **open editor page** — open
-  `http://localhost:5173` in a browser for these. If no page is connected they
+  `http://localhost:5210` in a browser for these. If no page is connected they
   return a clear "editor window not open" error.
 
 Point your tool at the URL:
@@ -45,7 +45,7 @@ Point your tool at the URL:
 ```json
 {
   "mcpServers": {
-    "slopwars-editor": { "type": "http", "url": "http://localhost:5173/mcp" }
+    "slopwars-editor": { "type": "http", "url": "http://localhost:5210/mcp" }
   }
 }
 ```
@@ -54,7 +54,7 @@ Point your tool at the URL:
 
 ```toml
 [mcp_servers.slopwars-editor]
-url = "http://localhost:5173/mcp"
+url = "http://localhost:5210/mcp"
 ```
 
 When a live command arrives, the editor page shows an "MCP connected" toast.

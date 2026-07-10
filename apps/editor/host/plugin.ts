@@ -10,7 +10,7 @@
 // leaks into the game build. The shared asset-catalog plugin still provides the
 // virtual modules and serves maps/*.json; this one adds the writable +
 // agent-facing surface. There is no separate MCP process — clients point straight
-// at http://localhost:5173/mcp.
+// at http://localhost:5210/mcp.
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Plugin } from "vite";
 import path from "node:path";
@@ -151,7 +151,7 @@ export function editorHostPlugin(opts: Options = {}): Plugin {
         return next();
       });
 
-      const scheme = `http://localhost:${server.config.server.port ?? 5173}`;
+      const scheme = `http://localhost:${server.config.server.port ?? 5210}`;
       server.config.logger.info(`  ➜  MCP:     ${scheme}/mcp`);
     },
   };

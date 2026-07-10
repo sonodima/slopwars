@@ -48,7 +48,11 @@ export default defineConfig({
     target: "es2020",
     chunkSizeWarningLimit: 4096,
   },
+  // Fixed port so the game dev server is always at http://localhost:5211 and never
+  // collides with the editor (5210); strictPort fails loudly instead of hopping.
   server: {
+    port: 5211,
+    strictPort: true,
     allowedHosts: true,
   },
 });

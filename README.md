@@ -68,8 +68,8 @@ takes to make it available to the client and the editor.
 
 ```bash
 pnpm install          # install all workspaces
-pnpm dev              # run the game client (apps/game)
-pnpm dev:editor       # run the map editor (apps/editor) → http://localhost:5173
+pnpm dev              # run the game client (apps/game)  → http://localhost:5211
+pnpm dev:editor       # run the map editor (apps/editor) → http://localhost:5210
 pnpm build            # build the deployable game client
 pnpm build:editor     # build the editor's static bundle
 pnpm typecheck        # typecheck every workspace
@@ -78,7 +78,7 @@ pnpm typecheck        # typecheck every workspace
 The editor is a browser app; `pnpm dev:editor` starts one Node process (its Vite
 dev server) that is also the **editor host**: it owns all file operations on the
 repo (scan / load / save maps, import assets — the git-first workflow) and hosts
-a **built-in MCP server** at `http://localhost:5173/mcp` for AI tools. MCP file
+a **built-in MCP server** at `http://localhost:5210/mcp` for AI tools. MCP file
 tools (asset imports) run server-side with no editor window required;
 live/viewport tools (objects, camera, screenshots, save) forward to the open
 editor page. There is no separate MCP process — see `apps/editor/README.md`.

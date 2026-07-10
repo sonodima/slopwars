@@ -5,15 +5,15 @@
       "name": "dev",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["dev"],
-      "port": 5173,
-      "autoPort": true
+      "port": 5211,
+      "autoPort": false
     },
     {
       "name": "editor",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["dev:editor"],
-      "port": 5174,
-      "autoPort": true
+      "port": 5210,
+      "autoPort": false
     }
   ]
 }
