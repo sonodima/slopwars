@@ -171,8 +171,11 @@ export class Hud {
   /** one-time construction of the host's editable rules grid + input listeners */
   private buildRulesGrid(el: HTMLElement): void {
     el.dataset.built = "host";
-    el.classList.add("collapsed"); // optional controls stay hidden until the host expands them
-    $("lobby-adv-toggle").textContent = "Match settings ▾";
+    // expanded by default — the match parameters are the main thing a host tunes, so
+    // they're visible up-front rather than hidden behind a toggle (the toggle still
+    // collapses them if the host wants a cleaner lobby).
+    el.classList.remove("collapsed");
+    $("lobby-adv-toggle").textContent = "Match settings ▴";
     const [bMin, bMax] = CFG_BOUNDS.bots;
     const [rMin, rMax] = CFG_BOUNDS.rounds;
     const [tMin, tMax] = CFG_BOUNDS.roundTime;

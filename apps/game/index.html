@@ -58,6 +58,9 @@
   .keys b{color:var(--sand-dim)}
 
   /* ── main menu (create / join) ── */
+  /* the subtitle line was dropped — give the wordmark its own breathing room above
+     the panel so the title doesn't crowd the callsign field */
+  #scr-menu h1{margin-bottom:clamp(22px,5vh,40px)}
   #scr-menu .menu-panel{position:relative;min-width:min(400px,92vw)}
   /* a thin accent strip across the top edge — reads as a piece of kit, not a plain box */
   #scr-menu .menu-panel::before{content:"";position:absolute;top:-1px;left:-1px;right:-1px;height:2px;
@@ -80,22 +83,29 @@
   }
 
   /* ── lobby (3D backdrop) ── */
-  #scr-lobby{background:linear-gradient(100deg,rgba(8,7,5,.85) 0%,rgba(8,7,5,.4) 36%,rgba(8,7,5,0) 62%);
+  /* --lm is the shared lateral margin: the config panel (left) and the operators roster
+     (right) sit the same distance from their screen edge. It scales DOWN on narrow
+     screens so the two panels never get squished together. --vm is the top/bottom
+     margin the panels are allowed to grow up to (near-full page height). */
+  #scr-lobby{--lm:clamp(14px,3vw,46px);--vm:max(16px,env(safe-area-inset-top));
+    background:linear-gradient(100deg,rgba(8,7,5,.85) 0%,rgba(8,7,5,.4) 36%,rgba(8,7,5,0) 62%);
     align-items:flex-start;justify-content:center;overflow-y:auto;
-    padding:max(18px,env(safe-area-inset-top)) max(18px,env(safe-area-inset-right))
-            max(18px,env(safe-area-inset-bottom)) max(7vw,env(safe-area-inset-left))}
+    padding:var(--vm) max(var(--lm),env(safe-area-inset-right))
+            max(var(--vm),env(safe-area-inset-bottom)) max(var(--lm),env(safe-area-inset-left))}
   #scr-lobby .panel{min-width:330px}
-  /* the config panel is a fixed-height column: its body scrolls, the Start button
-     stays pinned at the bottom (always reachable no matter how long the rules get).
+  /* the config panel is a tall column that can extend to (page height − vertical
+     margins): its body scrolls, the Start button stays pinned at the bottom.
      Prefixed with #scr-lobby so it beats the generic .panel{overflow-y:auto} rule. */
-  #scr-lobby .lobby-panel{display:flex;flex-direction:column;overflow:hidden;max-height:84vh;max-height:84dvh}
+  #scr-lobby .lobby-panel{display:flex;flex-direction:column;overflow:hidden;
+    max-height:calc(100vh - 2*var(--vm));max-height:calc(100dvh - 2*var(--vm))}
   #scr-lobby .lobby-scroll{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;
     margin:-4px -6px 0;padding:4px 6px 2px}
   #scr-lobby .lobby-foot{flex:0 0 auto;border-top:1px solid var(--line);margin:12px -32px -28px;padding:14px 32px 22px}
-  /* the roster sits outside the menu, anchored to the right, so it never eats the
-     config panel's width */
-  #scr-lobby .lobby-roster{position:absolute;right:max(18px,env(safe-area-inset-right));top:50%;
-    transform:translateY(-50%);width:min(260px,30vw);min-width:0;max-height:80vh;max-height:80dvh;overflow-y:auto}
+  /* the roster sits outside the menu, anchored to the right at the SAME --lm margin as
+     the config panel's left edge, so it never eats the panel's width */
+  #scr-lobby .lobby-roster{position:absolute;right:max(var(--lm),env(safe-area-inset-right));top:50%;
+    transform:translateY(-50%);width:min(260px,26vw);min-width:0;
+    max-height:calc(100dvh - 2*var(--vm));overflow-y:auto}
   #lobby-code{font-family:var(--mono);font-size:40px;letter-spacing:12px;color:var(--sand);text-align:center;margin:6px 0 18px}
   /* collapsible "advanced" match-rules (host): hidden by default so the lobby stays clean */
   .adv-toggle{margin-top:14px;padding:9px 14px;font-size:10px;letter-spacing:2px;
@@ -108,8 +118,9 @@
   .lobby-foot #btn-start{margin-top:0}
   /* narrow screens: drop the roster below the menu instead of floating it right */
   @media (max-width:900px){
-    #scr-lobby .lobby-roster{position:static;transform:none;margin-top:14px;width:min(440px,92vw)}
-    #scr-lobby{align-items:center}
+    #scr-lobby .lobby-roster{position:static;transform:none;margin-top:14px;width:min(440px,92vw);max-height:none}
+    #scr-lobby .lobby-panel{max-height:none}
+    #scr-lobby{align-items:center;justify-content:flex-start}
   }
 
   /* ── in-game hud ── */
@@ -148,7 +159,9 @@
     background:rgba(10,9,6,.85);border:1px solid var(--line);padding:7px 10px;pointer-events:auto}
   #chat-bar span{color:var(--sand)}
   #chat-inp{flex:1;background:none;border:none;outline:none;color:#f0e8d5;font-family:var(--font);font-size:14px;letter-spacing:.5px}
-  #voice{position:absolute;left:16px;top:96px;font-size:11px;letter-spacing:2px;color:var(--green);
+  /* mic / voice state — sits directly beneath the performance overlay (#stats) in the
+     top-left column, not floating on its own */
+  #voice{position:absolute;left:14px;top:38px;font-size:11px;letter-spacing:2px;color:var(--green);
     background:rgba(10,9,6,.55);border-left:2px solid var(--green);padding:4px 9px}
   #voice.off{color:#7a705c;border-left-color:#7a705c}
 
@@ -173,8 +186,9 @@
   #scope::before{content:"";position:absolute;left:50%;top:0;width:1.5px;height:100%;background:rgba(0,0,0,.9);transform:translateX(-50%)}
   #scope::after{content:"";position:absolute;top:50%;left:0;height:1.5px;width:100%;background:rgba(0,0,0,.9);transform:translateY(-50%)}
 
-  #banner{position:absolute;top:26%;left:50%;transform:translateX(-50%);font-size:24px;letter-spacing:6px;
-    text-transform:uppercase;color:var(--sand);background:var(--panel);border:1px solid var(--line);padding:12px 34px}
+  #banner{position:absolute;top:24%;left:50%;transform:translateX(-50%);font-size:19px;letter-spacing:5px;
+    text-transform:uppercase;color:var(--sand);background:var(--panel);border:1px solid var(--line);
+    padding:9px 26px;white-space:nowrap;text-align:center}
   #respawn{position:absolute;inset:0;background:rgba(8,6,4,.55);display:flex;align-items:center;justify-content:center;flex-direction:column}
   #respawn .d{font-size:30px;letter-spacing:8px;color:var(--red);text-transform:uppercase}
   #respawn-t{font-size:80px;font-weight:700;font-family:var(--mono);color:#f0e8d5}
@@ -194,10 +208,10 @@
   #scr-end h2{font-size:26px;letter-spacing:8px;color:var(--sand);text-transform:uppercase;text-align:center;margin-bottom:16px}
 
   /* ── powerup buff indicator ── */
-  /* sits below the whole top-centre mode stack (timer → team score → role/tier) so it
-     never overlaps them — powerups can drop in any mode, including the team modes. */
-  #buff{position:absolute;top:146px;left:50%;transform:translateX(-50%);font-size:13px;letter-spacing:3px;
-    text-transform:uppercase;font-weight:700;padding:5px 16px;background:rgba(10,9,6,.82);
+  /* anchored to the top-left column (under stats / mic) rather than floating in the
+     centre of the view — keeps the middle of the screen clear on every device. */
+  #buff{position:absolute;top:70px;left:14px;font-size:12px;letter-spacing:3px;
+    text-transform:uppercase;font-weight:700;padding:5px 14px;background:rgba(10,9,6,.82);
     border:1px solid var(--line);text-shadow:0 0 10px currentColor;white-space:nowrap}
 
   /* ── loading ── */
@@ -258,7 +272,7 @@
     .panel{padding:14px 18px}
     .panel label{margin:7px 0 3px}
     button{padding:9px 16px;margin-top:9px}
-    #scr-lobby{align-items:flex-start;padding-left:max(4vw,env(safe-area-inset-left))}
+    #scr-lobby{--lm:clamp(10px,2.5vw,32px);--vm:max(8px,env(safe-area-inset-top));align-items:flex-start}
     #lobby-code{margin:4px 0 10px}
   }
   /* keyboard hints are desktop-only; show a touch primer instead */
@@ -287,18 +301,18 @@
   .rules-grid .seg button{padding:6px 4px;font-size:10px;text-transform:capitalize}
   #lobby-rules .rule-ro{font-size:11px;letter-spacing:1px;color:#a89a7c;margin:4px 0 2px;line-height:1.5}
   /* in-game mode HUD (team score / role / gungame tier) */
-  #hud-teams{position:absolute;top:64px;left:50%;transform:translateX(-50%);display:flex;gap:12px;align-items:center;
+  #hud-teams{position:absolute;top:78px;left:50%;transform:translateX(-50%);display:flex;gap:12px;align-items:center;
     font-family:var(--mono);font-size:20px;font-weight:700;letter-spacing:1px;white-space:nowrap;
     background:rgba(10,9,6,.62);border:1px solid var(--line);padding:4px 16px}
   #hud-teams .tn{font-family:var(--font);font-size:10px;letter-spacing:2px;text-transform:uppercase;font-weight:700}
   #hud-teams .dash{color:var(--sand-dim);font-weight:400}
-  #hud-role{position:absolute;top:106px;left:50%;transform:translateX(-50%);font-size:13px;letter-spacing:3px;
+  #hud-role{position:absolute;top:124px;left:50%;transform:translateX(-50%);font-size:13px;letter-spacing:3px;
     text-transform:uppercase;font-weight:700;text-align:center;color:var(--sand);
     background:rgba(10,9,6,.72);border:1px solid var(--line);padding:6px 18px}
   #hud-role.hide{color:var(--green);border-color:var(--green);text-shadow:0 0 10px rgba(143,191,77,.5)}
   #hud-role.prep{color:var(--sand);border-color:var(--sand)}
   #hud-role.seek{color:#f0e8d5}
-  #hud-tier{position:absolute;top:106px;left:50%;transform:translateX(-50%);font-size:14px;letter-spacing:2px;
+  #hud-tier{position:absolute;top:124px;left:50%;transform:translateX(-50%);font-size:14px;letter-spacing:2px;
     text-transform:uppercase;font-weight:700;color:var(--sand);text-align:center;
     background:rgba(10,9,6,.72);border:1px solid var(--line);padding:6px 18px}
   #hud-tier .tp{display:inline-block;margin-left:8px;color:var(--sand-dim);font-family:var(--mono)}
@@ -409,8 +423,10 @@
     bottom:calc(max(16px,env(safe-area-inset-bottom)) + 146px)}
   body.touch #hud-hp{font-size:26px}
   body.touch .hud-bl .u{font-size:9px}
+  /* ammo/weapon sits just above the FIRE/ADS cluster — low enough that it never
+     climbs into the top-right lobby code, high enough to clear the buttons */
   body.touch #scr-game .hud-br{right:max(16px,env(safe-area-inset-right));
-    bottom:calc(max(16px,env(safe-area-inset-bottom)) + 242px)}
+    bottom:calc(max(16px,env(safe-area-inset-bottom)) + 178px)}
   body.touch #hud-ammo{font-size:20px}
   body.touch #hud-weapon{font-size:10px;letter-spacing:2px}
   body.touch #stats{top:calc(max(10px,env(safe-area-inset-top)) + 42px);left:max(10px,env(safe-area-inset-left));font-size:9px}
@@ -420,10 +436,13 @@
   body.touch .hud-top{top:max(8px,env(safe-area-inset-top));padding:3px 16px}
   body.touch #hud-time{font-size:18px}
   body.touch #hud-round{font-size:8px}
-  body.touch #hud-teams{top:calc(max(8px,env(safe-area-inset-top)) + 38px);font-size:15px;padding:3px 12px}
+  body.touch #hud-teams{top:calc(max(8px,env(safe-area-inset-top)) + 46px);font-size:15px;padding:3px 12px}
   body.touch #hud-teams .tn{font-size:9px}
-  body.touch #hud-role,body.touch #hud-tier{top:calc(max(8px,env(safe-area-inset-top)) + 70px);font-size:11px;padding:4px 12px}
-  body.touch #buff{top:calc(max(8px,env(safe-area-inset-top)) + 104px);font-size:11px;padding:4px 12px}
+  body.touch #hud-role,body.touch #hud-tier{top:calc(max(8px,env(safe-area-inset-top)) + 82px);font-size:11px;padding:4px 12px}
+  /* buff stays in the left column on touch too (under stats), never centred */
+  body.touch #buff{top:calc(max(10px,env(safe-area-inset-top)) + 66px);left:max(10px,env(safe-area-inset-left));font-size:11px;padding:4px 12px}
+  /* round-start banner is far less bulky on phones */
+  body.touch #banner{font-size:14px;letter-spacing:3px;padding:7px 18px;top:22%}
 
   /* Prop-Hunt hiders are unarmed props: hide all combat UI + weapon HUD */
   body.hider #scr-game .hud-br{display:none}
@@ -464,7 +483,6 @@
 <!-- ═══ MENU ═══ -->
 <div id="scr-menu" class="screen hidden">
   <h1>SlopWars</h1>
-  <div class="sub">web fps · serverless p2p</div>
   <div class="panel menu-panel">
     <label>callsign</label>
     <input id="inp-name" maxlength="16" spellcheck="false" placeholder="operator">

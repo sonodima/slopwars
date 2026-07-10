@@ -23,10 +23,14 @@ import { applyWaterLook, attachWaterAnim, WATER_LOOK, type WaterAnim, type Water
 import { buildGlassMaterial } from "@game/materials";
 import type { ModelView } from "./tabs";
 import type { Tool } from "./viewport";
+import { iconMarkup } from "./icons";
 import {
   AXIS_IDX, GIZMO_AXES, GIZMO_COL, ROT_SNAP_DEG,
   clamp, cross, distToSeg, dot, norm, type GizmoHandle as GHandle,
 } from "./vecmath";
+
+/** on-screen hit radius (px) of a Model-view anchor icon */
+const ANCHOR_HIT = 16;
 
 /** UV repeat used for the water preview sphere — a couple of tiles keep the fractal
  *  ripples a believable size on a unit sphere (matches how the game tiles by area). */
@@ -94,6 +98,17 @@ export class PreviewScene {
   } | null = null;
   /** notified after a gizmo drag mutates the selected solid (persist + reshade) */
   onCollisionChange: (() => void) | null = null;
+
+  // ── model-view anchors (currently just the hand-attach "grip" point) ──
+  // The grip anchor is authored directly in the Model view: it shows as a billboard
+  // icon (like the map viewport's object icons), is click-selected, and — when
+  // selected — is moved/rotated with the same transform gizmo the collision solids
+  // use. `grip` references the live meta.anchors.grip object so edits write through.
+  private grip: { at: Tuple3; rot?: Tuple3 } | null = null;
+  private anchorSel = false;
+  private iconImgCache = new Map<string, HTMLImageElement>();
+  /** notified when the anchor icon is click-selected/deselected in the view */
+  onAnchorSelect: ((selected: boolean) => void) | null = null;
 
   // input bookkeeping
   private dragging = false;
@@ -189,6 +204,7 @@ export class PreviewScene {
     const prevPhase = samePrev && this.waterAnim ? this.waterAnim.phase : 0;
     this.waterAnim = null;
     this.content = { kind: "material", name };
+    this.grip = null; this.anchorSel = false;
     this.clearHolder();
     this.clearCollision();
     if (!keepCamera) { this.target.set(0, 0, 0); this.dist = 3.2; this.applyCamera(); }
@@ -248,6 +264,7 @@ export class PreviewScene {
   async showTexture(name: string, maps: TextureMaps, keepCamera = false): Promise<void> {
     if (!this.ready) return;
     this.content = { kind: "texture", name };
+    this.grip = null; this.anchorSel = false;
     this.clearHolder();
     this.clearCollision();
     if (!keepCamera) { this.target.set(0, 0, 0); this.dist = 3.2; this.applyCamera(); }
@@ -320,46 +337,38 @@ export class PreviewScene {
     const radius = keep ? this.holderRadius() : this.frameHolder();
     this.indicatorRadius = radius;
     if (meta.materials || meta.material) this.applyModelMaterials(e, meta);
+    this.grip = null;
     if (view === "collision") {
       this.dimModel(e);
       this.renderCollision(meta, radius);
     } else {
-      this.renderGripMarker(e, meta, radius);   // Model view: show the hand-attach point
+      // Model view: the grip anchor is drawn as a billboard icon in the overlay (see
+      // drawAnchorIcon); keep it live so gizmo edits write straight through.
+      this.grip = meta.anchors?.grip ?? null;
+      if (!this.grip) this.anchorSel = false;
     }
   }
 
-  /** draw the model's `grip` anchor (the hand-attach point) as a small marker with
-   *  axes, parented to the model so it tracks the base lift. A child of `e`, so it's
-   *  torn down with the model on the next showModel(); only shown in Model view. */
-  private renderGripMarker(model: Entity, meta: ModelMeta, radius: number): void {
-    const grip = meta.anchors?.grip;
-    if (!grip) return;
-    const marker = model.createChild("grip-marker");
-    marker.transform.setPosition(grip.at[0], grip.at[1], grip.at[2]);
-    if (grip.rot) marker.transform.setRotation(grip.rot[0], grip.rot[1], grip.rot[2]);
-    const s = Math.max(0.03, radius * 0.05);
-    // centre bead — bright unlit green so it reads against any model surface
-    const bead = marker.createChild("bead");
-    const br = bead.addComponent(MeshRenderer);
-    br.mesh = PrimitiveMesh.createSphere(this.engine, s, 16);
-    const bm = new UnlitMaterial(this.engine); bm.baseColor = new Color(0.2, 1.0, 0.55, 1);
-    br.setMaterial(bm);
-    // XYZ axes (thin unlit bars) so the held orientation is legible
-    const axis = (dir: "x" | "y" | "z", col: [number, number, number]): void => {
-      const len = s * 5, th = s * 0.35;
-      const a = marker.createChild("ax");
-      a.transform.setPosition(dir === "x" ? len / 2 : 0, dir === "y" ? len / 2 : 0, dir === "z" ? len / 2 : 0);
-      const r = a.addComponent(MeshRenderer);
-      r.mesh = PrimitiveMesh.createCuboid(this.engine, dir === "x" ? len : th, dir === "y" ? len : th, dir === "z" ? len : th);
-      const m = new UnlitMaterial(this.engine); m.baseColor = new Color(col[0], col[1], col[2], 1);
-      r.setMaterial(m);
-    };
-    axis("x", [1, 0.3, 0.3]); axis("y", [0.4, 1, 0.4]); axis("z", [0.4, 0.55, 1]);
+  /** the grip anchor's world position (its stored point lifted by the model's base) */
+  private gripWorld(): Tuple3 {
+    const g = this.grip!;
+    return [g.at[0], g.at[1] + this.modelBase, g.at[2]];
   }
+
+  /** select/deselect the grip anchor from outside (inspector list click). Not gated on
+   *  `this.grip` — a live showModel may still be loading it in; gizmoActive()/the icon
+   *  draw guard on grip presence, and showModel clears the flag if no grip exists. */
+  selectAnchor(sel: boolean): void { this.anchorSel = sel; }
+  /** whether the grip anchor is currently selected */
+  anchorSelected(): boolean { return this.anchorSel; }
 
   /** model-local centre of the previewed geometry (for spawning a new collision
    *  solid somewhere visible instead of at the origin). */
   modelCenter(): Tuple3 { const c = this.holderBox().center; return [round3(c.x), round3(c.y), round3(c.z)]; }
+
+  /** geometry centre in the model's own (base-excluded) frame — where a new grip
+   *  anchor is dropped so it lands visibly on the model, not at its foot/origin. */
+  modelLocalCenter(): Tuple3 { const c = this.holderBox().center; return [round3(c.x), round3(c.y - this.modelBase), round3(c.z)]; }
 
   /** shade each surface of the previewed model with the material assigned to its glTF
    *  slot (mirroring the game's placeModelTf), so the isolated preview matches what the
@@ -514,9 +523,19 @@ export class PreviewScene {
     }, { passive: false });
   }
 
-  /** a click (no drag) in collision view picks the nearest collision box */
+  /** a click (no drag): Collision view picks the nearest solid; Model view toggles the
+   *  grip-anchor selection when its icon is clicked (deselecting on an empty click). */
   private onClick(e: PointerEvent): void {
-    if (this.content.kind !== "model" || this.content.view !== "collision" || !this.boxes.length) return;
+    if (this.content.kind !== "model") return;
+    if (this.content.view === "model") {
+      if (!this.grip) return;
+      const { x, y } = this.local(e);
+      const p = this.project(this.gripWorld());
+      const sel = p.visible && Math.hypot(p.x - x, p.y - y) < ANCHOR_HIT;
+      if (sel !== this.anchorSel) { this.anchorSel = sel; this.onAnchorSelect?.(sel); }
+      return;
+    }
+    if (this.content.view !== "collision" || !this.boxes.length) return;
     const rc = this.canvas.getBoundingClientRect();
     const ray = this.pixelRay(e.clientX - rc.left, e.clientY - rc.top, rc.width, rc.height);
     let best = Infinity, hit = -1;
@@ -556,10 +575,57 @@ export class PreviewScene {
     this.octx = o.getContext("2d")!;
   }
 
-  /** true when a collision solid is selected and editable in the view */
+  /** true when something is selected + editable by the transform gizmo: a collision
+   *  solid (Collision view) or the grip anchor (Model view). */
   private gizmoActive(): boolean {
-    return this.content.kind === "model" && this.content.view === "collision"
-      && this.selBox >= 0 && this.selBox < this.boxes.length;
+    if (this.content.kind !== "model") return false;
+    if (this.content.view === "collision") return this.selBox >= 0 && this.selBox < this.boxes.length;
+    return this.content.view === "model" && this.anchorSel && !!this.grip;
+  }
+
+  /** the current gizmo subject as a uniform transform target: its world-space centre,
+   *  euler rotation, size (unit for a point anchor), whether scaling applies, and
+   *  write-back setters. Move deltas are computed in the SAME frame as `at`. */
+  private gTarget(): {
+    at: Tuple3; rot: Tuple3; size: Tuple3; scalable: boolean;
+    setAt: (v: Tuple3) => void; setRot: (v: Tuple3) => void; setSize: (v: Tuple3) => void; live: () => void;
+  } | null {
+    if (this.content.kind !== "model") return null;
+    if (this.content.view === "collision") {
+      const b = this.boxes[this.selBox]; if (!b) return null;
+      return {
+        at: b.at, rot: b.rot ?? [0, 0, 0], size: b.size, scalable: true,
+        setAt: (v) => { b.at = v; },
+        setRot: (v) => { b.rot = (v[0] || v[1] || v[2]) ? v : undefined; },
+        setSize: (v) => { b.size = v; },
+        live: () => {
+          const e = this.boxEntities[this.selBox];
+          if (e && !e.destroyed) {
+            e.transform.setPosition(b.at[0], b.at[1], b.at[2]);
+            const br = b.rot ?? [0, 0, 0];
+            e.transform.setRotation(br[0], br[1], br[2]);
+            e.transform.setScale(Math.max(0.001, b.size[0]), Math.max(0.001, b.size[1]), Math.max(0.001, b.size[2]));
+          }
+        },
+      };
+    }
+    const g = this.grip; if (!g) return null;
+    const base = this.modelBase;
+    // a point anchor has no size — scaling is disabled; move/rotate write straight
+    // through to the live grip (its stored point excludes the base lift).
+    return {
+      at: [g.at[0], g.at[1] + base, g.at[2]], rot: g.rot ?? [0, 0, 0], size: [1, 1, 1], scalable: false,
+      setAt: (v) => { g.at = [v[0], round3(v[1] - base), v[2]]; },
+      setRot: (v) => { g.rot = (v[0] || v[1] || v[2]) ? v : undefined; },
+      setSize: () => { /* not scalable */ },
+      live: () => { /* the icon redraws from `grip` each frame */ },
+    };
+  }
+
+  /** the effective tool for a target — a point anchor can't scale, so the Scale tool
+   *  falls back to Move on it. */
+  private effTool(scalable: boolean): "move" | "rotate" | "scale" {
+    return scalable ? this.gizmoTool : (this.gizmoTool === "scale" ? "move" : this.gizmoTool);
   }
 
   private local(e: PointerEvent): { x: number; y: number } {
@@ -625,15 +691,16 @@ export class PreviewScene {
     return pts;
   }
 
-  /** which gizmo handle (if any) is under a pixel for the selected solid */
+  /** which gizmo handle (if any) is under a pixel for the current target */
   private pickHandle(px: number, py: number): GHandle | null {
-    if (!this.gizmoActive()) return null;
-    const at = this.boxes[this.selBox].at;
+    const t = this.gizmoActive() ? this.gTarget() : null;
+    if (!t) return null;
+    const at = t.at;
     const c = this.project(at);
     if (!c.visible) return null;
     const L = this.gizmoLen(at);
     let best = 10, hit: GHandle | null = null;
-    if (this.gizmoTool === "rotate") {
+    if (this.effTool(t.scalable) === "rotate") {
       for (const { h, dir } of GIZMO_AXES) {
         for (const p of this.ring(at, dir, L)) {
           if (!p.visible) continue;
@@ -654,24 +721,25 @@ export class PreviewScene {
   }
 
   private beginGizmo(h: GHandle, px: number, py: number): void {
-    const b = this.boxes[this.selBox];
-    const c = this.project(b.at);
-    const L = this.gizmoLen(b.at);
+    const t = this.gTarget(); if (!t) return;
+    const at = t.at;
+    const c = this.project(at);
+    const L = this.gizmoLen(at);
     let unit: [number, number] = [1, 0], wpp = 0;
     if (h !== "xyz") {
       const dir = GIZMO_AXES.find((a) => a.h === h)!.dir;
-      const tip = this.project([b.at[0] + dir[0] * L, b.at[1] + dir[1] * L, b.at[2] + dir[2] * L]);
+      const tip = this.project([at[0] + dir[0] * L, at[1] + dir[1] * L, at[2] + dir[2] * L]);
       const dxp = tip.x - c.x, dyp = tip.y - c.y, len = Math.hypot(dxp, dyp) || 1;
       unit = [dxp / len, dyp / len]; wpp = L / len;
     }
     const { r, u, f } = this.basis();
     const pos = this.camE.transform.position;
-    const fz = Math.max(0.3, dot([b.at[0] - pos.x, b.at[1] - pos.y, b.at[2] - pos.z], f));
+    const fz = Math.max(0.3, dot([at[0] - pos.x, at[1] - pos.y, at[2] - pos.z], f));
     const tanF = Math.tan((this.camera.fieldOfView * DEG) / 2);
     const pwpp = (2 * tanF * fz) / this.canvas.getBoundingClientRect().height;
     this.gizmoDrag = {
-      handle: h, at: b.at.slice() as Tuple3, size: b.size.slice() as Tuple3,
-      rot: (b.rot ?? [0, 0, 0]).slice() as Tuple3,
+      handle: h, at: at.slice() as Tuple3, size: t.size.slice() as Tuple3,
+      rot: t.rot.slice() as Tuple3,
       startPx: px, startPy: py, unit, wpp, rvec: r, uvec: u, pwpp,
       cx: c.x, cy: c.y, startAngle: Math.atan2(py - c.y, px - c.x),
     };
@@ -680,22 +748,23 @@ export class PreviewScene {
 
   private applyGizmo(px: number, py: number, snap = false): void {
     const d = this.gizmoDrag; if (!d) return;
-    const b = this.boxes[this.selBox]; if (!b) return;
+    const t = this.gTarget(); if (!t) return;
     const ddx = px - d.startPx, ddy = py - d.startPy;
-    if (this.gizmoTool === "move") {
+    const tool = this.effTool(t.scalable);
+    if (tool === "move") {
       if (d.handle === "xyz") {
-        b.at = [
+        t.setAt([
           round3(d.at[0] + (d.rvec[0] * ddx - d.uvec[0] * ddy) * d.pwpp),
           round3(d.at[1] + (d.rvec[1] * ddx - d.uvec[1] * ddy) * d.pwpp),
           round3(d.at[2] + (d.rvec[2] * ddx - d.uvec[2] * ddy) * d.pwpp),
-        ];
+        ]);
       } else {
         const along = (ddx * d.unit[0] + ddy * d.unit[1]) * d.wpp;
         const i = AXIS_IDX[d.handle];
         const nat = d.at.slice() as Tuple3; nat[i] = round3(d.at[i] + along);
-        b.at = nat;
+        t.setAt(nat);
       }
-    } else if (this.gizmoTool === "rotate") {
+    } else if (tool === "rotate") {
       const ang = Math.atan2(py - d.cy, px - d.cx);
       const idx = AXIS_IDX[d.handle];
       const sign = d.handle === "y" ? -1 : 1;
@@ -703,26 +772,19 @@ export class PreviewScene {
       // hold Shift → snap to 30° increments, matching the map viewport's rotate gizmo
       if (snap) sdeg = Math.round(sdeg / ROT_SNAP_DEG) * ROT_SNAP_DEG;
       const nrot = d.rot.slice() as Tuple3; nrot[idx] = round3(d.rot[idx] + sdeg);
-      b.rot = (nrot[0] || nrot[1] || nrot[2]) ? nrot : undefined;
-    } else {   // scale about the box centre (size changes, position stays)
+      t.setRot(nrot);
+    } else {   // scale about the centre (size changes, position stays)
       if (d.handle === "xyz") {
         const f = Math.max(0.02, 1 - ddy / 140);
-        b.size = [round3(d.size[0] * f), round3(d.size[1] * f), round3(d.size[2] * f)];
+        t.setSize([round3(d.size[0] * f), round3(d.size[1] * f), round3(d.size[2] * f)]);
       } else {
         const i = AXIS_IDX[d.handle];
         const f = 1 + (ddx * d.unit[0] + ddy * d.unit[1]) / 70;
         const ns = d.size.slice() as Tuple3; ns[i] = round3(Math.max(0.02, d.size[i] * f));
-        b.size = ns;
+        t.setSize(ns);
       }
     }
-    // reflect the edit live on the box entity without a full rebuild
-    const e = this.boxEntities[this.selBox];
-    if (e && !e.destroyed) {
-      e.transform.setPosition(b.at[0], b.at[1], b.at[2]);
-      const br = b.rot ?? [0, 0, 0];
-      e.transform.setRotation(br[0], br[1], br[2]);
-      e.transform.setScale(Math.max(0.001, b.size[0]), Math.max(0.001, b.size[1]), Math.max(0.001, b.size[2]));
-    }
+    t.live();   // reflect the edit live without a full rebuild
   }
 
   /** draw the transform gizmo for the selected solid (cleared when not authoring) */
@@ -734,15 +796,20 @@ export class PreviewScene {
     }
     const ctx = this.octx;
     ctx.clearRect(0, 0, this.overlay.width, this.overlay.height);
-    // model view: draw the root (0,0,0) indicator — a ground grid + axis cross — so
-    // the base offset can be judged/adjusted against it.
-    if (this.content.kind === "model" && this.content.view === "model") { this.drawOriginIndicator(); return; }
-    if (!this.gizmoActive()) return;
-    const at = this.boxes[this.selBox].at;
+    // model view: draw the root (0,0,0) indicator — a ground grid + axis cross — plus
+    // the grip anchor icon; the gizmo (below) shows only when the anchor is selected.
+    if (this.content.kind === "model" && this.content.view === "model") {
+      this.drawOriginIndicator();
+      this.drawAnchorIcon();
+    }
+    const t = this.gizmoActive() ? this.gTarget() : null;
+    if (!t) return;
+    const at = t.at;
     const c = this.project(at);
     if (!c.visible) return;
     const L = this.gizmoLen(at);
-    if (this.gizmoTool === "rotate") {
+    const tool = this.effTool(t.scalable);
+    if (tool === "rotate") {
       for (const { h, dir } of GIZMO_AXES) {
         const pts = this.ring(at, dir, L);
         ctx.beginPath();
@@ -762,22 +829,54 @@ export class PreviewScene {
       ctx.fillStyle = ctx.strokeStyle;
       ctx.lineWidth = on ? 3 : 2;
       ctx.beginPath(); ctx.moveTo(c.x, c.y); ctx.lineTo(tip.x, tip.y); ctx.stroke();
-      if (this.gizmoTool === "move") {   // arrowhead
+      if (tool === "move") {   // arrowhead
         const a = Math.atan2(tip.y - c.y, tip.x - c.x);
         ctx.beginPath();
         ctx.moveTo(tip.x, tip.y);
         ctx.lineTo(tip.x - 9 * Math.cos(a - 0.4), tip.y - 9 * Math.sin(a - 0.4));
         ctx.lineTo(tip.x - 9 * Math.cos(a + 0.4), tip.y - 9 * Math.sin(a + 0.4));
         ctx.closePath(); ctx.fill();
-      } else {                           // scale → box handle
+      } else {                 // scale → box handle
         ctx.fillRect(tip.x - 4, tip.y - 4, 8, 8);
       }
     }
     const onC = this.gizmoHover === "xyz" || this.gizmoDrag?.handle === "xyz";
     ctx.fillStyle = onC ? "#ffd257" : GIZMO_COL.xyz;
-    if (this.gizmoTool === "scale") ctx.fillRect(c.x - 5, c.y - 5, 10, 10);
+    if (tool === "scale") ctx.fillRect(c.x - 5, c.y - 5, 10, 10);
     else { ctx.beginPath(); ctx.arc(c.x, c.y, 6, 0, Math.PI * 2); ctx.strokeStyle = ctx.fillStyle; ctx.lineWidth = onC ? 3 : 2; ctx.stroke(); }
     ctx.beginPath(); ctx.arc(c.x, c.y, 3, 0, Math.PI * 2); ctx.fillStyle = "#f5a623"; ctx.fill();
+  }
+
+  /** draw the grip anchor as a billboard icon at its world point — a solid glyph (amber
+   *  when selected, else white) with a soft dark halo, matching the map viewport's
+   *  object icons. Only visible in Model view when a grip exists. */
+  private drawAnchorIcon(): void {
+    if (!this.grip) return;
+    const p = this.project(this.gripWorld());
+    if (!p.visible) return;
+    const img = this.iconImg("anchor", this.anchorSel ? "#f5a623" : "#ffffff");
+    if (!img.complete || !img.naturalWidth) return;
+    const s = 22;
+    const ctx = this.octx;
+    ctx.save();
+    ctx.shadowColor = "rgba(0,0,0,0.9)";
+    ctx.shadowBlur = 3.5;
+    ctx.drawImage(img, p.x - s / 2, p.y - s / 2, s, s);
+    ctx.drawImage(img, p.x - s / 2, p.y - s / 2, s, s);
+    ctx.restore();
+  }
+
+  /** a rasterized editor-icon <img>, stroked in `color`, cached by name+color */
+  private iconImg(name: string, color: string): HTMLImageElement {
+    const key = `${name}|${color}`;
+    let img = this.iconImgCache.get(key);
+    if (!img) {
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${iconMarkup(name)}</svg>`;
+      img = new Image();
+      img.src = `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+      this.iconImgCache.set(key, img);
+    }
+    return img;
   }
 
   /** draw the model's root (0,0,0) indicator: a faint ground grid on the y=0 plane

@@ -41,6 +41,14 @@ interface ModelHooks {
   collAdd: () => void;
   /** delete collision solid `i` */
   collDelete: (i: number) => void;
+  /** whether the grip anchor is currently selected (Model view) */
+  anchorSel: () => boolean;
+  /** select/deselect the grip anchor — shows its gizmo + highlights its row */
+  anchorSelect: (sel: boolean) => void;
+  /** add the grip anchor (hand-attach point) at the model centre and select it */
+  anchorAdd: () => void;
+  /** remove the grip anchor */
+  anchorRemove: () => void;
 }
 /** the three PBR maps a texture set can hold, in editor display order */
 type TexSlot = "color" | "normal" | "arm";
@@ -287,10 +295,10 @@ function modelInspector(host: HTMLElement, name: string): void {
   if ((meta.collision ?? "auto") !== "auto") collisionList(host, meta, modelHooks, save);
 
   // Hold anchor — where the model sits in a hand when it's a held item (a weapon, a
-  // pickup). Authoring it here (with a live marker in the preview) replaces the need
-  // to hand-tune placement in code. Extensible: the schema keys anchors by name, so
-  // more (muzzle, sight, …) can be added later without touching this.
-  anchorSection(host, meta, save);
+  // pickup). Authored like a behaviour/collision entry: an icon in the Model view you
+  // click to select, then move/rotate with the standard gizmo. Extensible: the schema
+  // keys anchors by name, so more (muzzle, sight, …) can be added later.
+  anchorSection(host, meta, modelHooks, save);
 
   // Prop Hunt: opt this model into the pool a hider can be disguised as. Off by default;
   // when no model opts in the game falls back to the built-in crate disguise.
@@ -315,41 +323,41 @@ function setSlotMaterial(meta: ModelMeta, slot: string, value: string): void {
   meta.materials = Object.keys(map).length ? map : undefined;
 }
 
-/** the "grip" anchor editor: a toggle that adds/removes the hand-attach point, and —
- *  while present — position + rotation fields. The preview draws a marker there so the
- *  point can be placed against the model visually. */
-function anchorSection(host: HTMLElement, meta: ModelMeta, save: () => void): void {
-  group(host, "Hold anchor");
-  host.append(checkField("held in hand", () => !!meta.anchors?.grip,
-    (v) => { if (v) ensureGrip(meta); else removeGrip(meta); },
-    () => { save(); refreshInspector(); }));
+/** the anchor list — mirrors the behaviour/collision authoring UI. Each anchor is a
+ *  selectable row; the currently-selected one shows its icon-gizmo in the Model view
+ *  and exposes position/rotation fields here. Today only the hand-attach "grip" anchor
+ *  exists (0 or 1 entry), but the list is built so more anchor kinds can be added. */
+function anchorSection(host: HTMLElement, meta: ModelMeta, hooks: ModelHooks, save: () => void): void {
+  group(host, "Anchors");
   const grip = meta.anchors?.grip;
   if (!grip) {
-    host.append(el("div", "side-note", "Turn on for weapons / pickups to mark where the model is held. The preview shows the point as a marker."));
+    const add = el("button", "btn primary insp-addbtn");
+    add.append(icon("anchor"), el("span", "btn-label", "Add held point"));
+    add.addEventListener("click", () => hooks.anchorAdd());
+    host.append(add);
+    host.append(el("div", "side-note", "For weapons / pickups, add a held point to mark where a character grips the model. It shows as an icon in the Model view — drag it with the Move / Rotate tools."));
     return;
   }
-  const at = grip.at.slice() as number[];
-  host.append(vecField("grip pos", at, () => { grip.at = [at[0], at[1], at[2]] as Tuple3; save(); }, 0.01));
-  const rot = (grip.rot ?? [0, 0, 0]).slice() as number[];
-  host.append(vecField("grip rot", rot, () => {
-    grip.rot = (rot[0] || rot[1] || rot[2]) ? [rot[0], rot[1], rot[2]] as Tuple3 : undefined;
-    save();
-  }, 1));
-  host.append(el("div", "side-note", "The green marker is the point that snaps into the hand; its axes show the held orientation."));
-}
+  const sel = hooks.anchorSel();
+  const row = el("div", "cbox-row" + (sel ? " sel" : ""));
+  row.append(icon("anchor", "cbox-ico"), el("span", "cbox-name", "Held point"));
+  const del = el("button", "btn mini"); del.title = "remove held point"; del.append(icon("trash"));
+  del.addEventListener("click", (e) => { e.stopPropagation(); hooks.anchorRemove(); });
+  row.append(del);
+  row.addEventListener("click", () => hooks.anchorSelect(!sel));
+  host.append(row);
 
-/** ensure the model has a `grip` anchor (default at the origin) */
-function ensureGrip(meta: ModelMeta): void {
-  const anchors = meta.anchors ?? {};
-  if (!anchors.grip) anchors.grip = { at: [0, 0, 0] };
-  meta.anchors = anchors;
-}
-
-/** remove the `grip` anchor, pruning an emptied anchors map */
-function removeGrip(meta: ModelMeta): void {
-  if (!meta.anchors) return;
-  delete meta.anchors.grip;
-  if (!Object.keys(meta.anchors).length) meta.anchors = undefined;
+  if (sel) {
+    group(host, "Held point Transform");
+    const at = grip.at.slice() as number[];
+    host.append(vecField("Location", at, () => { grip.at = [at[0], at[1], at[2]] as Tuple3; save(); }, 0.01));
+    const rot = (grip.rot ?? [0, 0, 0]).slice() as number[];
+    host.append(vecField("Rotation", rot, () => {
+      grip.rot = (rot[0] || rot[1] || rot[2]) ? [rot[0], rot[1], rot[2]] as Tuple3 : undefined;
+      save();
+    }, 1));
+    host.append(el("div", "side-note", "The character's hand snaps to this point; its rotation sets the held orientation. Move/rotate it directly in the Model view."));
+  }
 }
 
 /** the collision-primitive options a manual solid can take */

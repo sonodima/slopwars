@@ -565,25 +565,21 @@ export class Viewport {
     return 1 - (d - ICON_NEAR) / (ICON_FAR - ICON_NEAR);
   }
 
-  /** an Unreal-style icon badge for a markerless object: a semi-transparent white
-   *  rounded square with a thin grey border and the object type's glyph in slate —
-   *  understated, reads against any scene, and a comfortable click target. `alpha`
-   *  is the camera-distance fade; a selected badge switches to the amber accent. */
+  /** the viewport icon for a markerless object (light / spawn / pickup / sound): the
+   *  object type's glyph itself, solid white — no container box or backing plate. A soft
+   *  dark halo keeps it legible against bright surfaces. `alpha` is the camera-distance
+   *  fade; the current selection switches to the amber accent. */
   private drawMarkerIcon(ctx: CanvasRenderingContext2D, x: number, y: number, type: string, selected: boolean, alpha: number): void {
-    const R = MARKER_ICON_R;
+    const img = this.markerIcon(objectIcon(type), selected ? "#f5a623" : "#ffffff");
+    if (!img.complete || !img.naturalWidth) return;
+    const s = MARKER_ICON_R * 1.85;
     ctx.save();
     ctx.globalAlpha = alpha;
-    roundRect(ctx, x - R, y - R, R * 2, R * 2, 5);
-    ctx.fillStyle = selected ? "rgba(245,166,35,0.9)" : "rgba(238,238,240,0.82)";
-    ctx.fill();
-    ctx.lineWidth = 1.5;
-    ctx.strokeStyle = selected ? "#ffcf6b" : "rgba(70,70,74,0.9)";
-    ctx.stroke();
-    const img = this.markerIcon(objectIcon(type), selected ? "#3a2a06" : "#3a3a40");
-    if (img.complete && img.naturalWidth) {
-      const s = R * 1.3;
-      ctx.drawImage(img, x - s / 2, y - s / 2, s, s);
-    }
+    // dark halo (drawn via the shadow, twice) so a white glyph reads on any background
+    ctx.shadowColor = "rgba(0,0,0,0.9)";
+    ctx.shadowBlur = 3.5;
+    ctx.drawImage(img, x - s / 2, y - s / 2, s, s);
+    ctx.drawImage(img, x - s / 2, y - s / 2, s, s);
     ctx.restore();
   }
 
@@ -1145,15 +1141,4 @@ const ICON_FAR = 72;
 function markerlessType(type: string): boolean {
   const c = objectCategory(type);
   return c === "marker" || c === "sound" || c === "light";
-}
-
-/** trace a rounded-rectangle path (Unreal-style icon badge backing) */
-function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.arcTo(x + w, y, x + w, y + h, r);
-  ctx.arcTo(x + w, y + h, x, y + h, r);
-  ctx.arcTo(x, y + h, x, y, r);
-  ctx.arcTo(x, y, x + w, y, r);
-  ctx.closePath();
 }

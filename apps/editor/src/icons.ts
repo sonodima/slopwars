@@ -48,6 +48,7 @@ const PATHS: Record<string, string> = {
   scale: '<path d="M3 3h6v6"/><path d="M21 21h-6v-6"/><path d="M3 3l7 7"/><path d="M21 21l-7-7"/>',
   lock: '<rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
   unlock: '<rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/>',
+  anchor: '<path d="M12 22V8"/><path d="M5 12H2a10 10 0 0 0 20 0h-3"/><circle cx="12" cy="5" r="3"/>',
 };
 
 export type IconName = keyof typeof PATHS | string;
