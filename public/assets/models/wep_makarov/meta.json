@@ -1,12 +1,6 @@
 {
+  "scale": 1.15,
   "materials": {
     "Makarov_MasterMat": "wep_makarov"
-  },
-  "scale": 1.15,
-  "anchors": {
-    "grip": {
-      "at": [0, -0.06, 0.06],
-      "rot": [-90, 6, 0]
-    }
   }
 }

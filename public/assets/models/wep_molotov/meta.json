@@ -2,7 +2,6 @@
   "scale": 0.015,
   "materials": {
     "Fabric": "wep_molotov_Fabric",
-    "Bottle": "MolotovBottle",
-    "Liquid": "water"
+    "Bottle": "MolotovBottle"
   }
 }

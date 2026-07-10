@@ -1,12 +1,6 @@
 {
+  "scale": 0.02,
   "materials": {
     "FragGrenade_MasterMat": "wep_frag"
-  },
-  "scale": 0.02,
-  "anchors": {
-    "grip": {
-      "at": [0, -2, -5],
-      "rot": [0, 0, 0]
-    }
   }
 }

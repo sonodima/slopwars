@@ -1,12 +1,6 @@
 {
+  "scale": 0.007,
   "materials": {
     "AK47_MasterMat": "wep_ak47"
-  },
-  "scale": 0.007,
-  "anchors": {
-    "grip": {
-      "at": [0, -10, 14],
-      "rot": [-90, 6, 2]
-    }
   }
 }

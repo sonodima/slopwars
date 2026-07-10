@@ -1,12 +1,6 @@
 {
+  "scale": 0.0052,
   "materials": {
     "Sniper_MasterMat": "wep_sniper"
-  },
-  "scale": 0.0052,
-  "anchors": {
-    "grip": {
-      "at": [0, -30, 10],
-      "rot": [-90, 5, 2]
-    }
   }
 }
