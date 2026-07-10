@@ -13,6 +13,7 @@ import { clear, el, contextMenu, confirmDelete, type MenuItem } from "./ui";
 import { icon, type IconName } from "./icons";
 import { ThumbRenderer } from "./preview";
 import { openImport, type ImportKind } from "./importer";
+import { audioPreview } from "./audiopreview";
 
 export interface PanelCtx {
   catalog: AssetCatalog;
@@ -182,11 +183,13 @@ export function renderBrowser(host: HTMLElement, ctx: PanelCtx): BrowserControl 
     for (const a of ctx.catalog.audio) {
       if (!match(a.name)) continue;
       const c = card(a.name, "volume", () => ({ kind: "audio", name: a.name }));
-      c.title = "drag into the viewport to place a sound · right-click for actions";
+      c.title = "drag into the viewport to place a sound · click ▶ to preview · right-click for actions";
       ctxMenu(c, () => [
         { label: "Delete", icon: "trash", danger: true, onClick: () => confirmDelete(`audio "${a.name}"`, () => ctx.onDeleteAudio(a.file)) },
       ]);
-      c.append(audioControls(ASSET(a.file)));
+      // the thumbnail slot becomes the waveform preview (play/stop + scrubbing built in)
+      const thumb = c.querySelector(".asset-thumb");
+      if (thumb) { thumb.classList.add("audio-thumb"); clear(thumb as HTMLElement); thumb.append(audioPreview(ASSET(a.file))); }
       grid.append(c);
     }
   };
@@ -228,17 +231,6 @@ function card(name: string, ic: IconName, payload: () => Payload): HTMLElement {
   c.draggable = true;
   c.addEventListener("dragstart", (e) => { e.dataTransfer?.setData("application/x-slop", JSON.stringify(payload())); });
   return c;
-}
-
-function audioControls(src: string): HTMLElement {
-  const audio = new Audio(src); audio.preload = "none";
-  const box = el("div", "asset-audioctl");
-  const play = el("button", "btn"); play.append(icon("play"), el("span", "btn-label", "Play"));
-  const stop = el("button", "btn"); stop.append(icon("stop"), el("span", "btn-label", "Stop"));
-  play.addEventListener("click", (e) => { e.stopPropagation(); void audio.play().catch(() => { /* needs gesture */ }); });
-  stop.addEventListener("click", (e) => { e.stopPropagation(); audio.pause(); audio.currentTime = 0; });
-  box.append(play, stop);
-  return box;
 }
 
 /** swap a card's thumbnail slot for a rendered image once it resolves */

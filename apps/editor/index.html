@@ -250,8 +250,20 @@
   .env-card .asset-icon-svg{width:22px;height:22px}
   .thumb-img{width:100%;height:100%;object-fit:contain;display:block}
   .asset-name{font-size:11px;color:var(--text);word-break:break-word}
-  .asset-audioctl{display:flex;gap:4px;width:100%}
-  .asset-audioctl .btn{flex:1;padding:2px 0;font-size:11px}
+  /* ── audio preview tile (waveform + centre play/stop + scrub line) ── */
+  .asset-thumb.audio-thumb{background:#0b0c0d}
+  .audio-prev{position:relative;width:100%;height:100%}
+  .audio-wave{position:absolute;inset:0;width:100%;height:100%;display:block}
+  .audio-play{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:34px;height:34px;padding:0;margin:0;
+    border-radius:50%;background:rgba(14,16,18,.62);border:1px solid var(--line2);color:#fff;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;backdrop-filter:blur(2px);transition:background .1s,border-color .1s}
+  .audio-play:hover{background:var(--accent);border-color:var(--accent)}
+  .audio-play .icon{width:15px;height:15px}
+  .audio-scrub{position:absolute;left:7px;right:7px;bottom:5px;height:9px;cursor:pointer}
+  .audio-scrub::before{content:"";position:absolute;left:0;right:0;top:50%;height:2px;transform:translateY(-50%);
+    background:rgba(198,208,220,.22);border-radius:1px}
+  .audio-pos{position:absolute;top:50%;left:0;transform:translate(-50%,-50%);width:9px;height:9px;border-radius:50%;
+    background:var(--accent);box-shadow:0 0 4px rgba(0,0,0,.6)}
   .asset-card .btn.mini{position:absolute;top:1px;right:1px}
 
   /* modal (Load map) */
