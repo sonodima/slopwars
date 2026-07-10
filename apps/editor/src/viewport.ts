@@ -527,20 +527,24 @@ export class Viewport {
     const map = state.map; if (!map) return;
 
     // object markers. Objects with no 3D mesh to click (lights, spawns, pickups,
-    // sounds) get a big legible icon badge instead of a 3px dot — otherwise they're
+    // sounds) get an Unreal-style icon badge instead of a 3px dot — otherwise they're
     // near-impossible to hit in the viewport; meshed objects keep a small dot since
-    // the mesh itself is the click target.
+    // the mesh itself is the click target. Badges fade out with camera distance so a
+    // busy map isn't a wall of icons — but the current selection always stays visible.
     for (let i = 0; i < map.objects.length; i++) {
       const o = map.objects[i];
-      const p = this.project(this.worldAt(o));
+      const wp = this.worldAt(o);
+      const p = this.project(wp);
       if (!p.visible) continue;
       const selected = state.isSelected(o);
-      if (markerlessType(o.type)) this.drawMarkerIcon(ctx, p.x, p.y, o.type, selected);
-      else {
+      if (markerlessType(o.type)) {
+        const a = selected ? 1 : this.iconFade(wp);
+        if (a > 0.01) this.drawMarkerIcon(ctx, p.x, p.y, o.type, selected, a);
+      } else {
         ctx.beginPath();
         ctx.arc(p.x, p.y, selected ? 5 : 3, 0, Math.PI * 2);
-        ctx.fillStyle = selected ? "#f5a623" : markerColor(o.type);
-        ctx.globalAlpha = selected ? 1 : 0.55;
+        ctx.fillStyle = selected ? "#f5a623" : "#e8e8ea";
+        ctx.globalAlpha = selected ? 1 : 0.5;
         ctx.fill();
         ctx.globalAlpha = 1;
       }
@@ -552,22 +556,35 @@ export class Viewport {
     if (pivot) this.drawGizmo(pivot);
   }
 
-  /** an icon badge for a markerless object: a rounded backing (so it's a big click
-   *  target that reads against any scene) plus the object type's icon. */
-  private drawMarkerIcon(ctx: CanvasRenderingContext2D, x: number, y: number, type: string, selected: boolean): void {
+  /** camera-distance fade for a marker badge: fully opaque up close, fading to nothing
+   *  past ICON_FAR so a dense scene isn't buried under always-on icons (Unreal-style). */
+  private iconFade(w: Tuple3): number {
+    const d = Math.hypot(w[0] - this.pos.x, w[1] - this.pos.y, w[2] - this.pos.z);
+    if (d <= ICON_NEAR) return 1;
+    if (d >= ICON_FAR) return 0;
+    return 1 - (d - ICON_NEAR) / (ICON_FAR - ICON_NEAR);
+  }
+
+  /** an Unreal-style icon badge for a markerless object: a semi-transparent white
+   *  rounded square with a thin grey border and the object type's glyph in slate —
+   *  understated, reads against any scene, and a comfortable click target. `alpha`
+   *  is the camera-distance fade; a selected badge switches to the amber accent. */
+  private drawMarkerIcon(ctx: CanvasRenderingContext2D, x: number, y: number, type: string, selected: boolean, alpha: number): void {
     const R = MARKER_ICON_R;
-    ctx.beginPath();
-    ctx.arc(x, y, R, 0, Math.PI * 2);
-    ctx.fillStyle = selected ? "rgba(245,166,35,0.92)" : "rgba(12,11,8,0.66)";
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    roundRect(ctx, x - R, y - R, R * 2, R * 2, 5);
+    ctx.fillStyle = selected ? "rgba(245,166,35,0.9)" : "rgba(238,238,240,0.82)";
     ctx.fill();
-    ctx.lineWidth = selected ? 2 : 1.5;
-    ctx.strokeStyle = selected ? "#f5a623" : markerColor(type);
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = selected ? "#ffcf6b" : "rgba(70,70,74,0.9)";
     ctx.stroke();
-    const img = this.markerIcon(objectIcon(type), selected ? "#1a1206" : markerColor(type));
+    const img = this.markerIcon(objectIcon(type), selected ? "#3a2a06" : "#3a3a40");
     if (img.complete && img.naturalWidth) {
-      const s = R * 1.35;
+      const s = R * 1.3;
       ctx.drawImage(img, x - s / 2, y - s / 2, s, s);
     }
+    ctx.restore();
   }
 
   /** an <img> of an editor icon stroked in `color` (rasterized SVG, cached) */
@@ -1120,6 +1137,9 @@ function rayBox(o: number[], d: number[], b: Box): number | null {
 
 /** radius (px) of the icon badge drawn for a markerless object's viewport marker */
 const MARKER_ICON_R = 13;
+/** camera distances (world units) between which a marker badge fades from full to nil */
+const ICON_NEAR = 34;
+const ICON_FAR = 72;
 
 /** an object type with no clickable 3D mesh — its viewport handle is the icon badge */
 function markerlessType(type: string): boolean {
@@ -1127,14 +1147,13 @@ function markerlessType(type: string): boolean {
   return c === "marker" || c === "sound" || c === "light";
 }
 
-function markerColor(type: string): string {
-  if (type === "spawn") return "#4caf50";
-  if (type === "pickup") return "#29b6f6";
-  if (type === "powerup") return "#ffca28";
-  if (type === "sound") return "#ab47bc";
-  if (type === "box") return "#78909c";
-  // lights (point/dir/spot/lantern) glow yellow so they read at a glance even
-  // though the light itself has no mesh to click in 3D — only this marker dot.
-  if (objectCategory(type) === "light") return "#ffd54f";
-  return "#cfc3a8";
+/** trace a rounded-rectangle path (Unreal-style icon badge backing) */
+function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
 }

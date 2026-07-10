@@ -12,6 +12,7 @@ import {
 } from "@galacean/engine";
 import { AABB, rayAABB } from "./map";
 import { GameModels, buildProp, instantiate } from "./models";
+import type { MaterialLibrary } from "./materials";
 import { INTERP_DELAY, PlayerState, Vec3, WeaponId, clamp } from "./types";
 
 interface Sample { time: number; p: [number, number, number]; yaw: number; pitch: number; cr: number }
@@ -70,6 +71,7 @@ export class RemotePlayer {
 
   private disguise: Entity | null = null;   // prop-hunt disguise prop (built lazily)
   private disguiseModel: string | null = null;  // which model the current disguise is
+  private disguiseLib: MaterialLibrary | null = null;  // shades the disguise's slot materials
 
   // animation clock (wall time) for locomotion speed sampling
   private prevX = 0;
@@ -160,8 +162,12 @@ export class RemotePlayer {
   /** prop-hunt: swap the humanoid for a disguise prop. `model` names a model from the
    *  prop-hunt pool (rebuilt if it changed); a null/missing model falls back to a plain
    *  crate so a hider is always *something*. */
-  setDisguise(on: boolean, model: string | null = null): void {
-    if (on && (this.disguise === null || model !== this.disguiseModel)) this.buildDisguise(model);
+  setDisguise(on: boolean, model: string | null = null, lib: MaterialLibrary | null = null): void {
+    // a newly-available material library re-shades the current disguise (the lib loads
+    // async at startup; a disguise built before it was ready would be untextured)
+    const relibbed = on && lib !== null && lib !== this.disguiseLib && this.disguise !== null;
+    this.disguiseLib = lib;
+    if (on && (this.disguise === null || model !== this.disguiseModel || relibbed)) this.buildDisguise(model);
     if (on === this.disguised) return;
     this.disguised = on;
     if (this.charRoot) this.charRoot.isActive = !on;
@@ -174,7 +180,7 @@ export class RemotePlayer {
     this.disguise?.destroy();
     this.disguiseModel = model;
     const holder = this.entity.createChild("disguise");
-    const prop = model ? buildProp(this.models, model) : null;
+    const prop = model ? buildProp(this.models, model, this.disguiseLib ?? undefined) : null;
     if (prop) {
       for (const r of prop.getComponentsIncludeChildren(MeshRenderer, [])) r.castShadows = true;
       holder.addChild(prop);

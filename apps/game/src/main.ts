@@ -260,6 +260,7 @@ class Game {
     this.buildSelfAvatar(root);
     this.ws = new WeaponSystem(engine, this.camEntity, this.models);
     void this.applyWeaponMaterials();   // texture the geometry-only gun viewmodels (async; pops in)
+    void this.ensureDisguiseMaterials(); // texture the Prop-Hunt disguise props (async; ready well before any match)
     this.ws.onShoot = (def, spread) => {
       if (def.throwable) this.throwNade(def.id as NadeKind);
       else this.fireHitscan(def, spread);
@@ -434,7 +435,7 @@ class Game {
     if (model === this.selfDisguiseModel && this.selfAvatar.children.length) return;
     this.selfDisguiseModel = model;
     this.selfAvatar.clearChildren();
-    const prop = model ? buildProp(this.models, model) : null;
+    const prop = model ? buildProp(this.models, model, this.disguiseLib ?? undefined) : null;
     if (prop) {
       for (const r of prop.getComponentsIncludeChildren(MeshRenderer, [])) r.castShadows = true;
       this.selfAvatar.addChild(prop);
@@ -540,12 +541,14 @@ class Game {
   updateModeVisuals(): void {
     const disguise = this.mode === "prophunt";
     for (const r of this.remotes.values()) {
-      r.setDisguise(disguise && this.teams[r.id] === ROLE_HIDE, this.propForPlayer(r.id));
+      r.setDisguise(disguise && this.teams[r.id] === ROLE_HIDE, this.propForPlayer(r.id), this.disguiseLib);
     }
   }
 
   /** the disguise-prop pool for the current map (models flagged usable for prop hunt) */
   private propPool: string[] = propHuntPool();
+  /** material library the Prop-Hunt disguises shade against (built once; see ensureDisguiseMaterials) */
+  private disguiseLib: MaterialLibrary | null = null;
 
   /** deterministic disguise-prop model for a player id (host + guests agree without any
    *  extra networking). null when the pool is empty → callers fall back to the crate. */
@@ -1433,6 +1436,23 @@ class Game {
     const tex = await resolveTextures(this.engine, materialTextureFolders(matNames));
     const lib = new MaterialLibrary(this.engine, tex);
     this.ws.applyModelMaterials(metas, lib);
+  }
+
+  /** shade the Prop-Hunt disguise props with their models' assigned MAIN materials.
+   *  Disguise models (Barrel_01, crates, …) reference material slots just like map
+   *  placements do, so — exactly like the gun viewmodels — we load only the texture
+   *  folders those materials need and build a one-off library the disguises shade
+   *  against. Without it a disguise renders with its untextured glTF placeholder. */
+  private async ensureDisguiseMaterials(): Promise<void> {
+    if (this.disguiseLib) return;
+    const matNames = new Set<string>();
+    for (const name of this.propPool) {
+      const meta = catalog.models.find((m) => m.name === name)?.meta;
+      for (const mat of modelMaterials(meta)) matNames.add(mat);
+    }
+    if (!matNames.size) return;
+    const tex = await resolveTextures(this.engine, materialTextureFolders(matNames));
+    this.disguiseLib = new MaterialLibrary(this.engine, tex);
   }
 
   /** apply a map's skybox / fog / lighting identity (awaits its HDRI if any) */

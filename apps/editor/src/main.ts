@@ -373,6 +373,17 @@ function tabTitle(t: Tab): string {
 }
 function renderTabStrip(): void {
   const bar = $("vp-tabs");
+  // translate vertical wheel into horizontal scroll so an overflowing tab strip is
+  // reachable with the mouse wheel (the hidden scrollbar no longer eats its height).
+  // Bound once — renderTabStrip runs on every change, but the flag keeps it idempotent.
+  if (!bar.dataset.wheelBound) {
+    bar.dataset.wheelBound = "1";
+    bar.addEventListener("wheel", (e) => {
+      if (bar.scrollWidth <= bar.clientWidth) return;   // nothing to scroll
+      e.preventDefault();
+      bar.scrollLeft += (Math.abs(e.deltaY) > Math.abs(e.deltaX) ? e.deltaY : e.deltaX);
+    }, { passive: false });
+  }
   clear(bar);
   for (const t of tabs.tabs) {
     const b = el("button", "vp-tab" + (t.id === tabs.activeId ? " on" : ""));

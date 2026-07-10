@@ -8,6 +8,7 @@ import { Engine, Entity, GLTFResource } from "@galacean/engine";
 import type { ModelMeta } from "@slopwars/shared";
 import catalog from "virtual:asset-catalog";
 import { loadGLTF } from "./assets";
+import { shadeModelSlots, type MaterialLibrary } from "./materials";
 
 /** loaded models, keyed by their folder name (the canonical asset key). null when
  *  a model failed to load — callers must guard. */
@@ -30,11 +31,16 @@ export function propHuntPool(): string[] {
 
 /** instantiate a calibrated static disguise prop (its own meta scale / base offset /
  *  base rotation applied), parented nowhere and resting with its footing at y=0 so the
- *  caller can drop it at a player's feet. null when the model isn't loaded. */
-export function buildProp(models: GameModels, name: string): Entity | null {
+ *  caller can drop it at a player's feet. null when the model isn't loaded.
+ *  Pass `lib` (a MaterialLibrary that has the prop's slot-material textures loaded) so
+ *  the prop is shaded with its assigned MAIN materials — exactly like the same model
+ *  placed in a map. Without it a model that relies on slot assignments (e.g. Barrel_01)
+ *  renders with its untextured glTF placeholder material (the Prop-Hunt "no texture" bug). */
+export function buildProp(models: GameModels, name: string, lib?: MaterialLibrary): Entity | null {
   const e = instantiate(models[name]);
   if (!e) return null;
   const meta = modelMetaOf(name);
+  if (lib) shadeModelSlots(e, meta, lib);
   const ms = meta.scale ?? 1;
   e.transform.setScale(ms, ms, ms);
   const base = (meta.base ?? 0) * ms;
