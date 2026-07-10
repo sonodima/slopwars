@@ -211,8 +211,8 @@ export class PreviewScene {
         const maps = this.catalog.textures.find((t) => t.name === def.texture)?.maps ?? {};
         const [color, normal, arm] = await Promise.all([
           maps.color ? loadTexture2D(this.engine, maps.color) : null,
-          maps.normal ? loadTexture2D(this.engine, maps.normal) : null,
-          maps.arm ? loadTexture2D(this.engine, maps.arm) : null,
+          maps.normal ? loadTexture2D(this.engine, maps.normal, false) : null,
+          maps.arm ? loadTexture2D(this.engine, maps.arm, false) : null,
         ]);
         if (color) m.baseTexture = color;
         if (normal) m.normalTexture = normal;
@@ -258,8 +258,8 @@ export class PreviewScene {
     m.tilingOffset = new Vector4(1, 1, 0, 0);
     const [color, normal, arm] = await Promise.all([
       maps.color ? loadTexture2D(this.engine, maps.color) : null,
-      maps.normal ? loadTexture2D(this.engine, maps.normal) : null,
-      maps.arm ? loadTexture2D(this.engine, maps.arm) : null,
+      maps.normal ? loadTexture2D(this.engine, maps.normal, false) : null,
+      maps.arm ? loadTexture2D(this.engine, maps.arm, false) : null,
     ]);
     // guard: a slower load may have been superseded by another tab
     if (this.content.kind !== "texture" || this.content.name !== name || e.destroyed) return;

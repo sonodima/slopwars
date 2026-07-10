@@ -109,6 +109,15 @@ export class Hud {
     $("menu-conn").classList.toggle("hidden", !on);
   }
 
+  /** reflect a local, bots-only session (host couldn't reach the lobby server): swap
+   *  the "share this code" prompt for an explanation and show an OFFLINE badge in-game. */
+  setOffline(on: boolean): void {
+    $("lobby-offline").classList.toggle("hidden", !on);
+    $("game-offline").classList.toggle("hidden", !on);
+    $("lobby-code-label").textContent = on ? "no connection" : "share this code";
+    $("sb-code").classList.toggle("hidden", on); // the scoreboard "join code" is meaningless offline
+  }
+
   // ── lobby ──
   lobby(code: string, players: PlayerInfo[], isHost: boolean, mode: ModeId, cfg: MatchConfig): void {
     $("lobby-code").textContent = code;

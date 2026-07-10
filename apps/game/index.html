@@ -97,6 +97,10 @@
     letter-spacing:3px;color:#8d8471;background:rgba(10,9,6,.6);padding:4px 9px;border-right:2px solid var(--line);
     transform:translateY(-0px)}
   #sb-code{font-family:var(--mono);font-size:11px;letter-spacing:2px;color:var(--sand-dim);margin:-6px 0 10px}
+  /* offline (local, bots-only) indicators */
+  #game-offline{position:absolute;top:36px;right:20px;font-family:var(--mono);font-size:10px;letter-spacing:3px;
+    color:#e5a23a;background:rgba(40,26,8,.65);padding:3px 9px;border-right:2px solid #e5a23a}
+  #lobby-offline{max-width:330px;margin:-8px auto 16px;color:#e5a23a;font-size:11px;line-height:1.5;text-align:center}
 
   #chatfeed{position:absolute;left:16px;bottom:118px;max-width:420px;font-size:13px;letter-spacing:.3px}
   .cm{background:rgba(10,9,6,.65);padding:4px 9px;margin-top:4px;border-left:2px solid var(--line)}
@@ -410,8 +414,9 @@
 <div id="scr-lobby" class="screen hidden">
   <div id="lobby-title">SlopWars</div>
   <div class="panel lobby-panel">
-    <label style="text-align:center">share this code</label>
+    <label style="text-align:center" id="lobby-code-label">share this code</label>
     <div id="lobby-code"></div>
+    <div id="lobby-offline" class="hidden">No connection to the lobby server — no one can join. You can still play a bots-only match.</div>
     <label>game mode</label>
     <div id="lobby-mode"></div>
     <div id="lobby-rules"></div>
@@ -435,6 +440,7 @@
   <div id="buff" class="hidden"></div>
   <div id="stats"></div>
   <div id="game-code"></div>
+  <div id="game-offline" class="hidden">OFFLINE</div>
   <div id="killfeed"></div>
   <div id="chatfeed"></div>
   <div id="chat-bar" class="hidden"><span>›</span><input id="chat-inp" maxlength="120" spellcheck="false"></div>

@@ -9,6 +9,7 @@
 import type { AssetCatalog, CollisionMode, CollisionShape, FogFalloff, MapDef, MaterialDef, MaterialType, ModelMeta, PhysicsProps, Placement, ShadowQuality, TextureMaps, ToneMode, Tuple3 } from "@slopwars/shared";
 import { MATERIAL_TYPES, PHYSICS_DEFAULTS, defaultMaterialDef, envPost, envShadows } from "@slopwars/shared";
 import { objectDefaults, placementDetail } from "@game/objects";
+import { behaviourCatalog, behaviourDefaults, behaviourLabel, type BehaviourSpec } from "@game/behaviours";
 import type { ThumbRenderer } from "./preview";
 import { state } from "./state";
 import { tabs } from "./tabs";
@@ -427,16 +428,61 @@ function objectInspector(host: HTMLElement, o: Placement, touch: () => void): vo
   // an object with a `physics` toggle gets a dedicated Physics section (mass + the PhysX
   // knobs) that only appears when physics is on — its keys are pulled out of Details.
   const hasPhysics = "physics" in schema && typeof schema.physics === "boolean";
-  const detailKeys = Object.keys(schema).filter((k) => !(hasPhysics && PHYSICS_KEYS.has(k)));
+  // `behaviours` gets its own composition section (a list of gameplay traits), so it's
+  // pulled out of the generic Details list (which can't render an array of objects).
+  const hasBehaviours = Array.isArray(schema.behaviours);
+  const detailKeys = Object.keys(schema).filter((k) => !(hasPhysics && PHYSICS_KEYS.has(k)) && !(hasBehaviours && k === "behaviours"));
   if (detailKeys.length) {
     group(host, "Details");
     for (const key of detailKeys) host.append(paramField(key, schema[key], params, touch));
   }
+  if (hasBehaviours) objectBehavioursSection(host, params, touch);
   if (hasPhysics) objectPhysicsSection(host, params, schema, touch);
 }
 
 /** param keys owned by the Physics section (hidden from the generic Details list) */
 const PHYSICS_KEYS = new Set(["physics", "mass", "friction", "restitution", "linearDamping", "angularDamping"]);
+
+/** the Behaviours block: the composable gameplay traits attached to a model prop.
+ *  Each behaviour is a card — its label, a remove button, and its own param fields
+ *  (rendered by the same generic paramField as object params, so an `explode` gets
+ *  hp/radius/height and a `light` gets a colour swatch + intensity). A picker at the
+ *  bottom appends a new behaviour with its defaults. Add/remove/type edits rebuild
+ *  the map and re-render the inspector; per-field edits just `touch` like any param. */
+function objectBehavioursSection(host: HTMLElement, params: Record<string, unknown>, touch: () => void): void {
+  group(host, "Behaviours");
+  const list: BehaviourSpec[] = Array.isArray(params.behaviours) ? (params.behaviours as BehaviourSpec[]) : (params.behaviours = []);
+  const catalog = behaviourCatalog();
+
+  if (!list.length) host.append(el("div", "side-note", "No behaviours — add one below to make this prop explode, glow, …"));
+  list.forEach((spec, i) => {
+    const card = el("div", "beh-card");
+    const head = el("div", "beh-head");
+    head.append(el("span", "beh-title", behaviourLabel(spec.type)));
+    const del = el("button", "btn mini"); del.title = "remove behaviour"; del.append(icon("trash"));
+    del.addEventListener("click", () => { list.splice(i, 1); state.commit(true); });
+    head.append(del);
+    card.append(head);
+    // each behaviour param is a normal param field, backed by the spec object itself
+    const defs = behaviourDefaults(spec.type);
+    for (const key of Object.keys(defs)) card.append(paramField(key, defs[key], spec as unknown as Record<string, unknown>, touch));
+    host.append(card);
+  });
+
+  // add picker: choose a trait → append it with its defaults
+  const bar = el("div", "beh-add");
+  const sel = el("select", "beh-add-sel") as HTMLSelectElement;
+  const ph = el("option", undefined, "Add behaviour…") as HTMLOptionElement; ph.value = ""; sel.append(ph);
+  for (const b of catalog) { const op = el("option", undefined, b.label) as HTMLOptionElement; op.value = b.type; sel.append(op); }
+  sel.addEventListener("change", () => {
+    const type = sel.value;
+    if (!type) return;
+    list.push({ type, ...behaviourDefaults(type) });
+    state.commit(true);
+  });
+  bar.append(sel);
+  host.append(bar);
+}
 
 /** the Physics block for an object with a `physics` toggle: the on/off switch, and —
  *  only when it's on — mass plus the shared PhysX knobs, all backed by the object's

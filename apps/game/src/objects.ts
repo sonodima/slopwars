@@ -8,7 +8,6 @@
 // defineObject() call; the loader and the editor pick them up for free.
 import catalog from "virtual:asset-catalog";
 import type { MapBuilder } from "./mapbuilder";
-import { AABB } from "./map";
 import { assetUrl } from "./assets";
 import { DEFAULT_MATERIAL, materialTextureFolders } from "./materials";
 import { PARTICLE_LOOK, type ParticleLook } from "./particles";
@@ -18,8 +17,7 @@ import {
 } from "./lights";
 import type { MapDef, Placement, MaterialDef } from "./maps/schema";
 import { modelMaterials, type ModelMeta } from "@slopwars/shared";
-
-export const BARREL_HP = 120;
+import { attachBehaviours, behavioursOwnCollision, type BehaviourSpec } from "./behaviours";
 
 /** a resolved transform passed to every object build() */
 export interface Transform {
@@ -215,14 +213,24 @@ defineObject<{ clip: string; radius: number; volume: number; loop: boolean; spat
 // physics tuning (friction/restitution/damping) is optional: a plain physics prop
 // stores only `physics` + `mass`, and each unset field falls back to the shared PhysX
 // default — so the extra knobs add zero data until an author actually turns one.
-defineObject<{ model: string; solid: boolean; castShadows: boolean; physics: boolean; mass: number; friction?: number; restitution?: number; linearDamping?: number; angularDamping?: number }>("prop", {
-  defaults: { model: "", solid: true, castShadows: true, physics: false, mass: 5 },
+// `behaviours` is the composition slot: a list of gameplay traits (see behaviours.ts)
+// attached to this model — `explode` makes it a shootable barrel, `light` makes it
+// glow, and you can stack several. A trait that owns collision (explode) takes over
+// the prop's static collider so the whole thing vanishes as a unit when destroyed.
+defineObject<{ model: string; solid: boolean; castShadows: boolean; behaviours: BehaviourSpec[]; physics: boolean; mass: number; friction?: number; restitution?: number; linearDamping?: number; angularDamping?: number }>("prop", {
+  defaults: { model: "", solid: true, castShadows: true, behaviours: [], physics: false, mass: 5 },
   category: "prop",
   build(b, t, p) {
     if (!p.model) return;
     const e = b.placeModelTf(p.model, t.at, t.rot, t.scale);
     if (!e) return;
     if (p.castShadows === false) b.setCastShadows(e, false);   // e.g. a lantern housing its own light
+    // compose any attached behaviours (after the entity exists, before collision, so a
+    // collision-owning trait like `explode` can register the host's collider itself).
+    const behaviours = Array.isArray(p.behaviours) ? p.behaviours : [];
+    if (behaviours.length) {
+      attachBehaviours(b, { entity: e, model: p.model, at: t.at, rot: t.rot, scale: t.scale, bounds: b.modelAABB(e) }, behaviours);
+    }
     if (p.physics) {
       b.pushDynamicBody(p.model, e, t.at, t.rot, t.scale, {
         mass: p.mass, friction: p.friction, restitution: p.restitution,
@@ -230,7 +238,8 @@ defineObject<{ model: string; solid: boolean; castShadows: boolean; physics: boo
       });
       return;
     }
-    if (p.solid) b.pushModelSolids(p.model, e, t.at, t.rot, t.scale);
+    // a behaviour that owns collision (explode) already pushed the host's collider
+    if (p.solid && !behavioursOwnCollision(behaviours)) b.pushModelSolids(p.model, e, t.at, t.rot, t.scale);
   },
 });
 
@@ -272,27 +281,10 @@ definePreset<ParticleLook & { tex: string }>("smoke", "particles", {
   gravity: -0.1, color: [0.28, 0.28, 0.3], opacity: 0.45, additive: false, world: true,
 }, "entity");
 
-// ─── gameplay entities ────────────────────────────────────────────────────────
-
-/** generic explodable prop — any `model` that takes damage and explodes at 0 hp
- *  (host-tracked, reusing the barrel gameplay path). Drop one and point `model` at
- *  a barrel, crate, gas tank… to make it shootable+explosive. `radius`/`height`
- *  size its collision + blast cylinder. (An explosive barrel is just this with the
- *  barrel model dropped in — there is no bespoke `barrel` preset.) */
-defineObject<{ model: string; hp: number; scale?: number; radius: number; height: number }>("explodable", {
-  defaults: { model: "", hp: BARREL_HP, radius: 0.45, height: 1.1 },
-  category: "entity",
-  build(b, t, p) {
-    if (!p.model) return;
-    const [x, y, z] = t.at;
-    const m = p.scale ?? 1;   // legacy multiplier; drop scale carries the native size
-    const e = b.placeModelTf(p.model, [x, y, z], [0, t.rot[1], 0], [t.scale[0] * m, t.scale[1] * m, t.scale[2] * m]);
-    // collision stays authored radius/height (explodables aren't resized by scale)
-    const solid: AABB = { min: { x: x - p.radius, y, z: z - p.radius }, max: { x: x + p.radius, y: y + p.height, z: z + p.radius } };
-    b.pushSolid(solid);
-    b.map.barrels.push({ pos: { x, y: y + p.height / 2, z }, entity: e, solid, hp: p.hp, dead: false });
-  },
-});
+// NOTE: the old bespoke `explodable` object type was removed — an explosive barrel is
+// now a `prop` (model: Barrel_01) with an `explode` behaviour (see behaviours.ts). This
+// is the composition migration: gameplay is a trait you attach to a model, not a
+// separate object type per behaviour, so a prop can be explosive AND glowing AND …
 
 // ─── standalone light sources (point / directional / spot) ────────────────────
 // Pure lights, no model — the Unity-style building block. Group one with any prop

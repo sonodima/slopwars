@@ -133,8 +133,8 @@ export class ThumbRenderer {
         const maps = catalog.textures.find((t) => t.name === def.texture)?.maps ?? {};
         const [color, normal, arm] = await Promise.all([
           maps.color ? loadTexture2D(this.engine!, maps.color) : null,
-          maps.normal ? loadTexture2D(this.engine!, maps.normal) : null,
-          maps.arm ? loadTexture2D(this.engine!, maps.arm) : null,
+          maps.normal ? loadTexture2D(this.engine!, maps.normal, false) : null,
+          maps.arm ? loadTexture2D(this.engine!, maps.arm, false) : null,
         ]);
         if (color) m.baseTexture = color;
         if (normal) m.normalTexture = normal;
@@ -172,8 +172,8 @@ export class ThumbRenderer {
       m.tilingOffset = new Vector4(1, 1, 0, 0);
       const [color, normal, arm] = await Promise.all([
         maps.color ? loadTexture2D(this.engine!, maps.color) : null,
-        maps.normal ? loadTexture2D(this.engine!, maps.normal) : null,
-        maps.arm ? loadTexture2D(this.engine!, maps.arm) : null,
+        maps.normal ? loadTexture2D(this.engine!, maps.normal, false) : null,
+        maps.arm ? loadTexture2D(this.engine!, maps.arm, false) : null,
       ]);
       if (color) m.baseTexture = color;
       if (normal) m.normalTexture = normal;
@@ -279,8 +279,8 @@ export class ThumbRenderer {
       p = (async (): Promise<PbrSet> => {
         const [color, normal, arm] = await Promise.all([
           loadTexture2D(this.engine!, this.pathFor(key, "color")),
-          loadTexture2D(this.engine!, this.pathFor(key, "normal")),
-          loadTexture2D(this.engine!, this.pathFor(key, "arm")),
+          loadTexture2D(this.engine!, this.pathFor(key, "normal"), false),
+          loadTexture2D(this.engine!, this.pathFor(key, "arm"), false),
         ]);
         return { color, normal, arm };
       })();

@@ -12,9 +12,17 @@ export function assetUrl(path: string): string {
   return `${BASE}assets/${path}`;
 }
 
-/** color/normal/arm map, tiling (Repeat) enabled */
-export async function loadTexture2D(engine: Engine, path: string): Promise<Texture2D> {
-  const t = await engine.resourceManager.load<Texture2D>({ url: assetUrl(path), type: AssetType.Texture2D });
+/** load a Texture2D with tiling (Repeat) enabled. `srgb` MUST match how the map is
+ *  consumed: base-colour/albedo is authored in sRGB (default), but data maps —
+ *  tangent normals and the packed AO/Roughness/Metallic set — are LINEAR data and
+ *  must load with `srgb: false`. Loading a data map as sRGB makes the GPU gamma-decode
+ *  it on sample, so e.g. a roughness of 0.5 reads as ~0.21 and every surface comes out
+ *  far glossier/more reflective than authored — the classic "not real PBR" look. (The
+ *  glTF loader already picks the right space per texture; this is for our own maps.) */
+export async function loadTexture2D(engine: Engine, path: string, srgb = true): Promise<Texture2D> {
+  const t = await engine.resourceManager.load<Texture2D>({
+    url: assetUrl(path), type: AssetType.Texture2D, params: { isSRGBColorSpace: srgb },
+  });
   t.wrapModeU = TextureWrapMode.Repeat;
   t.wrapModeV = TextureWrapMode.Repeat;
   return t;

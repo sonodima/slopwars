@@ -36,9 +36,9 @@ function loadSet(engine: Engine, folder: string): Promise<PbrSet> {
   if (!p) {
     p = (async (): Promise<PbrSet> => {
       const [color, normal, arm] = await Promise.all([
-        loadTexture2D(engine, pathFor(folder, "color")),
-        loadTexture2D(engine, pathFor(folder, "normal")),
-        loadTexture2D(engine, pathFor(folder, "arm")),
+        loadTexture2D(engine, pathFor(folder, "color")),          // albedo — sRGB
+        loadTexture2D(engine, pathFor(folder, "normal"), false),  // tangent normals — linear data
+        loadTexture2D(engine, pathFor(folder, "arm"), false),     // AO/Rough/Metal — linear data
       ]);
       return { color, normal, arm };
     })();
