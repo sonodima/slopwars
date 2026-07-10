@@ -902,15 +902,13 @@ class Game {
       // where "high fps but janky, fine at half-size" comes from — the frame is
       // fill-rate bound at 2× resolution. `peak` is the worst frame in the last
       // window (ms) — if it's ≫ the average, the hitches are GC/upload spikes.
-      const cv = this.engine.canvas as unknown as { width: number; height: number };
-      const dpr = (window.devicePixelRatio || 1).toFixed(2);
-      const peakMs = this.framePeak * 1000;
       this.framePeak = 0;
+      // compact: just the numbers that matter at a glance — fps, frame time, tri
+      // count and network latency. (Detailed resolution/dpr/solids/speed telemetry
+      // was dropped to keep the overlay small and unobtrusive.)
+      const ping = this.net.isHost ? "host" : `${this.ping.toFixed(0)}ms`;
       this.hud.stats(
-        `<b>${this.fpsE.toFixed(0)}</b> fps · ${(1000 / this.fpsE).toFixed(1)} ms · peak ${peakMs.toFixed(1)} ms<br>` +
-        `${cv.width}×${cv.height} @${dpr}dpr · ${(tris / 1000).toFixed(1)}k tris · ${this.map.solids.length} solids<br>` +
-        `ping ${this.net.isHost ? "host" : this.ping.toFixed(0) + " ms"} · ` +
-        `spd ${this.body.horizontalSpeed().toFixed(1)} u/s`
+        `<b>${this.fpsE.toFixed(0)}</b> fps · ${(1000 / this.fpsE).toFixed(1)}ms · ${(tris / 1000).toFixed(1)}k tris · ${ping}`
       );
     }
   }

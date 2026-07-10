@@ -57,6 +57,28 @@
   .keys{margin-top:26px;font-size:10px;letter-spacing:2px;color:#6d6350;text-transform:uppercase;line-height:1.9;text-align:center}
   .keys b{color:var(--sand-dim)}
 
+  /* ── main menu (create / join) ── */
+  #scr-menu .menu-panel{position:relative;min-width:min(400px,92vw)}
+  /* a thin accent strip across the top edge — reads as a piece of kit, not a plain box */
+  #scr-menu .menu-panel::before{content:"";position:absolute;top:-1px;left:-1px;right:-1px;height:2px;
+    background:linear-gradient(90deg,transparent,var(--sand),transparent)}
+  .menu-split{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:16px;margin-top:16px}
+  .menu-act{display:flex;flex-direction:column;min-width:0}
+  .menu-act button{margin-top:0;white-space:nowrap;letter-spacing:1.5px;padding:12px 8px}
+  .menu-act input{margin-bottom:10px;text-align:center;letter-spacing:2px}
+  .menu-act .menu-hint{margin-top:8px;font-size:9px;letter-spacing:2px;text-transform:uppercase;color:#6d6350;text-align:center}
+  .menu-split .or-sep{flex-direction:column;margin:0;writing-mode:vertical-rl;height:100%;gap:8px}
+  .menu-split .or-sep::before,.menu-split .or-sep::after{width:1px;height:auto;flex:1}
+  .menu-chips{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:24px}
+  .menu-chips span{font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--sand-dim);
+    background:rgba(216,184,120,.08);border:1px solid var(--line);padding:5px 12px}
+  /* stack the two actions vertically on narrow screens (the vertical divider collapses) */
+  @media (max-width:560px){
+    .menu-split{grid-template-columns:1fr;gap:10px}
+    .menu-split .or-sep{writing-mode:horizontal-tb;flex-direction:row;margin:2px 0}
+    .menu-split .or-sep::before,.menu-split .or-sep::after{width:auto;height:1px}
+  }
+
   /* ── lobby (3D backdrop) ── */
   #scr-lobby{background:linear-gradient(100deg,rgba(8,7,5,.85) 0%,rgba(8,7,5,.4) 36%,rgba(8,7,5,0) 62%);
     align-items:flex-start;justify-content:center;overflow-y:auto;
@@ -108,9 +130,10 @@
   .kf b{color:var(--sand)}
   .kf span{color:#8d8471;font-size:11px}
 
-  #stats{position:absolute;top:14px;left:16px;font-family:var(--mono);font-size:11px;line-height:1.7;
-    color:#b8ad93;background:rgba(10,9,6,.6);border-left:2px solid var(--line);padding:6px 10px;letter-spacing:.5px}
-  #stats b{color:var(--sand)}
+  #stats{position:absolute;top:12px;left:14px;font-family:var(--mono);font-size:9.5px;line-height:1.4;
+    color:#9a917c;background:rgba(10,9,6,.5);border-left:2px solid var(--line);padding:3px 8px;letter-spacing:.3px;
+    border-radius:0 3px 3px 0}
+  #stats b{color:var(--sand);font-size:11px}
   #game-code{position:absolute;top:14px;right:20px;margin-top:-2px;font-family:var(--mono);font-size:11px;
     letter-spacing:3px;color:#8d8471;background:rgba(10,9,6,.6);padding:4px 9px;border-right:2px solid var(--line);
     transform:translateY(-0px)}
@@ -171,19 +194,30 @@
   #scr-end h2{font-size:26px;letter-spacing:8px;color:var(--sand);text-transform:uppercase;text-align:center;margin-bottom:16px}
 
   /* ── powerup buff indicator ── */
-  #buff{position:absolute;top:58px;left:50%;transform:translateX(-50%);font-size:13px;letter-spacing:3px;
+  /* sits below the whole top-centre mode stack (timer → team score → role/tier) so it
+     never overlaps them — powerups can drop in any mode, including the team modes. */
+  #buff{position:absolute;top:146px;left:50%;transform:translateX(-50%);font-size:13px;letter-spacing:3px;
     text-transform:uppercase;font-weight:700;padding:5px 16px;background:rgba(10,9,6,.82);
-    border:1px solid var(--line);text-shadow:0 0 10px currentColor}
+    border:1px solid var(--line);text-shadow:0 0 10px currentColor;white-space:nowrap}
 
   /* ── loading ── */
-  .loadwrap{width:min(360px,84vw);margin-top:2px}
-  .loadbar{width:100%;height:5px;background:rgba(216,184,120,.12);border:1px solid var(--line)}
+  #scr-loading .load-brand{display:flex;flex-direction:column;align-items:center;margin-bottom:38px}
+  .loadwrap{width:min(400px,86vw)}
+  .loadhead{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:10px}
+  #load-asset{color:#8a8069;font-family:var(--mono);font-size:11px;letter-spacing:2px;text-transform:uppercase;
+    min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #load-pct{color:var(--sand);font-family:var(--mono);font-size:26px;font-weight:700;line-height:1;flex:0 0 auto;
+    text-shadow:0 0 16px rgba(216,184,120,.4)}
+  .loadbar{position:relative;width:100%;height:6px;background:rgba(216,184,120,.1);
+    border:1px solid var(--line);overflow:hidden}
   #load-bar{height:100%;width:0;background:linear-gradient(90deg,var(--sand-dim),var(--sand));
-    box-shadow:0 0 12px rgba(216,184,120,.45);transition:width .15s}
-  .loadrow{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:9px;
-    font-family:var(--mono);font-size:10px;letter-spacing:2px;text-transform:uppercase}
-  #load-asset{color:#6d6350;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  #load-pct{color:var(--sand);font-weight:700;flex:0 0 auto}
+    box-shadow:0 0 14px rgba(216,184,120,.5);transition:width .18s ease-out}
+  /* moving sheen so an idle bar still reads as "working" */
+  .loadbar::after{content:"";position:absolute;inset:0;background:linear-gradient(100deg,transparent 30%,
+    rgba(255,255,255,.12) 50%,transparent 70%);background-size:200% 100%;animation:load-sheen 1.5s linear infinite}
+  @keyframes load-sheen{from{background-position:120% 0}to{background-position:-120% 0}}
+  .loadtag{margin-top:12px;text-align:center;font-size:9px;letter-spacing:4px;text-transform:uppercase;color:#6d6350;
+    animation:pulse 1.6s infinite}
 
   /* ── map vote (interlude) ── */
   #vote{position:absolute;left:50%;bottom:132px;transform:translateX(-50%);pointer-events:auto;text-align:center}
@@ -389,6 +423,7 @@
   body.touch #hud-teams{top:calc(max(8px,env(safe-area-inset-top)) + 38px);font-size:15px;padding:3px 12px}
   body.touch #hud-teams .tn{font-size:9px}
   body.touch #hud-role,body.touch #hud-tier{top:calc(max(8px,env(safe-area-inset-top)) + 70px);font-size:11px;padding:4px 12px}
+  body.touch #buff{top:calc(max(8px,env(safe-area-inset-top)) + 104px);font-size:11px;padding:4px 12px}
 
   /* Prop-Hunt hiders are unarmed props: hide all combat UI + weapon HUD */
   body.hider #scr-game .hud-br{display:none}
@@ -412,32 +447,44 @@
 
 <!-- ═══ LOADING ═══ -->
 <div id="scr-loading" class="screen">
-  <h1>SlopWars</h1>
-  <div class="sub">web fps</div>
+  <div class="load-brand">
+    <h1>SlopWars</h1>
+    <div class="sub">web fps · serverless</div>
+  </div>
   <div class="loadwrap">
-    <div class="loadbar"><div id="load-bar"></div></div>
-    <div class="loadrow">
+    <div class="loadhead">
       <span id="load-asset">initializing…</span>
       <span id="load-pct">0%</span>
     </div>
+    <div class="loadbar"><div id="load-bar"></div></div>
+    <div class="loadtag">loading combat assets</div>
   </div>
 </div>
 
 <!-- ═══ MENU ═══ -->
 <div id="scr-menu" class="screen hidden">
   <h1>SlopWars</h1>
-  <div class="sub">web fps · serverless</div>
-  <div class="panel">
+  <div class="sub">web fps · serverless p2p</div>
+  <div class="panel menu-panel">
     <label>callsign</label>
-    <input id="inp-name" maxlength="16" spellcheck="false">
-    <button id="btn-create">Create lobby</button>
-    <label>lobby code</label>
-    <div class="row2">
-      <input id="inp-code" maxlength="5" placeholder="XXXXX" spellcheck="false">
+    <input id="inp-name" maxlength="16" spellcheck="false" placeholder="operator">
+    <div class="menu-split">
+      <div class="menu-act">
+        <button id="btn-create">Create lobby</button>
+        <div class="menu-hint">host a new match</div>
+      </div>
+      <div class="or-sep">or</div>
+      <div class="menu-act">
+        <input id="inp-code" maxlength="5" placeholder="LOBBY CODE" spellcheck="false">
+        <button id="btn-join" class="ghost">Join lobby</button>
+        <div class="menu-hint">enter a friend's code</div>
+      </div>
     </div>
-    <button id="btn-join" class="ghost">Join lobby</button>
     <div id="menu-err" class="err hidden"></div>
     <div id="menu-conn" class="conn hidden">connecting…</div>
+  </div>
+  <div class="menu-chips">
+    <span>peer-to-peer</span><span>no servers</span><span>cross-play</span>
   </div>
 </div>
 
