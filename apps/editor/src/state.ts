@@ -7,7 +7,7 @@
 // editor compose world transforms up the group chain). A snapshot-based history
 // records one entry per committed action so Ctrl/Cmd+Z / +Y step cleanly.
 import type { GroupDef, MapDef, Placement, Tuple3, WorldTf } from "@slopwars/shared";
-import { groupWorldTf, invComposeTf, resolveWorld } from "@slopwars/shared";
+import { childGroups, groupById, groupMembers, groupMembersDirect, groupWorldTf, invComposeTf, resolveWorld } from "@slopwars/shared";
 
 type Listener = () => void;
 
@@ -196,19 +196,18 @@ class EditorState {
   isSelected(o: Placement): boolean { return this.selection.includes(o); }
 
   // ── groups ───────────────────────────────────────────────────────────────
+  // The hierarchy queries are pure MapDef walks shared with the game loader (see
+  // @slopwars/shared); these are thin, map-bound wrappers so editor callers keep a
+  // convenient `state.childGroups(id)` API without duplicating the traversal.
   groups(): GroupDef[] { return this.map?.groups ?? []; }
   private ensureGroups(): GroupDef[] { if (!this.map) return []; return (this.map.groups ??= []); }
-  groupById(id: string | undefined): GroupDef | undefined { return id ? this.groups().find((g) => g.id === id) : undefined; }
+  groupById(id: string | undefined): GroupDef | undefined { return this.map ? groupById(this.map, id) : undefined; }
   /** child groups of a parent (undefined parent = top level) */
-  childGroups(parent: string | undefined): GroupDef[] { return this.groups().filter((g) => (g.parent ?? undefined) === (parent ?? undefined)); }
+  childGroups(parent: string | undefined): GroupDef[] { return this.map ? childGroups(this.map, parent) : []; }
   /** objects directly in a group */
-  membersDirect(groupId: string): Placement[] { return (this.map?.objects ?? []).filter((o) => o.group === groupId); }
+  membersDirect(groupId: string): Placement[] { return this.map ? groupMembersDirect(this.map, groupId) : []; }
   /** objects in a group and all its descendant groups */
-  membersOf(groupId: string, recursive: boolean): Placement[] {
-    const out = this.membersDirect(groupId);
-    if (recursive) for (const g of this.childGroups(groupId)) out.push(...this.membersOf(g.id, true));
-    return out;
-  }
+  membersOf(groupId: string, recursive: boolean): Placement[] { return this.map ? groupMembers(this.map, groupId, recursive) : []; }
 
   /** create a group from the current selection; nests under a shared parent group
    *  if every selected object already belongs to the same one. The new group's
@@ -494,13 +493,8 @@ function migrateGroups(map: MapDef): void {
 
   // world centroid of each group from the (still absolute) member positions
   const centroid = new Map<string, Tuple3>();
-  const membersRec = (gid: string): Placement[] => {
-    const out = map.objects.filter((o) => o.group === gid);
-    for (const g of groups.filter((x) => x.parent === gid)) out.push(...membersRec(g.id));
-    return out;
-  };
   for (const g of groups) {
-    const m = membersRec(g.id);
+    const m = groupMembers(map, g.id, true);
     if (!m.length) { centroid.set(g.id, [0, 0, 0]); continue; }
     let x = 0, y = 0, z = 0;
     for (const o of m) { x += o.at[0]; y += o.at[1]; z += o.at[2]; }

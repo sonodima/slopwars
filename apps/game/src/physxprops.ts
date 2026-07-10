@@ -15,6 +15,7 @@ import {
   PhysicsMaterial, SphereColliderShape, StaticCollider, Vector3, WebGLEngine,
 } from "@galacean/engine";
 import { DynBody, GameMap, rayAABB } from "./map";
+import { PHYSICS_DEFAULTS } from "@slopwars/shared";
 import type { PropSim } from "./physics";
 import { PlayerBody } from "./player";
 import { MOVE, Vec3 } from "./types";
@@ -59,7 +60,9 @@ export class PhysxProps implements PropSim {
     this.ensurePlayer();
   }
 
-  /** give a prop body a PhysX dynamic collider matching its authored shape */
+  /** give a prop body a PhysX dynamic collider matching its authored shape + its
+   *  per-body physical tuning (grip / bounce / damping); each field falls back to the
+   *  shared default when the author left it untouched. */
   private attach(b: DynBody): void {
     if (!b.entity || b.entity.destroyed) return;
     const col = b.entity.addComponent(DynamicCollider);
@@ -79,12 +82,25 @@ export class PhysxProps implements PropSim {
       shape = s;
     }
     shape.position = new Vector3(b.off.x, b.off.y, b.off.z);
-    shape.material = this.mat;
+    // a body only needs its own PhysicsMaterial when it overrides friction/bounce;
+    // otherwise it shares the default one (fewer allocations, same behaviour).
+    shape.material = (b.friction != null || b.restitution != null) ? this.bodyMaterial(b) : this.mat;
     col.addShape(shape);
     col.mass = Math.max(0.05, b.mass);
-    col.linearDamping = 0.05;
-    col.angularDamping = 0.35;   // let it roll but not spin forever
+    col.linearDamping = b.linearDamping ?? PHYSICS_DEFAULTS.linearDamping;
+    col.angularDamping = b.angularDamping ?? PHYSICS_DEFAULTS.angularDamping;   // let it roll but not spin forever
     b.collider = col;
+  }
+
+  /** a PhysicsMaterial carrying a body's authored friction / restitution (defaults for
+   *  whichever field it left alone). Friction feeds both static + dynamic PhysX friction. */
+  private bodyMaterial(b: DynBody): PhysicsMaterial {
+    const m = new PhysicsMaterial();
+    const f = b.friction ?? PHYSICS_DEFAULTS.friction;
+    m.staticFriction = f;
+    m.dynamicFriction = f;
+    m.bounciness = b.restitution ?? PHYSICS_DEFAULTS.restitution;
+    return m;
   }
 
   /** a kinematic capsule that tracks the local player so PhysX lets them shove props */

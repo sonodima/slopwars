@@ -126,7 +126,7 @@ export function createMcp({ root, bridge }: Deps): { handle: (msg: any) => Promi
         if (a.arm) files.push(await filepayload(a.arm, "arm"));
         return doImport({ kind: "texture", name: a.name, files });
       } },
-    { name: "editor_import_model", description: "Import a glTF model (a .glb, or a .gltf plus its .bin/textures) into public/assets/models/<name>/.",
+    { name: "editor_import_model", description: "Import a glTF model (a .glb, or a .gltf plus its .bin) into public/assets/models/<name>/. The glTF is stripped to geometry and a library material is created per glTF material slot (named after the slot), with meta.materials wired up, so the model loads and renders immediately. To texture a slot, import a texture set (editor_import_texture) named exactly after that slot — the auto-created material already points at it.",
       inputSchema: { type: "object", properties: { name: { type: "string" }, files: { type: "array", items: { type: "string" }, description: "local file paths" } }, required: ["name", "files"] },
       run: async (a) => doImport({ kind: "model", name: a.name, files: await Promise.all((a.files as string[]).map((p) => filepayload(p))) }) },
     { name: "editor_import_audio", description: "Import an audio clip into public/assets/audio/.",
@@ -162,7 +162,10 @@ export function createMcp({ root, bridge }: Deps): { handle: (msg: any) => Promi
       run: (a) => { const m = scanAssets(root).models.find((x) => x.name === a.name); if (!m) throw new Error(`model not found: ${a.name}`); return { name: m.name, meta: m.meta ?? {} }; } },
     { name: "editor_set_model_meta", description: "Set a model's calibration + collision. `baseRot` is a baked orientation (euler degrees). `collision` is \"auto\" (whole-mesh box) or \"manual\"; when manual, `collisionBoxes` is an array of solids in model-local space, each { at:[x,y,z], size:[x,y,z], rot?:[x,y,z] euler degrees, shape?: \"box\"|\"cylinder\"|\"sphere\" } (e.g. just a tree trunk, or a diagonal beam via `rot`).",
       inputSchema: { type: "object", properties: {
-        name: { type: "string" }, base: { type: "number" }, scale: { type: "number" }, material: { type: "string" }, baseRot: V3,
+        name: { type: "string" }, base: { type: "number" }, scale: { type: "number" },
+        materials: { type: "object", description: "per-slot material map { glTF-material-slot-name: materialName }; this is what the renderer uses for multi-material models" },
+        material: { type: "string", description: "legacy: one material applied to every slot; prefer `materials`" },
+        baseRot: V3,
         collision: { type: "string", enum: ["auto", "manual"] },
         collisionBoxes: { type: "array", items: { type: "object", properties: {
           at: V3, size: V3, rot: V3, shape: { type: "string", enum: ["box", "cylinder", "sphere"] },
@@ -174,6 +177,7 @@ export function createMcp({ root, bridge }: Deps): { handle: (msg: any) => Promi
         const meta: ModelMeta = { ...(cur.meta ?? {}) };
         if (a.base !== undefined) meta.base = a.base;
         if (a.scale !== undefined) meta.scale = a.scale;
+        if (a.materials !== undefined && a.materials && typeof a.materials === "object") meta.materials = a.materials as Record<string, string>;
         if (a.material !== undefined) meta.material = a.material || undefined;
         if (a.baseRot !== undefined) meta.baseRot = a.baseRot as [number, number, number];
         if (a.collision !== undefined) meta.collision = a.collision;

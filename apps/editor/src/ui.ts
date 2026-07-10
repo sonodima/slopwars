@@ -12,37 +12,65 @@ export function el<K extends keyof HTMLElementTagNameMap>(
 
 export function clear(node: HTMLElement): void { node.replaceChildren(); }
 
+/** optional numeric bounds for a field: value is clamped into [min, max] (either
+ *  end omittable) on typing AND wheel-nudging, and mirrored to the input's native
+ *  min/max attributes so the browser's spinner respects them too. */
+export interface Bounds { min?: number; max?: number }
+
+/** clamp `v` into a Bounds (no-op for the missing ends) */
+function clampBounds(v: number, b?: Bounds): number {
+  if (!b) return v;
+  if (b.min != null && v < b.min) return b.min;
+  if (b.max != null && v > b.max) return b.max;
+  return v;
+}
+
+/** set the input's native min/max so the spinner + validation agree with `bounds` */
+function applyBoundsAttrs(inp: HTMLInputElement, b?: Bounds): void {
+  if (b?.min != null) inp.min = String(b.min);
+  if (b?.max != null) inp.max = String(b.max);
+}
+
 /** hover/scroll a numeric input to nudge its value: wheel = ±step, Shift = ×10,
- *  Alt = ×0.1. Commits through the same path a typed change would. */
-function bindWheelStep(inp: HTMLInputElement, step: number, commit: (v: number) => void): void {
+ *  Alt = ×0.1. Commits through the same path a typed change would (clamped to bounds). */
+function bindWheelStep(inp: HTMLInputElement, step: number, commit: (v: number) => void, bounds?: Bounds): void {
   inp.addEventListener("wheel", (e) => {
     e.preventDefault();
     const cur = parseFloat(inp.value) || 0;
     const mult = e.shiftKey ? 10 : e.altKey ? 0.1 : 1;
     const dir = e.deltaY < 0 ? 1 : -1;
-    const next = round(cur + dir * step * mult);
+    const next = clampBounds(round(cur + dir * step * mult), bounds);
     inp.value = String(next);
     commit(next);
   }, { passive: false });
 }
 
-/** labelled numeric field that writes `obj[key]` and fires onChange */
-export function numField(label: string, get: () => number, set: (v: number) => void, onChange: () => void, step = 0.1): HTMLElement {
+/** labelled numeric field that writes `obj[key]` and fires onChange. `bounds` clamps
+ *  the value (and constrains the native spinner) so e.g. a 0..1 param can't leave its
+ *  range — the field owns the limit instead of every call site re-clamping. */
+export function numField(label: string, get: () => number, set: (v: number) => void, onChange: () => void, step = 0.1, bounds?: Bounds): HTMLElement {
   const row = el("label", "field");
   row.append(el("span", "field-label", label));
   const inp = el("input", "field-input");
   inp.type = "number";
   inp.step = String(step);
+  applyBoundsAttrs(inp, bounds);
   inp.value = String(round(get()));
-  const apply = (v: number): void => { if (!Number.isNaN(v)) { set(v); onChange(); } };
+  const apply = (v: number): void => {
+    if (Number.isNaN(v)) { inp.value = String(round(get())); return; }
+    const c = clampBounds(v, bounds);
+    if (c !== v) inp.value = String(round(c));   // reflect the clamp back into the field
+    set(c); onChange();
+  };
   inp.addEventListener("change", () => apply(parseFloat(inp.value)));
-  bindWheelStep(inp, step, apply);
+  bindWheelStep(inp, step, apply, bounds);
   row.append(inp);
   return row;
 }
 
-/** N numeric inputs bound to a numeric tuple (2 or 3 components) */
-export function vecField(label: string, tuple: number[], onChange: () => void, step = 0.1): HTMLElement {
+/** N numeric inputs bound to a numeric tuple (2 or 3 components). `bounds` clamps
+ *  every component (used e.g. to keep a scale non-negative). */
+export function vecField(label: string, tuple: number[], onChange: () => void, step = 0.1, bounds?: Bounds): HTMLElement {
   const row = el("div", "field vec3");
   row.append(el("span", "field-label", label));
   const box = el("div", "vec3-inputs");
@@ -50,11 +78,65 @@ export function vecField(label: string, tuple: number[], onChange: () => void, s
   for (let i = 0; i < tuple.length; i++) {
     const inp = el("input", "field-input");
     inp.type = "number"; inp.step = String(step); inp.value = String(round(tuple[i])); inp.title = names[i] ?? String(i);
-    const apply = (v: number): void => { if (!Number.isNaN(v)) { tuple[i] = v; onChange(); } };
+    applyBoundsAttrs(inp, bounds);
+    const apply = (v: number): void => {
+      if (Number.isNaN(v)) { inp.value = String(round(tuple[i])); return; }
+      const c = clampBounds(v, bounds);
+      if (c !== v) inp.value = String(round(c));
+      tuple[i] = c; onChange();
+    };
     inp.addEventListener("change", () => apply(parseFloat(inp.value)));
-    bindWheelStep(inp, step, apply);
+    bindWheelStep(inp, step, apply, bounds);
     box.append(inp);
   }
+  row.append(box);
+  return row;
+}
+
+// the Scale field's proportional-lock state — module-level so it persists across
+// inspector re-renders and selection changes (a global "uniform scale" toggle, like
+// the chain-link in Unity/Blender), not reset every time the panel rebuilds.
+let scaleLocked = false;
+
+/** the Scale transform field: three numeric inputs + a proportional-lock toggle.
+ *  Locked, editing one axis scales the other two by the same ratio (keeping the
+ *  object's proportions — scale up without distorting); unlocked, axes are
+ *  independent. `bounds` clamps every component. */
+export function scaleField(label: string, tuple: number[], onChange: () => void, step = 0.05, bounds?: Bounds): HTMLElement {
+  const row = el("div", "field vec3");
+  row.append(el("span", "field-label", label));
+  const box = el("div", "vec3-inputs");
+  const inputs: HTMLInputElement[] = [];
+  const names = ["x", "y", "z", "w"];
+  const sync = (): void => { for (let i = 0; i < inputs.length; i++) inputs[i].value = String(round(tuple[i])); };
+  for (let i = 0; i < tuple.length; i++) {
+    const inp = el("input", "field-input");
+    inp.type = "number"; inp.step = String(step); inp.value = String(round(tuple[i])); inp.title = names[i] ?? String(i);
+    applyBoundsAttrs(inp, bounds);
+    const apply = (v: number): void => {
+      if (Number.isNaN(v)) { inp.value = String(round(tuple[i])); return; }
+      const c = clampBounds(v, bounds);
+      if (scaleLocked) {
+        const old = tuple[i];
+        if (Math.abs(old) > 1e-6) { const f = c / old; for (let j = 0; j < tuple.length; j++) tuple[j] = clampBounds(round(tuple[j] * f), bounds); }
+        else for (let j = 0; j < tuple.length; j++) tuple[j] = c;   // grow uniformly from a degenerate 0 axis
+        sync();
+      } else { tuple[i] = c; inp.value = String(round(c)); }
+      onChange();
+    };
+    inp.addEventListener("change", () => apply(parseFloat(inp.value)));
+    bindWheelStep(inp, step, apply, bounds);
+    inputs.push(inp); box.append(inp);
+  }
+  const lock = el("button", "field-lock" + (scaleLocked ? " on" : "")) as HTMLButtonElement;
+  lock.type = "button";
+  const relabel = (): void => {
+    lock.title = scaleLocked ? "proportional scale locked — click to unlock" : "lock proportional scale";
+    clear(lock); lock.append(icon(scaleLocked ? "lock" : "unlock"));
+  };
+  relabel();
+  lock.addEventListener("click", () => { scaleLocked = !scaleLocked; lock.classList.toggle("on", scaleLocked); relabel(); });
+  box.append(lock);
   row.append(box);
   return row;
 }
@@ -79,14 +161,21 @@ export function checkField(label: string, get: () => boolean, set: (v: boolean) 
   return row;
 }
 
-/** colour swatch bound to a linear [r,g,b] (0..1) tuple via an <input type=color> */
-export function colorField(label: string, tuple: number[], onChange: () => void): HTMLElement {
+/** colour swatch bound to a linear [r,g,b] (0..1) tuple via an <input type=color>.
+ *  The native picker fires `input` continuously while dragging and `change` once when
+ *  committed, so we split them: `onInput` is a live preview (redraw / re-shade only,
+ *  no history), `onCommit` finalizes the pick (records ONE undo entry). Callers that
+ *  don't distinguish pass a single callback for both. This is what makes Ctrl+Z on a
+ *  colour undo the whole edit in one step instead of flooding history per pixel. */
+export function colorField(label: string, tuple: number[], onCommit: () => void, onInput: () => void = onCommit): HTMLElement {
   const row = el("label", "field");
   row.append(el("span", "field-label", label));
   const inp = el("input", "field-color") as HTMLInputElement;
   inp.type = "color";
   inp.value = rgbToHex(tuple);
-  inp.addEventListener("input", () => { const [r, g, b] = hexToRgb(inp.value); tuple[0] = r; tuple[1] = g; tuple[2] = b; onChange(); });
+  const write = (): void => { const [r, g, b] = hexToRgb(inp.value); tuple[0] = r; tuple[1] = g; tuple[2] = b; };
+  inp.addEventListener("input", () => { write(); onInput(); });
+  inp.addEventListener("change", () => { write(); onCommit(); });
   row.append(inp);
   return row;
 }
@@ -233,6 +322,32 @@ export function confirmUnsaved(what: string): Promise<"save" | "discard" | "canc
     body.append(row);
     // modal() already closes on Escape/backdrop; poll for that to resolve as cancel
     const iv = window.setInterval(() => { if (!document.body.contains(body)) { window.clearInterval(iv); finish("cancel"); } }, 150);
+  });
+}
+
+/** a single-line name prompt (modal). Resolves the trimmed value on OK/Enter, or null
+ *  if cancelled/dismissed. `initial` pre-fills + selects the field so it can be edited
+ *  or accepted as-is. Used for naming a new asset (e.g. a texture set) up front. */
+export function promptName(title: string, opts: { label?: string; initial?: string; placeholder?: string; ok?: string } = {}): Promise<string | null> {
+  return new Promise((resolve) => {
+    const body = el("div", "confirm");
+    const row = el("label", "field");
+    row.append(el("span", "field-label", opts.label ?? "Name"));
+    const inp = el("input", "field-input") as HTMLInputElement;
+    inp.type = "text"; inp.value = opts.initial ?? ""; if (opts.placeholder) inp.placeholder = opts.placeholder;
+    row.append(inp);
+    body.append(row);
+    const actions = el("div", "confirm-actions");
+    let done = false;
+    const finish = (v: string | null): void => { if (done) return; done = true; dlg.close(); resolve(v); };
+    const submit = (): void => { const v = inp.value.trim(); if (v) finish(v); };
+    const dlg = modal(title, body);
+    actions.append(button("Cancel", () => finish(null)), button(opts.ok ?? "Create", submit, "primary"));
+    body.append(actions);
+    inp.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); submit(); } });
+    // Escape / backdrop dismissal (handled by modal) resolves as cancel
+    const iv = window.setInterval(() => { if (!document.body.contains(body)) { window.clearInterval(iv); finish(null); } }, 150);
+    setTimeout(() => { inp.focus(); inp.select(); }, 20);
   });
 }
 

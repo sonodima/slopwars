@@ -16,13 +16,17 @@ import {
   MeshRenderer, PBRMaterial, PrimitiveMesh, RenderFace, SkyBoxMaterial,
   TextureCube, UnlitMaterial, Vector3, Vector4, WebGLEngine,
 } from "@galacean/engine";
-import type { AssetCatalog, CollisionBox, MaterialDef, ModelMeta, Tuple3 } from "@slopwars/shared";
-import { rotateEulerInv } from "@slopwars/shared";
+import type { AssetCatalog, CollisionBox, MaterialDef, ModelMeta, TextureMaps, Tuple3 } from "@slopwars/shared";
+import { rotateEulerInv, modelSlotMaterial } from "@slopwars/shared";
 import { loadGLTF, loadHDRCube, loadTexture2D } from "@game/assets";
 import { applyWaterLook, attachWaterAnim, WATER_LOOK, type WaterAnim, type WaterLook } from "@game/water";
 import { buildGlassMaterial } from "@game/materials";
 import type { ModelView } from "./tabs";
 import type { Tool } from "./viewport";
+import {
+  AXIS_IDX, GIZMO_AXES, GIZMO_COL, ROT_SNAP_DEG,
+  clamp, cross, distToSeg, dot, norm, type GizmoHandle as GHandle,
+} from "./vecmath";
 
 /** UV repeat used for the water preview sphere — a couple of tiles keep the fractal
  *  ripples a believable size on a unit sphere (matches how the game tiles by area). */
@@ -34,7 +38,8 @@ const DEG = Math.PI / 180;
 type Content =
   | { kind: "none" }
   | { kind: "material"; name: string }
-  | { kind: "model"; name: string; view: ModelView };
+  | { kind: "model"; name: string; view: ModelView }
+  | { kind: "texture"; name: string };
 
 export class PreviewScene {
   private engine!: WebGLEngine;
@@ -206,8 +211,8 @@ export class PreviewScene {
         const maps = this.catalog.textures.find((t) => t.name === def.texture)?.maps ?? {};
         const [color, normal, arm] = await Promise.all([
           maps.color ? loadTexture2D(this.engine, maps.color) : null,
-          maps.normal ? loadTexture2D(this.engine, maps.normal) : null,
-          maps.arm ? loadTexture2D(this.engine, maps.arm) : null,
+          maps.normal ? loadTexture2D(this.engine, maps.normal, false) : null,
+          maps.arm ? loadTexture2D(this.engine, maps.arm, false) : null,
         ]);
         if (color) m.baseTexture = color;
         if (normal) m.normalTexture = normal;
@@ -233,6 +238,36 @@ export class PreviewScene {
       applyWaterLook(this.engine, m, waterLookOf(def), WATER_PREVIEW_TILING);
     }
     return m;
+  }
+
+  // ── content: texture set ──────────────────────────────────────────────────────
+  /** render a lit PBR sphere for a raw texture set (color/normal/arm), so you can see
+   *  the maps shading a surface in the chosen HDRI environment while editing them in
+   *  the inspector. No material tint/params — it's the maps as-is. `keepCamera` keeps
+   *  the orbit across a live map edit (add/replace/clear). */
+  async showTexture(name: string, maps: TextureMaps, keepCamera = false): Promise<void> {
+    if (!this.ready) return;
+    this.content = { kind: "texture", name };
+    this.clearHolder();
+    this.clearCollision();
+    if (!keepCamera) { this.target.set(0, 0, 0); this.dist = 3.2; this.applyCamera(); }
+    const e = this.holder.createChild("sphere");
+    const r = e.addComponent(MeshRenderer);
+    r.mesh = PrimitiveMesh.createSphere(this.engine, 1, 64);
+    const m = new PBRMaterial(this.engine);
+    m.tilingOffset = new Vector4(1, 1, 0, 0);
+    const [color, normal, arm] = await Promise.all([
+      maps.color ? loadTexture2D(this.engine, maps.color) : null,
+      maps.normal ? loadTexture2D(this.engine, maps.normal, false) : null,
+      maps.arm ? loadTexture2D(this.engine, maps.arm, false) : null,
+    ]);
+    // guard: a slower load may have been superseded by another tab
+    if (this.content.kind !== "texture" || this.content.name !== name || e.destroyed) return;
+    if (color) m.baseTexture = color;
+    if (normal) m.normalTexture = normal;
+    if (arm) { m.roughnessMetallicTexture = arm; m.occlusionTexture = arm; } else { m.roughness = 0.85; m.metallic = 0; }
+    if (!color) m.baseColor = new Color(0.6, 0.6, 0.62, 1);   // no color map → neutral gray
+    r.setMaterial(m);
   }
 
   /** set (or clear) the HDRI environment used for the material preview. Drives both
@@ -284,7 +319,7 @@ export class PreviewScene {
     if (this.modelBase) e.transform.setPosition(0, this.modelBase, 0);
     const radius = keep ? this.holderRadius() : this.frameHolder();
     this.indicatorRadius = radius;
-    if (meta.material) this.applyModelMaterial(e, meta.material);
+    if (meta.materials || meta.material) this.applyModelMaterials(e, meta);
     if (view === "collision") {
       this.dimModel(e);
       this.renderCollision(meta, radius);
@@ -295,15 +330,18 @@ export class PreviewScene {
    *  solid somewhere visible instead of at the origin). */
   modelCenter(): Tuple3 { const c = this.holderBox().center; return [round3(c.x), round3(c.y), round3(c.z)]; }
 
-  /** apply a material override (by name) to every surface of the previewed model,
-   *  so the isolated preview matches what the game will render. */
-  private applyModelMaterial(e: Entity, name: string): void {
-    const def = this.catalog.materials.find((m) => m.name === name)?.def;
-    if (!def) return;
-    void this.buildMaterial(def).then((m) => {
-      if (e.destroyed) return;
-      for (const r of e.getComponentsIncludeChildren(MeshRenderer, [])) r.setMaterial(m);
-    });
+  /** shade each surface of the previewed model with the material assigned to its glTF
+   *  slot (mirroring the game's placeModelTf), so the isolated preview matches what the
+   *  game will render. An unassigned slot keeps the glTF's own material. */
+  private applyModelMaterials(e: Entity, meta: ModelMeta): void {
+    for (const r of e.getComponentsIncludeChildren(MeshRenderer, [])) {
+      const slot = r.getMaterial()?.name ?? "";
+      const name = modelSlotMaterial(meta, slot);
+      if (!name) continue;
+      const def = this.catalog.materials.find((m) => m.name === name)?.def;
+      if (!def) continue;
+      void this.buildMaterial(def).then((m) => { if (!r.destroyed && !e.destroyed) r.setMaterial(m); });
+    }
   }
 
   /** re-render just the collision boxes (after an inspector edit / add / delete) */
@@ -422,7 +460,7 @@ export class PreviewScene {
       c.setPointerCapture(e.pointerId);
     });
     c.addEventListener("pointermove", (e) => {
-      if (this.gizmoDrag) { const { x, y } = this.local(e); this.applyGizmo(x, y); return; }
+      if (this.gizmoDrag) { const { x, y } = this.local(e); this.applyGizmo(x, y, e.shiftKey); return; }
       if (!this.dragging) { this.updateGizmoHover(e); return; }
       const dx = e.clientX - this.lastX, dy = e.clientY - this.lastY;
       if (Math.abs(dx) + Math.abs(dy) > 3) this.moved = true;
@@ -609,7 +647,7 @@ export class PreviewScene {
     this.canvas.style.cursor = "grabbing";
   }
 
-  private applyGizmo(px: number, py: number): void {
+  private applyGizmo(px: number, py: number, snap = false): void {
     const d = this.gizmoDrag; if (!d) return;
     const b = this.boxes[this.selBox]; if (!b) return;
     const ddx = px - d.startPx, ddy = py - d.startPy;
@@ -630,7 +668,9 @@ export class PreviewScene {
       const ang = Math.atan2(py - d.cy, px - d.cx);
       const idx = AXIS_IDX[d.handle];
       const sign = d.handle === "y" ? -1 : 1;
-      const sdeg = ((ang - d.startAngle) * 180) / Math.PI * sign;
+      let sdeg = ((ang - d.startAngle) * 180) / Math.PI * sign;
+      // hold Shift → snap to 30° increments, matching the map viewport's rotate gizmo
+      if (snap) sdeg = Math.round(sdeg / ROT_SNAP_DEG) * ROT_SNAP_DEG;
       const nrot = d.rot.slice() as Tuple3; nrot[idx] = round3(d.rot[idx] + sdeg);
       b.rot = (nrot[0] || nrot[1] || nrot[2]) ? nrot : undefined;
     } else {   // scale about the box centre (size changes, position stays)
@@ -740,23 +780,6 @@ export class PreviewScene {
   }
 }
 
-/** gizmo handle: an axis or the all-axes centre */
-type GHandle = "x" | "y" | "z" | "xyz";
-const GIZMO_AXES: { h: GHandle; dir: Tuple3 }[] = [
-  { h: "x", dir: [1, 0, 0] }, { h: "y", dir: [0, 1, 0] }, { h: "z", dir: [0, 0, 1] },
-];
-const GIZMO_COL: Record<GHandle, string> = { x: "#e5484d", y: "#5bd15b", z: "#3b82f6", xyz: "#d6d6d6" };
-const AXIS_IDX: Record<GHandle, number> = { x: 0, y: 1, z: 2, xyz: 0 };
-
-/** shortest distance from point (px,py) to the segment (ax,ay)-(bx,by) */
-function distToSeg(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
-  const vx = bx - ax, vy = by - ay;
-  const wx = px - ax, wy = py - ay;
-  const len2 = vx * vx + vy * vy || 1;
-  const t = clamp((wx * vx + wy * vy) / len2, 0, 1);
-  return Math.hypot(px - (ax + t * vx), py - (ay + t * vy));
-}
-function dot(a: number[], b: number[]): number { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
 function round3(n: number): number { return Math.round(n * 1000) / 1000; }
 
 /** a full WaterLook from a (possibly partial) water material def — defaults fill any
@@ -771,11 +794,6 @@ function waterLookOf(def: MaterialDef): WaterLook {
     clarity: d.clarity ?? WATER_LOOK.clarity,
   };
 }
-
-// ── small vector helpers ────────────────────────────────────────────────────────
-function clamp(v: number, a: number, b: number): number { return v < a ? a : v > b ? b : v; }
-function cross(a: number[], b: number[]): number[] { return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]; }
-function norm(a: number[]): number[] { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; }
 
 /** ray vs a collision box (centre `at`, full `size`, optional euler `rot`); entry
  *  dist or null. A rotated box is tested in its local frame (inverse-rotate the ray). */

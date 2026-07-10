@@ -13,13 +13,13 @@ import { ThumbRenderer } from "./preview";
 import { state } from "./state";
 import { tabs, type Tab } from "./tabs";
 import { mountSceneGraph } from "./scenegraph";
-import { renderInspector, refreshInspector, setInspectorCatalog, setInspectorThumbs, setInspectorMaterialHooks, setInspectorModelHooks } from "./inspector";
+import { renderInspector, refreshInspector, setInspectorCatalog, setInspectorThumbs, setInspectorMaterialHooks, setInspectorModelHooks, setInspectorTextureHooks } from "./inspector";
 import { renderBrowser, Payload, type BrowserControl } from "./panels";
 import { mountResizers } from "./layout";
 import { objectDropScale } from "@game/objects";
 import { startMcpBridge } from "./mcpbridge";
 import { api } from "./api";
-import { el, clear, button, iconButton, toast, modal, confirmUnsaved } from "./ui";
+import { el, clear, button, iconButton, toast, modal, confirmUnsaved, promptName } from "./ui";
 import { icon, type IconName } from "./icons";
 
 const $ = (id: string): HTMLElement => document.getElementById(id) as HTMLElement;
@@ -56,7 +56,14 @@ async function refreshCatalog(reshade = false): Promise<void> {
   setInspectorCatalog(catalog);
   preview.setCatalog(catalog);
   viewport.setMaterials(catalog.materials, false);
-  viewport.setModelMetas(catalog.models, reshade);
+  viewport.setModelMetas(catalog.models, false);
+  // load the geometry of any newly imported models (the compiled-in virtual catalog
+  // loadModels() used is a dev-server-start snapshot); this re-renders when something
+  // new loaded, so an imported model appears without an editor/dev-server restart.
+  void viewport.refreshModels(catalog.models, reshade);
+  // re-render the open inspector so its asset pickers (texture/material/model slots)
+  // reflect a just-created/renamed/deleted asset without needing an editor restart.
+  refreshInspector();
 }
 
 // ── unsaved-changes tracking (maps + material/model assets) ───────────────────
@@ -79,17 +86,26 @@ function anyDirty(): boolean {
   return dirtyMaterials.size > 0 || dirtyModels.size > 0 || state.documentIds().some((id) => state.isDirty(id));
 }
 
-/** write a material's current def to disk and clear its dirty mark */
+/** write a material's current def to disk and clear its dirty mark. A material edit
+ *  changes how its browser swatch — and any model card using it — should look, so the
+ *  stale cached thumbnails are dropped and the browser re-rendered. */
 async function saveMaterialFile(name: string): Promise<void> {
   const def = catalog.materials.find((m) => m.name === name)?.def;
   if (!def) return;
-  try { await api.saveMaterial(name, def); dirtyMaterials.delete(name); renderTabStrip(); renderSaveButtons(); }
-  catch (e) { toast("material save failed: " + e, true); }
+  try {
+    await api.saveMaterial(name, def); dirtyMaterials.delete(name); renderTabStrip(); renderSaveButtons();
+    thumbs.invalidate((k) => k.startsWith("mat:") || k.startsWith("obj:") || k.startsWith("model:"));
+    await browser?.reload();
+  } catch (e) { toast("material save failed: " + e, true); }
 }
-/** write a model's current meta to disk and clear its dirty mark */
+/** write a model's current meta to disk and clear its dirty mark. Reskinning/recalibrating
+ *  a model changes its card thumbnail, so drop the stale one and re-render the browser. */
 async function saveModelFile(name: string): Promise<void> {
-  try { await api.saveModelMeta(name, liveMeta(name)); dirtyModels.delete(name); renderTabStrip(); renderSaveButtons(); }
-  catch (e) { toast("model save failed: " + e, true); }
+  try {
+    await api.saveModelMeta(name, liveMeta(name)); dirtyModels.delete(name); renderTabStrip(); renderSaveButtons();
+    thumbs.invalidate((k) => k.startsWith("model:") || k.startsWith("obj:"));
+    await browser?.reload();
+  } catch (e) { toast("model save failed: " + e, true); }
 }
 
 /** the live working meta for a model (seeded from the catalog on first access) */
@@ -107,6 +123,7 @@ async function main(): Promise<void> {
   setInspectorThumbs(thumbs);
   setInspectorMaterialHooks({
     changed: (name, def) => onMaterialChanged(name, def),
+    live: (name, def) => applyMaterialEffects(name, def),   // re-shade live, no history entry
     renamed: (from, to) => { void renameMaterial(from, to); },
   });
   setInspectorModelHooks({
@@ -116,6 +133,13 @@ async function main(): Promise<void> {
     collSelect: (i) => collSelect(i),
     collAdd: () => collAdd(),
     collDelete: (i) => collDelete(i),
+  });
+  setInspectorTextureHooks({
+    maps: (name) => catalog.textures.find((t) => t.name === name)?.maps ?? {},
+    setMap: (name, slot, file) => void setTextureMap(name, slot, file),
+    clearMap: (name, slot) => void clearTextureMap(name, slot),
+    usedBy: (name) => catalog.materials.filter((m) => m.def.type === "standard" && m.def.texture === name).map((m) => m.name),
+    renamed: (from, to) => { void renameTexture(from, to); },
   });
 
   buildToolbar();
@@ -187,7 +211,7 @@ function syncViewport(): void {
   renderModes();
   renderEnvButton();
 
-  const key = tab ? `${tab.kind}:${tab.material ?? tab.model ?? ""}:${tab.view ?? ""}` : "";
+  const key = tab ? `${tab.kind}:${tab.material ?? tab.model ?? tab.texture ?? ""}:${tab.view ?? ""}` : "";
   if (isPreview && key !== previewKey && preview.ready) {
     if (tab!.kind === "material") {
       const m = catalog.materials.find((x) => x.name === tab!.material);
@@ -196,6 +220,8 @@ function syncViewport(): void {
       selBox = -1;
       ensureMetaHist(tab!.model!);
       void preview.showModel(tab!.model!, tab!.view ?? "model", liveMeta(tab!.model!));
+    } else if (tab!.kind === "texture") {
+      void preview.showTexture(tab!.texture!, catalog.textures.find((t) => t.name === tab!.texture)?.maps ?? {});
     }
   }
   previewKey = isPreview ? key : "";
@@ -340,10 +366,10 @@ function metaRedo(name: string): void {
 }
 
 // ── viewport tab strip + view-mode control ───────────────────────────────────
-const TAB_ICON: Record<Tab["kind"], IconName> = { map: "map", material: "material", model: "box" };
+const TAB_ICON: Record<Tab["kind"], IconName> = { map: "map", material: "material", model: "box", texture: "image" };
 function tabTitle(t: Tab): string {
   if (t.kind === "map") return state.mapName(t.id);
-  return t.material ?? t.model ?? t.kind;
+  return t.material ?? t.model ?? t.texture ?? t.kind;
 }
 function renderTabStrip(): void {
   const bar = $("vp-tabs");
@@ -456,7 +482,7 @@ function renderLeftPanel(): void {
 function renderEnvButton(): void {
   const btn = $("vp-envbtn") as HTMLButtonElement;
   const kind = tabs.activeKind();
-  const show = kind === "material" || kind === "model";
+  const show = kind === "material" || kind === "model" || kind === "texture";
   btn.classList.toggle("on", show);
   btn.onclick = show ? openEnvPicker : null;
 }
@@ -528,9 +554,17 @@ function trackCursor(): void {
   window.addEventListener("pointermove", update);
   canvas.addEventListener("pointerleave", () => { cursor.inside = false; });
 }
+/** whether a key event's target is a text-entry field we shouldn't hijack. Only
+ *  TEXT-like inputs count: a focused colour swatch / checkbox has no native Ctrl+Z,
+ *  so treating it as "typing" would swallow undo/redo after a colour pick — the exact
+ *  reason Ctrl+Z did nothing on colour params. Those non-text inputs fall through so
+ *  the shortcut reaches the map/asset history. */
 function isTypingTarget(el: EventTarget | null): boolean {
   const n = el as HTMLElement | null;
-  return !!n && (n.tagName === "INPUT" || n.tagName === "SELECT" || n.tagName === "TEXTAREA" || n.isContentEditable);
+  if (!n) return false;
+  if (n.isContentEditable || n.tagName === "SELECT" || n.tagName === "TEXTAREA") return true;
+  if (n.tagName === "INPUT") { const t = (n as HTMLInputElement).type; return t !== "color" && t !== "checkbox" && t !== "range"; }
+  return false;
 }
 function bindUndoRedo(): void {
   window.addEventListener("keydown", (e) => {
@@ -646,7 +680,9 @@ function buildDock(): void {
     listMaps: () => api.maps(),
     onOpenMaterial: (name) => tabs.openMaterial(name),
     onOpenModel: (name) => tabs.openModel(name),
+    onOpenTexture: (name) => tabs.openTexture(name),
     onCreateMaterial: () => void createMaterialFlow(),
+    onCreateTexture: () => void createTextureFlow(),
     onLoadMap: (file) => void openMap(file),
     onCreateMap: () => { tabs.newMap(); },
     onDeleteModel: (name) => void deleteModelFlow(name),
@@ -668,6 +704,45 @@ async function createMaterialFlow(): Promise<void> {
     browser?.showMaterials();
     tabs.openMaterial(r.name);
   } catch (e) { toast("create material failed: " + e, true); }
+}
+
+/** create an empty texture group (naming it up front), refresh the browser, and open
+ *  its editor so the color/normal/arm maps get loaded from the inspector slots (no
+ *  import dialog). Cancelling the name dialog aborts without creating anything. */
+async function createTextureFlow(): Promise<void> {
+  const name = await promptName("New texture set", { label: "Name", placeholder: "e.g. brick_wall", ok: "Create" });
+  if (name == null) return;   // cancelled
+  try {
+    const r = await api.createTexture(name);
+    if (!r.name) { toast("create texture failed: " + (r.error ?? ""), true); return; }
+    await refreshCatalog();
+    await browser?.reload();
+    tabs.openTexture(r.name);
+    toast(`created texture set “${r.name}” — add its maps on the right`);
+  } catch (e) { toast("create texture failed: " + e, true); }
+}
+
+/** rename a texture set folder + repoint every material that referenced it (persisting
+ *  those materials), then retarget its open tab — mirrors the material rename flow. */
+async function renameTexture(from: string, to: string): Promise<void> {
+  if (!to || to === from) return;
+  try {
+    const r = await api.renameTexture(from, to);
+    if (!r.name) { toast("rename failed: " + (r.error ?? ""), true); return; }
+    // repoint materials that used the old texture set (write them so disk stays consistent)
+    for (const m of catalog.materials) {
+      if (m.def.type === "standard" && m.def.texture === from) {
+        const def = { ...m.def, texture: r.name };
+        try { await api.saveMaterial(m.name, def); } catch (e) { toast("repoint failed: " + e, true); }
+      }
+    }
+    tabs.retargetTexture(from, r.name);
+    await refreshCatalog(true);
+    await browser?.reload();
+    renderTabStrip();
+    refreshInspector();
+    toast(`renamed texture set to “${r.name}”`);
+  } catch (e) { toast("rename failed: " + e, true); }
 }
 
 /** patch the in-memory catalog with a live model-meta edit so the map viewport
@@ -705,10 +780,57 @@ async function deleteTextureFlow(name: string): Promise<void> {
   try {
     const r = await api.deleteTexture(name);
     if (r.error) { toast("delete failed: " + r.error, true); return; }
+    tabs.closeAsset("texture", name);
     await refreshCatalog(true);
     await browser?.reload();
     toast(`deleted texture "${name}"`);
   } catch (e) { toast("delete failed: " + e, true); }
+}
+
+/** read a File as a base64 string (no data-url prefix) — for texture-map uploads */
+function readB64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => { const s = String(r.result); resolve(s.slice(s.indexOf(",") + 1)); };
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(file);
+  });
+}
+
+/** after a texture set's maps change on disk: reload the catalog + browser, re-render
+ *  the inspector's slots, and re-shade the open texture preview (and any map using it). */
+async function afterTextureEdit(name: string): Promise<void> {
+  await refreshCatalog(true);
+  // a set's maps changed → any card that shaded through it (its own texture card, plus
+  // material + model + object thumbnails) must re-render, so drop their cached snapshots.
+  thumbs.invalidate((k) => k.startsWith("tex:") || k.startsWith("mat:") || k.startsWith("model:") || k.startsWith("obj:"));
+  await browser?.reload();
+  const tab = tabs.active();
+  if (tab?.kind === "texture" && tab.texture === name) {
+    void preview.showTexture(name, catalog.textures.find((t) => t.name === name)?.maps ?? {}, true);
+  }
+  refreshInspector();
+}
+
+/** set/replace one PBR map of a texture set from a picked image file */
+async function setTextureMap(name: string, slot: "color" | "normal" | "arm", file: File): Promise<void> {
+  try {
+    const data = await readB64(file);
+    const r = await api.importAsset({ kind: "texture", name, files: [{ name: file.name, slot, data }] });
+    if (r.error) { toast("set map failed: " + r.error, true); return; }
+    await afterTextureEdit(name);
+    toast(`updated ${slot} of “${name}”`);
+  } catch (e) { toast("set map failed: " + e, true); }
+}
+
+/** clear one PBR map of a texture set (leaves the set + other maps intact) */
+async function clearTextureMap(name: string, slot: "color" | "normal" | "arm"): Promise<void> {
+  try {
+    const r = await api.clearTextureMap(name, slot);
+    if (r.error) { toast("clear map failed: " + r.error, true); return; }
+    await afterTextureEdit(name);
+    toast(`cleared ${slot} of “${name}”`);
+  } catch (e) { toast("clear map failed: " + e, true); }
 }
 
 /** delete a single-file asset (skybox / audio) by its catalog path, then refresh */

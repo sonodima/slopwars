@@ -181,6 +181,7 @@ async function run(ctx: McpBridgeCtx, cmd: Cmd): Promise<unknown> {
       let id: string;
       if (kind === "material") id = tabs.openMaterial(String(name));
       else if (kind === "model") id = tabs.openModel(String(name));
+      else if (kind === "texture") id = tabs.openTexture(String(name));
       else if (kind === "map") { await ctx.loadMap(cmd.file as string); id = tabs.activeId; }
       else throw new Error(`unknown tab kind: ${kind}`);
       return { ok: true, id };

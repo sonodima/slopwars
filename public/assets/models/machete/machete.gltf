@@ -22,17 +22,7 @@
     {
       "doubleSided": true,
       "name": "machete",
-      "normalTexture": {
-        "index": 0
-      },
-      "pbrMetallicRoughness": {
-        "baseColorTexture": {
-          "index": 1
-        },
-        "metallicRoughnessTexture": {
-          "index": 2
-        }
-      }
+      "pbrMetallicRoughness": {}
     }
   ],
   "meshes": [
@@ -49,37 +39,6 @@
           "material": 0
         }
       ]
-    }
-  ],
-  "textures": [
-    {
-      "sampler": 0,
-      "source": 0
-    },
-    {
-      "sampler": 0,
-      "source": 1
-    },
-    {
-      "sampler": 0,
-      "source": 2
-    }
-  ],
-  "images": [
-    {
-      "mimeType": "image/jpeg",
-      "name": "machete_nor_gl",
-      "uri": "textures/machete_nor_gl_1k.jpg"
-    },
-    {
-      "mimeType": "image/jpeg",
-      "name": "machete_diff",
-      "uri": "textures/machete_diff_1k.jpg"
-    },
-    {
-      "mimeType": "image/jpeg",
-      "name": "machete_metal-machete_rough",
-      "uri": "textures/machete_arm_1k.jpg"
     }
   ],
   "accessors": [
@@ -142,12 +101,6 @@
       "byteLength": 18192,
       "byteOffset": 56224,
       "target": 34963
-    }
-  ],
-  "samplers": [
-    {
-      "magFilter": 9729,
-      "minFilter": 9987
     }
   ],
   "buffers": [

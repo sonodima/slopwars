@@ -85,17 +85,7 @@
     {
       "doubleSided": true,
       "name": "metal_toolbox",
-      "normalTexture": {
-        "index": 0
-      },
-      "pbrMetallicRoughness": {
-        "baseColorTexture": {
-          "index": 1
-        },
-        "metallicRoughnessTexture": {
-          "index": 2
-        }
-      }
+      "pbrMetallicRoughness": {}
     }
   ],
   "meshes": [
@@ -182,37 +172,6 @@
           "material": 0
         }
       ]
-    }
-  ],
-  "textures": [
-    {
-      "sampler": 0,
-      "source": 0
-    },
-    {
-      "sampler": 0,
-      "source": 1
-    },
-    {
-      "sampler": 0,
-      "source": 2
-    }
-  ],
-  "images": [
-    {
-      "mimeType": "image/jpeg",
-      "name": "metal_toolbox_nor_gl",
-      "uri": "textures/metal_toolbox_nor_gl_1k.jpg"
-    },
-    {
-      "mimeType": "image/jpeg",
-      "name": "metal_toolbox_diff",
-      "uri": "textures/metal_toolbox_diff_1k.jpg"
-    },
-    {
-      "mimeType": "image/jpeg",
-      "name": "metal_toolbox_metal-metal_toolbox_rough",
-      "uri": "textures/metal_toolbox_arm_1k.jpg"
     }
   ],
   "accessors": [
@@ -565,12 +524,6 @@
       "byteLength": 36306,
       "byteOffset": 432584,
       "target": 34963
-    }
-  ],
-  "samplers": [
-    {
-      "magFilter": 9729,
-      "minFilter": 9987
     }
   ],
   "buffers": [

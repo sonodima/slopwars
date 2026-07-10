@@ -8,7 +8,6 @@
 // defineObject() call; the loader and the editor pick them up for free.
 import catalog from "virtual:asset-catalog";
 import type { MapBuilder } from "./mapbuilder";
-import { AABB } from "./map";
 import { assetUrl } from "./assets";
 import { DEFAULT_MATERIAL, materialTextureFolders } from "./materials";
 import { PARTICLE_LOOK, type ParticleLook } from "./particles";
@@ -17,8 +16,8 @@ import {
   type PointLightLook, type DirLightLook, type SpotLightLook,
 } from "./lights";
 import type { MapDef, Placement, MaterialDef } from "./maps/schema";
-
-export const BARREL_HP = 120;
+import { modelMaterials, type ModelMeta } from "@slopwars/shared";
+import { attachBehaviours, behavioursOwnCollision, type BehaviourSpec } from "./behaviours";
 
 /** a resolved transform passed to every object build() */
 export interface Transform {
@@ -87,6 +86,15 @@ export function isDeferredType(name: string): boolean {
 }
 
 // ── editor introspection ──────────────────────────────────────────────────────
+/** the human sub-label for a placement: the salient param that identifies it (a
+ *  prop's model, a sound's clip), or "" for a plain typed object. Shared by the
+ *  editor outliner + inspector so both name an object the same way. */
+export function placementDetail(o: Placement): string {
+  if (o.type === "prop" && typeof o.params?.model === "string") return o.params.model;
+  if (o.type === "sound" && typeof o.params?.clip === "string") return o.params.clip;
+  return "";
+}
+
 export interface ObjEntry { name: string; category: ObjCategory; defaults: Record<string, unknown> }
 export function objectTypeNames(): string[] { return [...REGISTRY.keys()].sort(); }
 export function objectDefaults(name: string): Record<string, unknown> { return { ...(REGISTRY.get(name)?.defaults ?? {}) }; }
@@ -100,8 +108,13 @@ export function objectCatalog(): ObjEntry[] {
  *  seeded so their textures are always loaded even if no object names them. */
 const STRUCTURE_MATERIALS = ["metal", "stone", "crate", "wall"];
 
-/** every material a map references: each object's `mat` (merged over defaults)
- *  plus the ones structures use internally, and the default. */
+/** per-model calibration metas, keyed by folder name (for resolving the materials a
+ *  placed model's slots reference — those textures must load too). */
+const MODEL_META = new Map<string, ModelMeta>(catalog.models.map((m) => [m.name, m.meta ?? {}]));
+
+/** every material a map references: each object's `mat` (merged over defaults), the
+ *  materials each placed model's slots use, the ones structures use internally, and
+ *  the default. */
 export function mapMaterials(def: MapDef): string[] {
   const set = new Set<string>([DEFAULT_MATERIAL, ...STRUCTURE_MATERIALS]);
   for (const o of def.objects) {
@@ -109,6 +122,10 @@ export function mapMaterials(def: MapDef): string[] {
     if (!t) continue;
     const merged = { ...t.defaults, ...(o.params ?? {}) } as Record<string, unknown>;
     if (typeof merged.mat === "string" && merged.mat) set.add(merged.mat);
+    // a placed model shades its surfaces through its own materials → load them too
+    if (typeof merged.model === "string" && merged.model) {
+      for (const m of modelMaterials(MODEL_META.get(merged.model))) set.add(m);
+    }
   }
   return [...set];
 }
@@ -136,12 +153,13 @@ export function mapTextureFolders(def: MapDef, matDefs?: Map<string, MaterialDef
  *  material makes the box a window, a water material makes it a rippling liquid
  *  surface (drop it thin + wide for a pool). solid=false → decoration you pass
  *  through (water pools and window panes are usually solid=false). */
-defineObject<{ mat: string; tile: [number, number]; solid: boolean }>("box", {
-  defaults: { mat: DEFAULT_MATERIAL, tile: [1, 1], solid: true },
+defineObject<{ mat: string; tile: [number, number]; solid: boolean; castShadows: boolean }>("box", {
+  defaults: { mat: DEFAULT_MATERIAL, tile: [1, 1], solid: true, castShadows: true },
   category: "geometry",
   build(b, t, p) {
     const [x, y, z] = t.at; const [w, h, d] = t.scale;
     const e = b.mesh(x, y, z, w, h, d, p.mat, p.tile[0], p.tile[1]);
+    if (p.castShadows === false) b.setCastShadows(e, false);
     const [rx, ry, rz] = t.rot;
     if (rx || ry || rz) e.transform.setRotation(rx, ry, rz);   // visual only (collision stays AABB)
     if (p.solid !== false) b.pushSolid({ min: { x: x - w / 2, y: y - h / 2, z: z - d / 2 }, max: { x: x + w / 2, y: y + h / 2, z: z + d / 2 } });
@@ -192,15 +210,36 @@ defineObject<{ clip: string; radius: number; volume: number; loop: boolean; spat
 // body (mass in kg): light props (a crate, a can) get shoved when you shoot, blast
 // or walk into them; heavy ones barely budge. Physics props are dynamic, so they
 // don't contribute static collision — the PhysicsWorld drives them at runtime.
-defineObject<{ model: string; solid: boolean; physics: boolean; mass: number }>("prop", {
-  defaults: { model: "", solid: true, physics: false, mass: 5 },
+// physics tuning (friction/restitution/damping) is optional: a plain physics prop
+// stores only `physics` + `mass`, and each unset field falls back to the shared PhysX
+// default — so the extra knobs add zero data until an author actually turns one.
+// `behaviours` is the composition slot: a list of gameplay traits (see behaviours.ts)
+// attached to this model — `explode` makes it a shootable barrel, `light` makes it
+// glow, and you can stack several. A trait that owns collision (explode) takes over
+// the prop's static collider so the whole thing vanishes as a unit when destroyed.
+defineObject<{ model: string; solid: boolean; castShadows: boolean; behaviours: BehaviourSpec[]; physics: boolean; mass: number; friction?: number; restitution?: number; linearDamping?: number; angularDamping?: number }>("prop", {
+  defaults: { model: "", solid: true, castShadows: true, behaviours: [], physics: false, mass: 5 },
   category: "prop",
   build(b, t, p) {
     if (!p.model) return;
     const e = b.placeModelTf(p.model, t.at, t.rot, t.scale);
     if (!e) return;
-    if (p.physics) { b.pushDynamicBody(p.model, e, t.at, t.rot, t.scale, p.mass); return; }
-    if (p.solid) b.pushModelSolids(p.model, e, t.at, t.rot, t.scale);
+    if (p.castShadows === false) b.setCastShadows(e, false);   // e.g. a lantern housing its own light
+    // compose any attached behaviours (after the entity exists, before collision, so a
+    // collision-owning trait like `explode` can register the host's collider itself).
+    const behaviours = Array.isArray(p.behaviours) ? p.behaviours : [];
+    if (behaviours.length) {
+      attachBehaviours(b, { entity: e, model: p.model, at: t.at, rot: t.rot, scale: t.scale, bounds: b.modelAABB(e) }, behaviours);
+    }
+    if (p.physics) {
+      b.pushDynamicBody(p.model, e, t.at, t.rot, t.scale, {
+        mass: p.mass, friction: p.friction, restitution: p.restitution,
+        linearDamping: p.linearDamping, angularDamping: p.angularDamping,
+      });
+      return;
+    }
+    // a behaviour that owns collision (explode) already pushed the host's collider
+    if (p.solid && !behavioursOwnCollision(behaviours)) b.pushModelSolids(p.model, e, t.at, t.rot, t.scale);
   },
 });
 
@@ -214,7 +253,10 @@ defineObject<ParticleLook & { tex: string }>("particles", {
   defaults: { tex: "", ...PARTICLE_LOOK }, category: "entity",
   build(b, t, p) {
     const [x, y, z] = t.at;
-    const sprite = p.tex ? b.texOf(p.tex).color : null;
+    // a resolved texture folder's colour map is the sprite; an empty/unknown `tex`
+    // yields null → the soft procedural puff (never the opaque wall texture as a hard
+    // square, which is what a texOf() fallback would silently draw).
+    const sprite = p.tex ? b.texColorOf(p.tex) : null;
     // pooled by placement index so an editor rebuild (every edit/move) re-adopts the
     // same emitter and keeps its particles flowing instead of restarting from empty.
     const e = b.buildParticleEmitter(`particles:${b.buildIndex}`, x, y, z, p, sprite);
@@ -239,27 +281,10 @@ definePreset<ParticleLook & { tex: string }>("smoke", "particles", {
   gravity: -0.1, color: [0.28, 0.28, 0.3], opacity: 0.45, additive: false, world: true,
 }, "entity");
 
-// ─── gameplay entities ────────────────────────────────────────────────────────
-
-/** generic explodable prop — any `model` that takes damage and explodes at 0 hp
- *  (host-tracked, reusing the barrel gameplay path). Drop one and point `model` at
- *  a barrel, crate, gas tank… to make it shootable+explosive. `radius`/`height`
- *  size its collision + blast cylinder. (An explosive barrel is just this with the
- *  barrel model dropped in — there is no bespoke `barrel` preset.) */
-defineObject<{ model: string; hp: number; scale?: number; radius: number; height: number }>("explodable", {
-  defaults: { model: "", hp: BARREL_HP, radius: 0.45, height: 1.1 },
-  category: "entity",
-  build(b, t, p) {
-    if (!p.model) return;
-    const [x, y, z] = t.at;
-    const m = p.scale ?? 1;   // legacy multiplier; drop scale carries the native size
-    const e = b.placeModelTf(p.model, [x, y, z], [0, t.rot[1], 0], [t.scale[0] * m, t.scale[1] * m, t.scale[2] * m]);
-    // collision stays authored radius/height (explodables aren't resized by scale)
-    const solid: AABB = { min: { x: x - p.radius, y, z: z - p.radius }, max: { x: x + p.radius, y: y + p.height, z: z + p.radius } };
-    b.pushSolid(solid);
-    b.map.barrels.push({ pos: { x, y: y + p.height / 2, z }, entity: e, solid, hp: p.hp, dead: false });
-  },
-});
+// NOTE: the old bespoke `explodable` object type was removed — an explosive barrel is
+// now a `prop` (model: Barrel_01) with an `explode` behaviour (see behaviours.ts). This
+// is the composition migration: gameplay is a trait you attach to a model, not a
+// separate object type per behaviour, so a prop can be explosive AND glowing AND …
 
 // ─── standalone light sources (point / directional / spot) ────────────────────
 // Pure lights, no model — the Unity-style building block. Group one with any prop

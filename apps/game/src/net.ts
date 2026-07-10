@@ -17,9 +17,14 @@ export class Net {
   myId = "";
   lobbyCode = "";
   players: PlayerInfo[] = [];
+  /** true when the host couldn't reach the PeerJS signaling server and fell back to a
+   *  purely local session: no peers can join, but you can still play a bots-only match.
+   *  The UI surfaces this as an OFFLINE badge instead of a shareable lobby code. */
+  offline = false;
 
   private conns = new Map<string, DataConnection>(); // host: guests by id
   private hostConn: DataConnection | null = null; // guest: to host
+  private opened = false; // the peer reached the signaling server (open fired)
 
   onMessage: ((m: Msg, fromId: string) => void) | null = null;
   onPeerJoin: ((p: PlayerInfo) => void) | null = null;
@@ -43,8 +48,15 @@ export class Net {
     this.players = [{ id: "host", name: myName, color: COLOR_PALETTE[0] }];
     const p = new Peer(PREFIX + this.lobbyCode);
     this.peer = p;
-    p.on("open", () => this.onReady?.());
-    p.on("error", (e) => this.onError?.(String((e as Error).message ?? e)));
+    p.on("open", () => { this.opened = true; this.onReady?.(); });
+    p.on("error", (e) => {
+      // couldn't even reach the signaling server → don't strand the player at the menu.
+      // Fall back to a local, bots-only session (host authority is entirely local, so
+      // everything works — there's just no one to relay to). A later transient error,
+      // once we're open, is surfaced normally.
+      if (!this.opened) { this.goOffline(); return; }
+      this.onError?.(String((e as Error).message ?? e));
+    });
     p.on("connection", (conn) => {
       conn.on("data", (raw) => {
         const m = raw as Msg;
@@ -86,6 +98,19 @@ export class Net {
       conn.on("close", () => this.onError?.("Lost connection to host"));
       conn.on("error", () => this.onError?.("Connection failed"));
     });
+  }
+
+  /** the host fell back to a local-only session (signaling server unreachable): tear
+   *  the dead peer down, mark offline, and enter the lobby anyway so a bots-only match
+   *  is playable. Guests can't join a local session — this only fires for the host. */
+  private goOffline(): void {
+    if (this.opened || this.offline) return;
+    this.offline = true;
+    this.opened = true;   // stop any further pre-open error from re-triggering this
+    this.lobbyCode = "OFFLINE";
+    try { this.peer?.destroy(); } catch { /* already dead */ }
+    this.peer = null;
+    this.onReady?.();
   }
 
   private dropGuest(id: string): void {

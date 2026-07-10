@@ -22,17 +22,8 @@
     {
       "doubleSided": true,
       "name": "bleach_bottle",
-      "normalTexture": {
-        "index": 0
-      },
       "pbrMetallicRoughness": {
-        "baseColorTexture": {
-          "index": 1
-        },
-        "metallicFactor": 0,
-        "metallicRoughnessTexture": {
-          "index": 2
-        }
+        "metallicFactor": 0
       }
     }
   ],
@@ -50,37 +41,6 @@
           "material": 0
         }
       ]
-    }
-  ],
-  "textures": [
-    {
-      "sampler": 0,
-      "source": 0
-    },
-    {
-      "sampler": 0,
-      "source": 1
-    },
-    {
-      "sampler": 0,
-      "source": 2
-    }
-  ],
-  "images": [
-    {
-      "mimeType": "image/jpeg",
-      "name": "bleach_bottle_01_nor_gl",
-      "uri": "textures/bleach_bottle_01_nor_gl_1k.jpg"
-    },
-    {
-      "mimeType": "image/jpeg",
-      "name": "bleach_bottle_01_diff",
-      "uri": "textures/bleach_bottle_01_diff_1k.jpg"
-    },
-    {
-      "mimeType": "image/jpeg",
-      "name": "bleach_bottle_01_rough",
-      "uri": "textures/bleach_bottle_01_arm_1k.jpg"
     }
   ],
   "accessors": [
@@ -143,12 +103,6 @@
       "byteLength": 24312,
       "byteOffset": 82016,
       "target": 34963
-    }
-  ],
-  "samplers": [
-    {
-      "magFilter": 9729,
-      "minFilter": 9987
     }
   ],
   "buffers": [

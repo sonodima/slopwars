@@ -16,9 +16,13 @@ import { GameMap } from "@game/map";
 import { GameModels, loadModels } from "@game/models";
 import { resolveTextures, type MapTextures } from "@game/textures";
 import { mapTextureFolders, objectCategory } from "@game/objects";
-import { loadHDRCube } from "@game/assets";
+import { loadHDRCube, loadGLTF } from "@game/assets";
 import "@game/objects"; // side effect: register built-in object types
 import { state } from "./state";
+import {
+  AXIS_DIR, AXIS_IDX, GIZMO_AXES, GIZMO_COL as AXIS_COL, ROT_SNAP_DEG,
+  clamp, cross, distToSeg, dot, norm, rotateAxis, type GizmoHandle as Handle,
+} from "./vecmath";
 
 /** an axis-aligned world box, min/max as plain tuples */
 interface Box { min: Tuple3; max: Tuple3 }
@@ -26,15 +30,10 @@ interface Box { min: Tuple3; max: Tuple3 }
 /** transform tools (no "select" — clicking always selects; a tool just decides
  *  which gizmo shows). */
 export type Tool = "move" | "rotate" | "scale";
-/** which gizmo handle a drag grabbed: an axis, a plane, or uniform (screen) */
-type Handle = "x" | "y" | "z" | "xyz";
 
 export interface PerfStats { fps: number; tris: number; objects: number; draws: number }
 
 const DEG = Math.PI / 180;
-const AXIS_COL: Record<Handle, string> = { x: "#e5484d", y: "#5bd15b", z: "#3b82f6", xyz: "#d6d6d6" };
-const AXIS_IDX: Record<Handle, number> = { x: 0, y: 1, z: 2, xyz: 0 };
-const AXIS_DIR: Record<Handle, Tuple3> = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1], xyz: [0, 0, 0] };
 
 export class Viewport {
   ready = false;
@@ -227,6 +226,22 @@ export class Viewport {
     if (rebuild && this.ready && state.map) void this.render(state.map);
   }
 
+  /** load the geometry of any catalog models not already loaded (e.g. just imported),
+   *  straight from the live editor catalog. The compiled-in `virtual:asset-catalog`
+   *  that loadModels() uses is a dev-server-start snapshot and never sees post-start
+   *  imports, so without this a freshly imported model renders as nothing until the
+   *  dev server restarts. Re-renders when anything new loaded (or `rebuild`). */
+  async refreshModels(models: ModelAsset[], rebuild = false): Promise<void> {
+    if (!this.ready) return;
+    const missing = models.filter((m) => !(m.name in this.models));
+    await Promise.all(missing.map((m) =>
+      loadGLTF(this.engine, m.gltf)
+        .then((r) => { this.models[m.name] = r; })
+        .catch((e) => { console.warn("[model] load failed:", m.name, e); this.models[m.name] = null; }),
+    ));
+    if ((rebuild || missing.length > 0) && state.map) await this.render(state.map);
+  }
+
   async render(def: MapDef): Promise<void> {
     if (!this.ready) return;
     const folders = mapTextureFolders(def, this.matDefs);
@@ -354,9 +369,15 @@ export class Viewport {
     if (dolly) { const f = this.forward(); this.pos.x += f[0] * dolly; this.pos.y += f[1] * dolly; this.pos.z += f[2] * dolly; }
     this.applyCamera();
   }
-  /** PNG data-URL of the current viewport (needs preserveDrawingBuffer) */
+  /** PNG data-URL of the current viewport (needs preserveDrawingBuffer). Forces one
+   *  synchronous frame first: the engine's rAF render loop is throttled to ~0 fps when
+   *  the editor tab/window is backgrounded, which would otherwise return a stale image
+   *  and make camera/scene changes look like they never applied. */
   screenshot(): string | null {
-    try { return this.canvas.toDataURL("image/png"); } catch { return null; }
+    try {
+      if (this.ready) { this.applyCamera(); this.engine.update(); }
+      return this.canvas.toDataURL("image/png");
+    } catch { return null; }
   }
 
   // ── env (mirrors the game's applyEnv so the preview is faithful) ───────────
@@ -604,10 +625,6 @@ export class Viewport {
   }
 
   // ── gizmo geometry ─────────────────────────────────────────────────────────
-  private static AXES: { h: Handle; dir: Tuple3 }[] = [
-    { h: "x", dir: [1, 0, 0] }, { h: "y", dir: [0, 1, 0] }, { h: "z", dir: [0, 0, 1] },
-  ];
-
   /** world length that keeps the gizmo ~constant on-screen size at the object */
   private gizmoLen(at: Tuple3): number {
     const { f } = this.basis();
@@ -642,7 +659,7 @@ export class Viewport {
     const L = this.gizmoLen(pivot);
 
     if (this.tool === "rotate") {
-      for (const { h, dir } of Viewport.AXES) {
+      for (const { h, dir } of GIZMO_AXES) {
         const pts = this.ring(pivot, dir, L);
         ctx.beginPath();
         let started = false;
@@ -651,7 +668,7 @@ export class Viewport {
         ctx.strokeStyle = on ? "#ffd257" : AXIS_COL[h]; ctx.lineWidth = on ? 3 : 2; ctx.stroke();
       }
     } else {
-      for (const { h, dir } of Viewport.AXES) {
+      for (const { h, dir } of GIZMO_AXES) {
         const tip = this.project([pivot[0] + dir[0] * L, pivot[1] + dir[1] * L, pivot[2] + dir[2] * L]);
         if (!tip.visible) continue;
         const on = this.hover === h || this.drag?.handle === h;
@@ -690,7 +707,7 @@ export class Viewport {
     const L = this.gizmoLen(pivot);
     let best = 10, hit: Handle | null = null;   // 10px grab radius
     if (this.tool === "rotate") {
-      for (const { h, dir } of Viewport.AXES) {
+      for (const { h, dir } of GIZMO_AXES) {
         for (const p of this.ring(pivot, dir, L)) {
           if (!p.visible) continue;
           const d = Math.hypot(p.x - px, p.y - py);
@@ -699,7 +716,7 @@ export class Viewport {
       }
       return hit;
     }
-    for (const { h, dir } of Viewport.AXES) {
+    for (const { h, dir } of GIZMO_AXES) {
       const tip = this.project([pivot[0] + dir[0] * L, pivot[1] + dir[1] * L, pivot[2] + dir[2] * L]);
       if (!tip.visible) continue;
       const d = distToSeg(px, py, c.x, c.y, tip.x, tip.y);
@@ -787,7 +804,7 @@ export class Viewport {
     const L = this.gizmoLen(pivot);
     let unit: [number, number] = [1, 0], wpp = 0;
     if (h !== "xyz") {
-      const dir = Viewport.AXES.find((a) => a.h === h)!.dir;
+      const dir = GIZMO_AXES.find((a) => a.h === h)!.dir;
       const tip = this.project([pivot[0] + dir[0] * L, pivot[1] + dir[1] * L, pivot[2] + dir[2] * L]);
       const dxp = tip.x - c.x, dyp = tip.y - c.y, len = Math.hypot(dxp, dyp) || 1;
       unit = [dxp / len, dyp / len]; wpp = L / len;
@@ -908,7 +925,7 @@ export class Viewport {
       const sign = d.handle === "y" ? -1 : 1;
       let sdeg = deg * sign;
       // hold Shift → snap the rotation to 30° increments (from the grab angle)
-      if (this.keys.has("ShiftLeft") || this.keys.has("ShiftRight")) sdeg = Math.round(sdeg / 30) * 30;
+      if (this.keys.has("ShiftLeft") || this.keys.has("ShiftRight")) sdeg = Math.round(sdeg / ROT_SNAP_DEG) * ROT_SNAP_DEG;
       const rad = sdeg * DEG;
       op = (at, rot, scale) => {
         const rel: Tuple3 = [at[0] - d.pivot[0], at[1] - d.pivot[1], at[2] - d.pivot[2]];
@@ -984,30 +1001,10 @@ export class Viewport {
   }
 }
 
-// ── small vector + misc helpers ───────────────────────────────────────────────
-function dot(a: number[], b: number[]): number { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
-function cross(a: number[], b: number[]): number[] { return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]; }
-function norm(a: number[]): number[] { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; }
-/** rotate a vector about world axis `idx` (0=x,1=y,2=z) by `rad` (right-handed) */
-function rotateAxis(v: Tuple3, idx: number, rad: number): Tuple3 {
-  const c = Math.cos(rad), s = Math.sin(rad);
-  if (idx === 0) return [v[0], v[1] * c - v[2] * s, v[1] * s + v[2] * c];
-  if (idx === 1) return [v[0] * c + v[2] * s, v[1], -v[0] * s + v[2] * c];
-  return [v[0] * c - v[1] * s, v[0] * s + v[1] * c, v[2]];
-}
-function clamp(v: number, a: number, b: number): number { return v < a ? a : v > b ? b : v; }
+// ── misc helpers (vector maths live in ./vecmath, shared with the preview scene) ─
 function round(n: number): number { return Math.round(n * 100) / 100; }
 function round2(n: number): number { return Math.round(n * 1000) / 1000; }
 function isTyping(): boolean { const el = document.activeElement; return !!el && (el.tagName === "INPUT" || el.tagName === "SELECT" || el.tagName === "TEXTAREA"); }
-
-/** shortest distance from point (px,py) to the segment (ax,ay)-(bx,by) */
-function distToSeg(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
-  const vx = bx - ax, vy = by - ay;
-  const wx = px - ax, wy = py - ay;
-  const len2 = vx * vx + vy * vy || 1;
-  const t = clamp((wx * vx + wy * vy) / len2, 0, 1);
-  return Math.hypot(px - (ax + t * vx), py - (ay + t * vy));
-}
 
 /** ray (origin o, dir d) vs AABB — returns entry distance along d, or null if no
  *  hit in front of the ray (slab method). */

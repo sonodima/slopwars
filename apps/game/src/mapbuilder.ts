@@ -10,8 +10,8 @@ import { buildParticles, reconfigureParticles, type ParticleLook } from "./parti
 import catalog from "virtual:asset-catalog";
 import { GameModels, instantiate } from "./models";
 import { MapTextures, PbrSet, DEFAULT_FOLDER } from "./textures";
-import { MaterialLibrary } from "./materials";
-import type { GroupDef, MaterialDef, ModelMeta, Tuple3 } from "@slopwars/shared";
+import { MaterialLibrary, shadeModelSlots } from "./materials";
+import type { GroupDef, MaterialDef, ModelMeta, PhysicsProps, Tuple3 } from "@slopwars/shared";
 import { rotateEuler } from "@slopwars/shared";
 import type { AABB, GameMap } from "./map";
 
@@ -85,6 +85,21 @@ export class MapBuilder {
     return (folder && this.tex.get(folder)) || this.tex.get(DEFAULT_FOLDER) || this.tex.values().next().value!;
   }
 
+  /** the colour map of a texture folder for use as a raw sprite (particle emitter),
+   *  or null if the folder isn't loaded. Unlike texOf, this does NOT fall back to the
+   *  default folder: a particle whose `tex` can't be resolved shows the procedural
+   *  soft puff (see particles.ts) instead of the opaque wall texture as a hard square. */
+  texColorOf(folder?: string): Texture2D | null {
+    const set = folder ? this.tex.get(folder) : null;
+    return set ? set.color : null;
+  }
+
+  /** enable/disable shadow casting on every mesh of a placed entity (e.g. a lantern
+   *  that houses its own light shouldn't also cast a hard shadow of its shell). */
+  setCastShadows(e: Entity, cast: boolean): void {
+    for (const r of e.getComponentsIncludeChildren(MeshRenderer, [])) r.castShadows = cast;
+  }
+
   /** report a freshly created entity to the (editor-only) build hook so it can be
    *  associated with the placement it came from — no-op in the game. Public so
    *  object types that build their own entities (water, glass, particles) can
@@ -143,16 +158,15 @@ export class MapBuilder {
 
   /** instantiate a model with a full transform (per-axis scale + euler rotation),
    *  applying the model's calibrated meta (models/<id>/meta.json): a uniform `scale`
-   *  multiplier, a `base` vertical offset so it rests on its footing, and a
-   *  `material` override that reskins every surface. Used by every model placement
+   *  multiplier, a `base` vertical offset so it rests on its footing, and per-slot
+   *  `materials` that shade each glTF surface. Used by every model placement
    *  (props, veg, explodables, lanterns) so a model is tuned once. */
   placeModelTf(id: string, at: Vec3T, rot: Vec3T, scale: Vec3T): Entity | null {
     const e = instantiate(this.models[id]);
     if (!e) return null;
     const meta = this.modelMeta.get(id) ?? {};
-    const ms = typeof meta.scale === "number" && meta.scale > 0 ? meta.scale : 1;
+    const { ms, base } = modelCalib(meta);
     const sx = scale[0] * ms, sy = scale[1] * ms, sz = scale[2] * ms;
-    const base = typeof meta.base === "number" ? meta.base : 0;
     e.transform.setScale(sx, sy, sz);
     e.transform.setPosition(at[0], at[1] + base * sy, at[2]);   // base is a local offset → scales with the model
     // compose the placement rotation over the model's baked baseRot (base applied
@@ -162,10 +176,10 @@ export class MapBuilder {
     } else {
       e.transform.setRotation(rot[0], rot[1], rot[2]);
     }
-    if (typeof meta.material === "string" && meta.material) {
-      const m = this.lib.build(meta.material);
-      for (const r of e.getComponentsIncludeChildren(MeshRenderer, [])) r.setMaterial(m);
-    }
+    // shade each surface with the material assigned to its glTF slot (the model's MAIN
+    // materials): a slot with an assignment is rebuilt from that material asset, an
+    // unassigned slot keeps the glTF's own material (e.g. a transparent glass part).
+    shadeModelSlots(e, meta, this.lib);
     this.root.addChild(e);
     this.map.tris += 500;
     return this.track(e);
@@ -181,8 +195,7 @@ export class MapBuilder {
     const meta = this.modelMeta.get(id) ?? {};
     const boxes = meta.collision === "manual" ? (meta.collisionBoxes ?? []) : null;
     if (boxes) {
-      const ms = typeof meta.scale === "number" && meta.scale > 0 ? meta.scale : 1;
-      const base = typeof meta.base === "number" ? meta.base : 0;
+      const { ms, base } = modelCalib(meta);
       const sx = scale[0] * ms, sy = scale[1] * ms, sz = scale[2] * ms;
       const rotT: [number, number, number] = [rot[0], rot[1], rot[2]];
       const baseRot = meta.baseRot;
@@ -228,13 +241,13 @@ export class MapBuilder {
   /** register a placed model as a dynamic physics body (see objects.ts `prop` with
    *  physics on). The collider is derived from the model's authored manual collision
    *  (so a barrel authored as a cylinder becomes a cylinder body) or, failing that,
-   *  from its mesh bounds. `mass` (kg) governs how easily it's shoved. The simulation
-   *  lives in the game (PhysicsWorld); the editor just leaves the prop where placed. */
-  pushDynamicBody(id: string, entity: Entity, at: Vec3T, rot: Vec3T, scale: Vec3T, mass: number): void {
+   *  from its mesh bounds. `phys` carries mass (kg) plus the optional PhysX tuning
+   *  (grip / bounce / damping). The simulation lives in the game (PhysicsWorld); the
+   *  editor just leaves the prop where placed. */
+  pushDynamicBody(id: string, entity: Entity, at: Vec3T, rot: Vec3T, scale: Vec3T, phys: PhysicsProps): void {
     if (this.suppressSolids) return;   // inside a physics group → the group body owns collision
     const meta = this.modelMeta.get(id) ?? {};
-    const ms = typeof meta.scale === "number" && meta.scale > 0 ? meta.scale : 1;
-    const base = typeof meta.base === "number" ? meta.base : 0;
+    const { ms, base } = modelCalib(meta);
     const sx = scale[0] * ms, sy = scale[1] * ms, sz = scale[2] * ms;
     const pos = { x: at[0], y: at[1] + base * sy, z: at[2] };   // entity origin (matches placeModelTf)
     let half: { x: number; y: number; z: number };
@@ -267,7 +280,10 @@ export class MapBuilder {
     const q = new Quaternion();
     Quaternion.rotationEuler(rot[0] * DEG, rot[1] * DEG, rot[2] * DEG, q);   // start at the authored orientation
     this.map.dynBodies.push({
-      entity, mass: Math.max(0.05, mass), half, off, shape, pos,
+      entity, mass: Math.max(0.05, phys.mass ?? 5),
+      friction: phys.friction, restitution: phys.restitution,
+      linearDamping: phys.linearDamping, angularDamping: phys.angularDamping,
+      half, off, shape, pos,
       vel: { x: 0, y: 0, z: 0 }, q, angVel: { x: 0, y: 0, z: 0 }, onGround: false, rest: 0,
     });
   }
@@ -302,7 +318,10 @@ export class MapBuilder {
     } else { half = { x: 0.4, y: 0.4, z: 0.4 }; off = { x: 0, y: 0.4, z: 0 }; }
     const mass = typeof g.mass === "number" && g.mass > 0 ? g.mass : 8;
     this.map.dynBodies.push({
-      entity: e, mass, half, off, shape: undefined, pos: { x: at[0], y: at[1], z: at[2] },
+      entity: e, mass,
+      friction: g.friction, restitution: g.restitution,
+      linearDamping: g.linearDamping, angularDamping: g.angularDamping,
+      half, off, shape: undefined, pos: { x: at[0], y: at[1], z: at[2] },
       vel: { x: 0, y: 0, z: 0 }, q: new Quaternion(), angVel: { x: 0, y: 0, z: 0 }, onGround: false, rest: 0,
     });
   }
@@ -336,3 +355,14 @@ function composeRot(outer: Vec3T, base: Vec3T): Quaternion {
   return out;
 }
 const DEG = Math.PI / 180;
+
+/** a model's calibration scalars from its meta: the uniform `scale` multiplier
+ *  (default 1, non-positive values ignored) and the `base` vertical offset (default
+ *  0). Extracted once so placement, static collision, and dynamic-body derivation all
+ *  read the same calibration instead of re-deriving it three ways. */
+function modelCalib(meta: ModelMeta): { ms: number; base: number } {
+  return {
+    ms: typeof meta.scale === "number" && meta.scale > 0 ? meta.scale : 1,
+    base: typeof meta.base === "number" ? meta.base : 0,
+  };
+}

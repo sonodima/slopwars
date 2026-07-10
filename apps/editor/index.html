@@ -176,6 +176,10 @@
   .field.vec3{align-items:flex-start;flex-direction:column;gap:3px}
   .vec3-inputs{display:flex;gap:4px;width:100%}
   .vec3-inputs .field-input{width:0}
+  .field-lock{flex:0 0 auto;display:flex;align-items:center;justify-content:center;width:24px;background:var(--panel2);color:var(--dim);border:1px solid var(--line2);border-radius:3px;cursor:pointer;padding:0}
+  .field-lock:hover{color:var(--text)}
+  .field-lock.on{color:var(--accent);border-color:var(--accent)}
+  .field-lock .icon{width:13px;height:13px}
 
   /* dock: unified asset browser */
   #dock{display:flex;background:var(--panel);border-top:1px solid var(--line);overflow:hidden;min-height:0}
@@ -198,6 +202,14 @@
   .btn.danger:hover{background:#e5484d;color:#fff;border-color:#e5484d}
   .insp-delete{width:100%;margin-top:16px}
   .insp-addbtn{width:100%;margin:5px 0 8px}
+  /* behaviour composition cards (a prop's attached gameplay traits) */
+  .beh-card{border:1px solid var(--line2);border-radius:5px;background:var(--panel2);padding:6px 8px;margin:4px 0}
+  .beh-head{display:flex;align-items:center;gap:6px;margin-bottom:2px}
+  .beh-title{flex:1;font-size:11px;font-weight:600;color:var(--text)}
+  .beh-head .btn.mini{opacity:.6}
+  .beh-card:hover .beh-head .btn.mini{opacity:1}
+  .beh-add{margin:6px 0 8px}
+  .beh-add-sel{width:100%;background:var(--panel3);color:var(--text);border:1px solid var(--line2);border-radius:4px;font-size:12px;padding:5px 6px}
   .insp-note{color:var(--dim);font-size:11px;margin:2px 0 6px;line-height:1.4}
   .insp-modelprev{width:100%;height:120px;background:#0e0f10;border:1px solid var(--line2);border-radius:5px;margin:6px 0;display:flex;align-items:center;justify-content:center;overflow:hidden}
   .insp-modelimg{max-width:100%;max-height:100%;object-fit:contain}
@@ -264,6 +276,25 @@
   .af-ico .icon{width:15px;height:15px}
   .af-warn{display:inline-flex;align-items:center}
   .af-warn .icon{width:14px;height:14px}
+
+  /* texture-set card grid (the maps a set holds, auto-fitting) + the set editor */
+  .tex-grid{width:100%;height:100%;display:grid;gap:1px;background:#0e0f10}
+  .tex-grid .thumb-img{width:100%;height:100%;object-fit:cover}
+  .tex-slot{margin:6px 0 10px}
+  .tex-slot-head{display:flex;align-items:center;gap:6px;margin-bottom:3px}
+  .tex-slot-label{color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.04em;flex:1}
+  .tex-slot-head .btn.mini{flex:0 0 auto}
+  .tex-slot-drop{display:flex;align-items:center;justify-content:center;aspect-ratio:16/9;background:#0e0f10;border:1px dashed var(--line2);border-radius:5px;overflow:hidden;cursor:pointer;transition:border-color .12s,background .12s}
+  .tex-slot-drop:hover{border-color:var(--accent2)}
+  .tex-slot-drop.has{border-style:solid}
+  .tex-slot-drop.drop{border-color:var(--accent);background:#12233a}
+  .tex-slot-img{width:100%;height:100%;object-fit:contain;display:block}
+  .tex-slot-empty{display:flex;flex-direction:column;align-items:center;gap:4px;color:var(--dim);font-size:11px}
+  .tex-slot-empty .icon{width:20px;height:20px}
+  .tex-users{display:flex;flex-direction:column;gap:3px;margin:2px 0 8px}
+  .tex-user{display:flex;align-items:center;gap:7px;background:var(--panel2);border:1px solid var(--line2);border-radius:4px;padding:5px 8px;color:var(--text);cursor:pointer;font-family:var(--mono);font-size:12px;text-align:left}
+  .tex-user:hover{border-color:var(--accent)}
+  .tex-user-ico{width:14px;height:14px;flex:0 0 auto;color:var(--dim)}
 
   /* thumbnail picker modal */
   .picker-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:7px;padding:10px;overflow:auto;max-height:60vh;min-width:420px}

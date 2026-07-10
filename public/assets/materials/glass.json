@@ -1,9 +1,0 @@
-{
-  "type": "glass",
-  "color": [0.85, 0.92, 0.95],
-  "opacity": 0.16,
-  "roughness": 0.02,
-  "ior": 1.5,
-  "thickness": 0.4,
-  "tint": [0.9, 0.96, 0.98]
-}

@@ -19,6 +19,24 @@ Remember to add yourself to the list of developers in this file if not already t
 
 At the moment the textures, skybox and 3D models are still human made. We will have to change that.
 
+## Player Characters
+
+Remote players are rendered as a rigged, skeletally-animated humanoid — the
+`operator` model in the asset catalog (`public/assets/models/operator/`), a
+realistic CS-style tactical operator with a mixamorig skeleton and `Idle` /
+`Walk` / `Run` / `Jump` (+ rifle Fire / Reload / Strafe / Grenade) clips. It's a
+free Adobe Mixamo character (`Ch15` + the *Basic Shooter Pack*) exported to FBX
+and converted to a single ~2.7 MB glTF binary — see the folder's `NOTICE.txt`.
+
+The avatar loads through the normal file-driven model pipeline, so it needs no
+special-casing: `apps/game/src/remote.ts` instantiates it, drives the animation
+state from the interpolated motion (Idle/Walk/Run by ground speed, Jump when
+airborne), parents the player's current weapon to the **right-hand bone** so it
+tracks the arm through every clip, and marks teams for TDM with an **emissive
+team hue** (Alpha red · Bravo blue) — additive, so it reads on the dark kit where
+a plain colour multiply can't. If the model ever fails to load the avatar falls
+back to the legacy blocky limbs so a player is never invisible.
+
 ## Project Structure
 
 This is a **pnpm workspace** monorepo:
@@ -76,7 +94,9 @@ The viewport is **tabbed** (Unreal-style): several maps plus interactive
 in the browser to open its preview tab — a material shows a lit sphere in a
 selectable HDRI environment, a model is orbitable with a **Model / Collision**
 toggle for authoring per-model collision solids (`auto` whole-mesh box, or `manual`
-solids so e.g. only a tree's trunk blocks the player). See `apps/editor/README.md`.
+solids so e.g. only a tree's trunk blocks the player), and a **texture** is a PBR
+*set* (a texture group) whose editor lets you add/replace/clear its color / normal /
+arm maps — materials reference the whole set. See `apps/editor/README.md`.
 
 Editor controls (Unreal-style):
 
