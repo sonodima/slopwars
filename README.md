@@ -24,18 +24,20 @@ At the moment the textures, skybox and 3D models are still human made. We will h
 Remote players are rendered as a rigged, skeletally-animated humanoid — the
 `operator` model in the asset catalog (`public/assets/models/operator/`), a
 realistic CS-style tactical operator with a mixamorig skeleton and `Idle` /
-`Walk` / `Run` / `Jump` (+ rifle Fire / Reload / Strafe / Grenade) clips. It's a
-free Adobe Mixamo character (`Ch15` + the *Basic Shooter Pack*) exported to FBX
-and converted to a single ~2.7 MB glTF binary — see the folder's `NOTICE.txt`.
+`Walk` / `Run` / `Jump` clips. It's a free Adobe Mixamo character (`Ch15` + the
+*Basic Shooter Pack*) exported to FBX and converted to a single ~1.5 MB glTF
+binary — see the folder's `NOTICE.txt`. The clips are baked **in place** (root
+translation stripped) so the game's own movement drives position and the visible
+mesh stays on its hitbox.
 
 The avatar loads through the normal file-driven model pipeline, so it needs no
 special-casing: `apps/game/src/remote.ts` instantiates it, drives the animation
 state from the interpolated motion (Idle/Walk/Run by ground speed, Jump when
-airborne), parents the player's current weapon to the **right-hand bone** so it
-tracks the arm through every clip, and marks teams for TDM with an **emissive
-team hue** (Alpha red · Bravo blue) — additive, so it reads on the dark kit where
-a plain colour multiply can't. If the model ever fails to load the avatar falls
-back to the legacy blocky limbs so a player is never invisible.
+airborne), and parents the player's current weapon to the **right-hand bone** so
+it tracks the arm through every clip. It shows its own standard textures (no team
+tint). For performance with many players the avatar doesn't cast shadows and its
+animation is culled while off-screen. If the model ever fails to load the avatar
+falls back to the legacy blocky limbs so a player is never invisible.
 
 ## Project Structure
 

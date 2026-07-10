@@ -3,13 +3,13 @@
 // the asset catalog — a realistic CS-style tactical operator, mixamorig skeleton,
 // Idle/Walk/Run/Jump + rifle clips). The locomotion state is driven from the
 // interpolated motion, and the player's current weapon is parented to the right
-// hand bone so it tracks the arm. Team play adds an emissive team hue (which reads
-// on the dark kit where a multiplicative tint can't); prop-hunt swaps the whole
-// humanoid for a crate. If the model fails to load the avatar falls back to the
-// old cuboid limbs so the game never renders an empty player.
+// hand bone so it tracks the arm. The operator always shows its own standard
+// textures (no team tint); prop-hunt swaps the whole humanoid for a crate. If the
+// model fails to load the avatar falls back to the old cuboid limbs so the game
+// never renders an empty player.
 import {
-  Animator, BlinnPhongMaterial, Color, Engine, Entity, MeshRenderer,
-  PBRMaterial, PrimitiveMesh, SkinnedMeshRenderer,
+  Animator, AnimatorCullingMode, BlinnPhongMaterial, Color, Engine, Entity, MeshRenderer,
+  PrimitiveMesh, SkinnedMeshRenderer,
 } from "@galacean/engine";
 import { AABB, rayAABB } from "./map";
 import { GameModels, instantiate } from "./models";
@@ -43,7 +43,6 @@ const TP_TUNE: Record<string, { s: number; p: [number, number, number]; r: [numb
 
 const LOCO_RUN = 4.5;  // m/s above which the avatar plays Run
 const LOCO_WALK = 0.7; // m/s above which the avatar plays Walk
-const TEAM_TINT = 0.15; // additive emissive team-hue strength on the operator kit
 
 export class RemotePlayer {
   entity: Entity;
@@ -63,7 +62,6 @@ export class RemotePlayer {
 
   private charRoot: Entity | null = null;   // rigged humanoid (null if it failed to load)
   private animator: Animator | null = null;
-  private tintMats: (PBRMaterial | BlinnPhongMaterial)[] = [];
   private locoState = "";
   private wasActive = false;
 
@@ -109,32 +107,24 @@ export class RemotePlayer {
     this.entity.addChild(char);
     this.charRoot = char;
 
-    // per-player material clones so team tinting never leaks across shared avatars.
-    // (the humanoid is skinned — query both plain and skinned renderers.)
-    const renderers = [
-      ...char.getComponentsIncludeChildren(SkinnedMeshRenderer, []),
-      ...char.getComponentsIncludeChildren(MeshRenderer, []),
-    ];
-    for (const r of renderers) {
-      r.castShadows = true;
-      const mats = r.getMaterials();
-      for (let i = 0; i < mats.length; i++) {
-        const src = mats[i];
-        if (!src) continue;
-        const clone = src.clone();
-        r.setMaterial(i, clone);
-        if (clone instanceof PBRMaterial || clone instanceof BlinnPhongMaterial) this.tintMats.push(clone);
-      }
-    }
+    // Perf: skinned players are the heaviest thing in a match (N animated 46k-tri
+    // rigs). Don't let them cast shadows — the shadow pass would redraw every
+    // off-screen operator's geometry each frame — the map/props still cast shadows.
+    for (const r of char.getComponentsIncludeChildren(SkinnedMeshRenderer, [])) r.castShadows = false;
+    for (const r of char.getComponentsIncludeChildren(MeshRenderer, [])) r.castShadows = false;
 
     // the glTF loader attaches an Animator (auto-built controller, states named
     // after the clips). Start it idling so a standing player isn't a frozen T-pose.
     this.animator = char.getComponentsIncludeChildren(Animator, [])[0] ?? char.getComponent(Animator);
+    // Complete culling: skip the skeleton/animation evaluation entirely while the
+    // avatar is off-screen — the dominant per-frame CPU cost with many players.
+    if (this.animator) this.animator.cullingMode = AnimatorCullingMode.Complete;
     // the actual Idle play is forced on first activation (driveAnimation), since
     // the avatar is built inactive and re-enabling resets the animator's pose.
 
-    // the right-hand bone drives the held weapon so it tracks the arm every frame
-    this.handBone = char.findByName("mixamorig:RightHand") ?? findByNameDeep(char, "RightHand");
+    // the right-hand bone drives the held weapon so it tracks the arm every frame.
+    // (glTF tooling may strip the "mixamorig:" prefix's colon, so match by suffix.)
+    this.handBone = char.findByName("mixamorig:RightHand") ?? findBoneBySuffix(char, "RightHand");
   }
 
   /** legacy blocky avatar — only used when the character model didn't load */
@@ -197,23 +187,13 @@ export class RemotePlayer {
 
   // ── team colour / disguise ──────────────────────────────────────────────────
 
-  /** tint the body for team play, or pass null to restore the player's colour */
+  /** team play used to tint the avatar; the operator now always shows its own
+   *  standard textures, so this only recolours the blocky fallback body. */
   setTeamColor(color: number | null): void {
     const key = color ?? -1;
     if (key === this.appliedColor) return;
     this.appliedColor = key;
-
-    if (this.charRoot) {
-      // The operator's kit is a dark camo texture — a multiplicative baseColor tint
-      // can't recolour near-black cloth. Use an *additive* emissive team hue instead,
-      // which reads clearly on dark gear without washing out the material detail.
-      const er = color === null ? 0 : (((color >> 16) & 255) / 255) * TEAM_TINT;
-      const eg = color === null ? 0 : (((color >> 8) & 255) / 255) * TEAM_TINT;
-      const eb = color === null ? 0 : ((color & 255) / 255) * TEAM_TINT;
-      for (const mat of this.tintMats) mat.emissiveColor = new Color(er, eg, eb, 1);
-      return;
-    }
-    // cuboid fallback: tint just the torso material
+    if (this.charRoot) return; // realistic operator keeps its standard colours
     if (this.bodyMat) {
       const c = color ?? this.origColor;
       this.bodyMat.baseColor = new Color(((c >> 16) & 255) / 255, ((c >> 8) & 255) / 255, (c & 255) / 255, 1);
@@ -355,13 +335,14 @@ export class RemotePlayer {
   }
 }
 
-/** recursive fallback for finding a bone whose name merely contains `needle`
- *  (some rigs prefix bones, e.g. "mixamorig:RightHand" vs "RightHand") */
-function findByNameDeep(e: Entity, needle: string): Entity | null {
+/** recursive fallback for finding a bone whose name ends with `suffix` regardless
+ *  of prefix formatting (e.g. "mixamorig:RightHand" or "mixamorigRightHand") — the
+ *  suffix match avoids grabbing a child like "…RightHandThumb1". */
+function findBoneBySuffix(e: Entity, suffix: string): Entity | null {
   for (let i = 0; i < e.children.length; i++) {
     const c = e.children[i];
-    if (c.name.includes(needle)) return c;
-    const hit = findByNameDeep(c, needle);
+    if (c.name.endsWith(suffix)) return c;
+    const hit = findBoneBySuffix(c, suffix);
     if (hit) return hit;
   }
   return null;
