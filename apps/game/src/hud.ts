@@ -32,6 +32,12 @@ export class Hud {
     $("btn-again").onclick = () => this.onPlayAgain?.();
     $("btn-home").onclick = () => this.onHome?.();
 
+    // host: reveal the optional match-rules (collapsed by default)
+    $("lobby-adv-toggle").onclick = () => {
+      const collapsed = $("lobby-rules").classList.toggle("collapsed");
+      $("lobby-adv-toggle").textContent = collapsed ? "Match settings ▾" : "Match settings ▴";
+    };
+
     const inp = $("chat-inp") as HTMLInputElement;
     inp.addEventListener("keydown", (e) => {
       e.stopPropagation();
@@ -128,15 +134,23 @@ export class Hud {
       .join("");
     $("btn-start").classList.toggle("hidden", !isHost);
     $("lobby-wait").classList.toggle("hidden", isHost);
+    $("lobby-adv-toggle").classList.toggle("hidden", !isHost);
     this.lobbyModes(mode, isHost);
     this.lobbyRules(mode, cfg, isHost);
   }
 
-  /** host: compact editable match-rules grid · guest: read-only summary */
+  private static mins(s: number): string { return `${Math.round(s / 60 * 10) / 10} min`; }
+
+  /** host: compact editable match-rules grid · guest: read-only summary.
+   *  The host grid is built + wired **once** and then only *synced* in place — never
+   *  re-rendered — so a live slider drag is never interrupted by a lobby refresh
+   *  (rebuilding the input mid-drag was what made the sliders feel broken). */
   private lobbyRules(_mode: ModeId, cfg: MatchConfig, isHost: boolean): void {
     const el = $("lobby-rules");
-    const mins = (s: number): string => `${Math.round(s / 60 * 10) / 10} min`;
+    const mins = Hud.mins;
     if (!isHost) {
+      el.dataset.built = "guest";
+      el.classList.remove("collapsed"); // the one-line summary is informational, always shown
       const botTxt = cfg.bots > 0 ? `${cfg.bots} bots · ${cfg.difficulty}` : "no bots";
       el.innerHTML =
         `<div class="rule-ro">${botTxt} · ${cfg.rounds} rounds · ${mins(cfg.roundTime)}` +
@@ -144,24 +158,33 @@ export class Hud {
         `${cfg.speed !== 1 ? ` · spd ${cfg.speed.toFixed(1)}×` : ""}</div>`;
       return;
     }
+    if (el.dataset.built !== "host") this.buildRulesGrid(el);
+    this.syncRules(cfg);
+  }
+
+  /** one-time construction of the host's editable rules grid + input listeners */
+  private buildRulesGrid(el: HTMLElement): void {
+    el.dataset.built = "host";
+    el.classList.add("collapsed"); // optional controls stay hidden until the host expands them
+    $("lobby-adv-toggle").textContent = "Match settings ▾";
     const [bMin, bMax] = CFG_BOUNDS.bots;
     const [rMin, rMax] = CFG_BOUNDS.rounds;
     const [tMin, tMax] = CFG_BOUNDS.roundTime;
     const [gMin, gMax] = CFG_BOUNDS.gravity;
     const [sMin, sMax] = CFG_BOUNDS.speed;
-    const cell = (key: string, label: string, min: number, max: number, step: number, val: number, disp: string): string =>
-      `<div class="rule"><label>${label} · <b id="rule-${key}-v">${disp}</b></label>` +
-      `<input type="range" class="rng" id="rule-${key}" min="${min}" max="${max}" step="${step}" value="${val}"></div>`;
+    const cell = (key: string, label: string, min: number, max: number, step: number): string =>
+      `<div class="rule"><label>${label} · <b id="rule-${key}-v"></b></label>` +
+      `<input type="range" class="rng" id="rule-${key}" min="${min}" max="${max}" step="${step}"></div>`;
     const diff = `<div class="rule rule-wide"><label>Bot difficulty</label><div class="seg" id="rule-diff">` +
-      BOT_LEVELS.map((d) => `<button data-v="${d}"${d === cfg.difficulty ? " class=\"on\"" : ""}>${d}</button>`).join("") +
+      BOT_LEVELS.map((d) => `<button data-v="${d}">${d}</button>`).join("") +
       `</div></div>`;
     el.innerHTML =
       `<div class="rules-grid">` +
-      cell("bots", "Bots", bMin, bMax, 1, cfg.bots, String(cfg.bots)) +
-      cell("rounds", "Rounds", rMin, rMax, 1, cfg.rounds, String(cfg.rounds)) +
-      cell("time", "Round", tMin, tMax, 30, cfg.roundTime, mins(cfg.roundTime)) +
-      cell("grav", "Gravity", gMin, gMax, 0.1, cfg.gravity, `${cfg.gravity.toFixed(1)}×`) +
-      cell("speed", "Speed", sMin, sMax, 0.1, cfg.speed, `${cfg.speed.toFixed(1)}×`) +
+      cell("bots", "Bots", bMin, bMax, 1) +
+      cell("rounds", "Rounds", rMin, rMax, 1) +
+      cell("time", "Round", tMin, tMax, 30) +
+      cell("grav", "Gravity", gMin, gMax, 0.1) +
+      cell("speed", "Speed", sMin, sMax, 0.1) +
       diff +
       `</div>`;
 
@@ -177,11 +200,31 @@ export class Hud {
     };
     bind("bots", (v) => ({ bots: v }), (v) => String(v));
     bind("rounds", (v) => ({ rounds: v }), (v) => String(v));
-    bind("time", (v) => ({ roundTime: v }), mins);
+    bind("time", (v) => ({ roundTime: v }), Hud.mins);
     bind("grav", (v) => ({ gravity: v }), (v) => `${v.toFixed(1)}×`);
     bind("speed", (v) => ({ speed: v }), (v) => `${v.toFixed(1)}×`);
     for (const c of Array.from($("rule-diff").children)) {
       c.addEventListener("click", () => this.onCfg?.({ difficulty: (c as HTMLElement).dataset.v as BotLevel }));
+    }
+  }
+
+  /** push cfg values into the already-built host grid without touching the DOM
+   *  structure (skips an input the user is actively dragging) */
+  private syncRules(cfg: MatchConfig): void {
+    const set = (key: string, value: number, disp: string): void => {
+      const inp = document.getElementById(`rule-${key}`) as HTMLInputElement | null;
+      if (inp && document.activeElement !== inp) inp.value = String(value);
+      const lbl = document.getElementById(`rule-${key}-v`);
+      if (lbl) lbl.textContent = disp;
+    };
+    set("bots", cfg.bots, String(cfg.bots));
+    set("rounds", cfg.rounds, String(cfg.rounds));
+    set("time", cfg.roundTime, Hud.mins(cfg.roundTime));
+    set("grav", cfg.gravity, `${cfg.gravity.toFixed(1)}×`);
+    set("speed", cfg.speed, `${cfg.speed.toFixed(1)}×`);
+    const diff = document.getElementById("rule-diff");
+    if (diff) for (const c of Array.from(diff.children)) {
+      c.classList.toggle("on", (c as HTMLElement).dataset.v === cfg.difficulty);
     }
   }
 

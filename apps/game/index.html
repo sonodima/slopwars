@@ -38,7 +38,7 @@
     text-shadow:0 0 32px rgba(216,184,120,.35);margin-bottom:4px}
   .screen .sub{font-size:12px;letter-spacing:6px;color:var(--sand-dim);text-transform:uppercase;margin-bottom:42px}
   .panel{background:var(--panel);border:1px solid var(--line);padding:28px 32px;min-width:340px;
-    box-shadow:0 24px 60px rgba(0,0,0,.6)}
+    box-shadow:0 24px 60px rgba(0,0,0,.6),inset 0 2px 0 rgba(216,184,120,.45)}
   .panel label{display:block;font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--sand-dim);margin:14px 0 5px}
   .panel input{width:100%;background:#0a0906;border:1px solid var(--line);color:#f0e8d5;padding:10px 12px;
     font-family:var(--mono);font-size:16px;letter-spacing:2px;outline:none;text-transform:uppercase}
@@ -63,10 +63,11 @@
     padding:max(18px,env(safe-area-inset-top)) max(18px,env(safe-area-inset-right))
             max(18px,env(safe-area-inset-bottom)) max(7vw,env(safe-area-inset-left))}
   #scr-lobby .panel{min-width:330px}
-  #lobby-title{font-size:38px;letter-spacing:12px;color:var(--sand);text-transform:uppercase;font-weight:700;
-    text-shadow:0 0 26px rgba(216,184,120,.35)}
-  #lobby-sub{font-size:11px;letter-spacing:5px;color:var(--sand-dim);text-transform:uppercase;margin:2px 0 20px}
   #lobby-code{font-family:var(--mono);font-size:40px;letter-spacing:12px;color:var(--sand);text-align:center;margin:6px 0 18px}
+  /* collapsible "advanced" match-rules (host): hidden by default so the lobby stays clean */
+  .adv-toggle{margin-top:14px;padding:9px 14px;font-size:10px;letter-spacing:2px;
+    display:flex;align-items:center;justify-content:center;gap:8px}
+  #lobby-rules.collapsed{display:none}
   .lp{padding:8px 10px;border-bottom:1px solid rgba(216,184,120,.1);font-size:14px;letter-spacing:1px;display:flex;align-items:center;gap:10px}
   .lp em{color:var(--sand-dim);font-style:normal;font-size:10px;letter-spacing:2px;margin-left:auto}
   .dot{width:10px;height:10px;border-radius:50%;display:inline-block}
@@ -159,10 +160,14 @@
     border:1px solid var(--line);text-shadow:0 0 10px currentColor}
 
   /* ── loading ── */
-  .loadbar{width:min(340px,84vw);height:6px;background:rgba(216,184,120,.15);border:1px solid var(--line);margin-top:10px}
-  #load-bar{height:100%;width:0;background:var(--sand);transition:width .15s}
-  #load-asset{margin-top:8px;font-size:10px;letter-spacing:2px;text-transform:uppercase;color:#6d6350;
-    max-width:84vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center}
+  .loadwrap{width:min(360px,84vw);margin-top:2px}
+  .loadbar{width:100%;height:5px;background:rgba(216,184,120,.12);border:1px solid var(--line)}
+  #load-bar{height:100%;width:0;background:linear-gradient(90deg,var(--sand-dim),var(--sand));
+    box-shadow:0 0 12px rgba(216,184,120,.45);transition:width .15s}
+  .loadrow{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:9px;
+    font-family:var(--mono);font-size:10px;letter-spacing:2px;text-transform:uppercase}
+  #load-asset{color:#6d6350;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #load-pct{color:var(--sand);font-weight:700;flex:0 0 auto}
 
   /* ── map vote (interlude) ── */
   #vote{position:absolute;left:50%;bottom:132px;transform:translateX(-50%);pointer-events:auto;text-align:center}
@@ -179,7 +184,6 @@
 
   /* ═══ responsive / small-screen scaling ═══ */
   .screen h1{font-size:clamp(34px,9vw,64px);letter-spacing:clamp(6px,2vw,14px)}
-  #lobby-title{font-size:clamp(26px,7vw,38px);letter-spacing:clamp(6px,2.4vw,12px)}
   .panel{min-width:min(340px,90vw);max-width:min(420px,94vw);max-height:84vh;max-height:84dvh;overflow-y:auto}
   #lobby-code{font-size:clamp(26px,7vw,40px);letter-spacing:clamp(6px,2.5vw,12px)}
   /* honour notches / dynamic island / home indicators on menu-style screens */
@@ -266,12 +270,18 @@
     color:var(--sand-dim);border-radius:0}
   .seg button:hover{border-color:var(--sand);filter:none}
   .seg button.on{background:var(--sand);color:#171307;border-color:var(--sand)}
-  /* range sliders */
-  .rng{-webkit-appearance:none;appearance:none;width:100%;height:4px;margin:12px 0 4px;
-    background:rgba(216,184,120,.22);border:none;border-radius:2px;outline:none;cursor:pointer;touch-action:none}
+  /* range sliders — a tall (easy-to-grab with a mouse) transparent hit box wrapping
+     a thin visual track, so the pointer never has to land on a 4px-tall strip */
+  .rng{-webkit-appearance:none;appearance:none;width:100%;height:22px;margin:8px 0 2px;
+    background:transparent;border:none;outline:none;cursor:pointer;touch-action:none}
+  .rng::-webkit-slider-runnable-track{height:4px;border-radius:2px;background:rgba(216,184,120,.22)}
+  .rng::-moz-range-track{height:4px;border-radius:2px;background:rgba(216,184,120,.22)}
   .rng::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:20px;height:20px;border-radius:50%;
-    background:var(--sand);border:2px solid #171307;box-shadow:0 0 8px rgba(216,184,120,.5);cursor:pointer}
+    background:var(--sand);border:2px solid #171307;box-shadow:0 0 8px rgba(216,184,120,.5);cursor:pointer;
+    margin-top:-8px}
   .rng::-moz-range-thumb{width:20px;height:20px;border-radius:50%;background:var(--sand);border:2px solid #171307;cursor:pointer}
+  .rng:hover::-webkit-slider-thumb{filter:brightness(1.1)}
+  .rng:active::-webkit-slider-thumb{box-shadow:0 0 12px rgba(216,184,120,.8)}
   /* toggle switch */
   .set-toggle{display:flex;align-items:center;justify-content:space-between;margin-top:18px;
     font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--sand-dim)}
@@ -387,15 +397,20 @@
 <!-- ═══ LOADING ═══ -->
 <div id="scr-loading" class="screen">
   <h1>SlopWars</h1>
-  <div class="sub">loading assets…</div>
-  <div class="loadbar"><div id="load-bar"></div></div>
-  <div id="load-pct" class="conn">0%</div>
-  <div id="load-asset">initializing…</div>
+  <div class="sub">web fps</div>
+  <div class="loadwrap">
+    <div class="loadbar"><div id="load-bar"></div></div>
+    <div class="loadrow">
+      <span id="load-asset">initializing…</span>
+      <span id="load-pct">0%</span>
+    </div>
+  </div>
 </div>
 
 <!-- ═══ MENU ═══ -->
 <div id="scr-menu" class="screen hidden">
   <h1>SlopWars</h1>
+  <div class="sub">web fps · serverless</div>
   <div class="panel">
     <label>callsign</label>
     <input id="inp-name" maxlength="16" spellcheck="false">
@@ -412,13 +427,13 @@
 
 <!-- ═══ LOBBY ═══ -->
 <div id="scr-lobby" class="screen hidden">
-  <div id="lobby-title">SlopWars</div>
   <div class="panel lobby-panel">
     <label style="text-align:center" id="lobby-code-label">share this code</label>
     <div id="lobby-code"></div>
     <div id="lobby-offline" class="hidden">No connection to the lobby server — no one can join. You can still play a bots-only match.</div>
     <label>game mode</label>
     <div id="lobby-mode"></div>
+    <button id="lobby-adv-toggle" class="ghost adv-toggle hidden" type="button">Match settings ▾</button>
     <div id="lobby-rules"></div>
     <label>operators</label>
     <div id="lobby-players"></div>

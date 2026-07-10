@@ -1,8 +1,8 @@
 // ─── Bootstrap + game orchestration ──────────────────────────────────────────
 import {
-  AmbientLight, BackgroundMode, BlinnPhongMaterial, BloomEffect, Camera, Color,
+  AmbientLight, Animator, BackgroundMode, BlinnPhongMaterial, BloomEffect, Camera, Color,
   DirectLight, Engine, Entity, FogMode, MSAASamples, MeshRenderer, PostProcess,
-  PrimitiveMesh, Quaternion, ShadowResolution, ShadowType, SkyBoxMaterial,
+  PrimitiveMesh, Quaternion, ShadowResolution, ShadowType, SkinnedMeshRenderer, SkyBoxMaterial,
   TextureCube, TonemappingEffect, TonemappingMode, UnlitMaterial, Vector3,
 } from "@galacean/engine";
 import { sfx } from "./audio";
@@ -25,7 +25,7 @@ import { PhysicsWorld, type PropSim } from "./physics";
 import { PhysxProps, createGameEngine } from "./physxprops";
 import { Input, PlayerBody } from "./player";
 import { RemotePlayer } from "./remote";
-import { MODEL_LOAD_COUNT, loadModels } from "./models";
+import { MODEL_LOAD_COUNT, instantiate, loadModels } from "./models";
 import {
   BOT_TUNING, DEFAULT_CONFIG, GamePhase, GameSnapshot, INTERMISSION, MatchConfig, MAX_HP, ModeId, Msg,
   PICKUP_HEAL, PICKUP_RADIUS, PICKUP_RESPAWN, PlayerState, POWERUPS, POWERUP_INTERVAL,
@@ -107,6 +107,7 @@ class Game {
   lobbyView = false;
   lobbyStageRoot!: Entity;
   lobbyAvatars = new Map<string, Entity>();
+  private lobbyAvatarSig = ""; // roster signature the current lobby avatars were built for
   private lobbyTarget = new Vector3(0, 1.3, -6);
   private worldUp = new Vector3(0, 1, 0);
 
@@ -320,8 +321,15 @@ class Game {
 
     document.addEventListener("pointerlockchange", () => {
       this.locked = document.pointerLockElement === canvas;
-      if (this.inGame && !this.touchMode) this.hud.clickToPlay(!this.locked);
       if (!this.locked) { this.keys.clear(); this.fireHeld = false; }
+      if (this.inGame && !this.touchMode) {
+        this.hud.clickToPlay(!this.locked);
+        // Pressing Esc exits pointer lock *and* the browser swallows that Escape
+        // keydown, so the pause menu can never open from the keydown handler while
+        // locked. Open it here on any in-game unlock (Esc / alt-tab). Skipped while
+        // leaving, or when it's already open.
+        if (!this.locked && !this.leaving && !this.settings.isOpen()) this.openSettings();
+      }
     });
     canvas.addEventListener("click", () => {
       if (this.touchMode) return; // touch mode drives look/fire without pointer lock
@@ -2168,28 +2176,52 @@ class Game {
     this.lobbyView = false;
     for (const e of this.lobbyAvatars.values()) e.destroy();
     this.lobbyAvatars.clear();
+    this.lobbyAvatarSig = "";
   }
 
-  /** rebuild the row of player avatars standing on the lobby stage */
+  /** rebuild the row of player avatars standing on the lobby stage. Skips the
+   *  (now-heavy, skinned) rebuild when the player set is unchanged — refreshLobby
+   *  fires on every match-rule edit too, and those don't touch the roster. */
   refreshLobbyAvatars(): void {
     if (!this.lobbyStageRoot) return;
+    const players = this.net.players;
+    const sig = players.map((p) => `${p.id}:${p.color}`).join(",");
+    if (sig === this.lobbyAvatarSig && this.lobbyAvatars.size === players.length) return;
+    this.lobbyAvatarSig = sig;
     for (const e of this.lobbyAvatars.values()) e.destroy();
     this.lobbyAvatars.clear();
-    const players = this.net.players;
     const n = players.length;
     players.forEach((p, i) => {
       const x = (i - (n - 1) / 2) * 1.3;
       const z = -6;
       const e = this.buildAvatar(this.lobbyStageRoot, p.color);
       e.transform.setPosition(x, this.map.floorY(x, z) + 0.05, z);
-      e.transform.setRotation(0, 180, 0); // face south toward the camera
+      e.transform.setRotation(0, 0, 0); // the rigged operator already faces the camera (+Z)
       this.lobbyAvatars.set(p.id, e);
     });
   }
 
-  /** stylized box character (lobby showcase) */
+  /** lobby showcase avatar: the rigged operator model, idling. Shows its own
+   *  standard textures (no team tint — it read badly on the dark kit, matching the
+   *  in-match avatar). Falls back to a blocky, colour-coded cuboid if the character
+   *  model never loaded, so the stage is never empty. */
   buildAvatar(parent: Entity, color: number): Entity {
-    const e = parent.createChild("avatar");
+    const root = parent.createChild("avatar");
+    const char = instantiate(this.models["operator"]);
+    if (!char) { this.buildCuboidAvatar(root, color); return root; }
+    root.addChild(char);
+    // the lobby stage holds only a handful of static, on-screen avatars, so — unlike
+    // the in-match crowd (shadows off for perf) — they can afford to cast shadows.
+    for (const r of char.getComponentsIncludeChildren(SkinnedMeshRenderer, [])) r.castShadows = true;
+    for (const r of char.getComponentsIncludeChildren(MeshRenderer, [])) r.castShadows = true;
+    // idle so the avatar isn't a frozen T-pose
+    const anim = char.getComponentsIncludeChildren(Animator, [])[0] ?? char.getComponent(Animator);
+    if (anim?.findAnimatorState("Idle")) anim.play("Idle");
+    return root;
+  }
+
+  /** legacy blocky character — fallback when the operator model didn't load */
+  private buildCuboidAvatar(e: Entity, color: number): void {
     const c = new Color(((color >> 16) & 255) / 255, ((color >> 8) & 255) / 255, (color & 255) / 255, 1);
     const body = new BlinnPhongMaterial(this.engine); body.baseColor = c;
     const dark = new BlinnPhongMaterial(this.engine); dark.baseColor = new Color(0.15, 0.14, 0.13, 1);
@@ -2205,8 +2237,6 @@ class Game {
     mk(0, 0.45, 0, 0.5, 0.9, 0.32, dark);   // legs
     mk(0, 1.22, 0, 0.62, 0.64, 0.36, body); // torso
     mk(0, 1.72, 0, 0.3, 0.3, 0.3, skin);    // head
-    mk(0.28, 1.3, -0.35, 0.06, 0.08, 0.55, dark); // gun
-    return e;
   }
 
   /** gentle swaying camera looking at the avatar line */
