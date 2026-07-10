@@ -1,0 +1,124 @@
+// ─── Asset reference field (inspector) ───────────────────────────────────────
+// An Unreal-style slot for a model / texture / audio reference: shows an inline
+// rendered preview + the asset name, accepts a drag from the asset browser, and
+// clicking it opens a thumbnail picker. Used for object params like a prop's
+// `model`, a box's `tex`, or a sound's `clip`.
+import type { AssetCatalog } from "@slopwars/shared";
+import type { ThumbRenderer } from "./preview";
+import { clear, el, modal } from "./ui";
+import { icon, type IconName } from "./icons";
+
+export type AssetKind = "model" | "audio" | "texture" | "material" | "hdri";
+
+export interface AssetFieldOpts {
+  label: string;
+  kind: AssetKind;
+  catalog: AssetCatalog;
+  thumbs: ThumbRenderer | null;
+  get: () => string;
+  set: (v: string) => void;
+  onChange: () => void;
+}
+
+/** names available for a kind, for the picker + drop validation */
+function names(cat: AssetCatalog, kind: AssetKind): string[] {
+  if (kind === "model") return cat.models.map((m) => m.name);
+  if (kind === "audio") return cat.audio.map((a) => a.name);
+  if (kind === "hdri") return cat.hdri.map((h) => h.name);
+  if (kind === "material") return cat.materials.map((m) => m.name);
+  return cat.textures.map((t) => t.name);
+}
+
+/** placeholder icon for an empty / loading slot of a given kind */
+function kindIcon(kind: AssetKind): IconName {
+  return kind === "audio" ? "volume" : kind === "texture" ? "image" : kind === "material" ? "material" : kind === "hdri" ? "mountain" : "box";
+}
+
+/** kick off the inline preview render for `name`, filling `slot` when ready */
+function preview(slot: HTMLElement, o: AssetFieldOpts, name: string): void {
+  clear(slot);
+  const ico = (): HTMLElement => { const s = el("span", "af-ico"); s.append(icon(kindIcon(o.kind))); return s; };
+  if (!name) { slot.append(ico()); return; }
+  slot.append(ico());
+  const t = o.thumbs; if (!t) return;
+  let p: Promise<string | null> | null = null;
+  if (o.kind === "model") { const m = o.catalog.models.find((x) => x.name === name); if (m) p = t.modelThumb(m.gltf); }
+  else if (o.kind === "texture") {
+    // textures show their flat bitmap, not a lit sphere — you're picking raw image data
+    const tx = o.catalog.textures.find((x) => x.name === name);
+    if (tx?.maps.color) { clear(slot); const img = el("img", "af-prev"); img.src = `${import.meta.env.BASE_URL}assets/${tx.maps.color}`; slot.append(img); }
+    return;
+  }
+  else if (o.kind === "material") { const mt = o.catalog.materials.find((x) => x.name === name); if (mt) p = t.materialThumb(mt.name, mt.def, o.catalog); }
+  else if (o.kind === "hdri") { const h = o.catalog.hdri.find((x) => x.name === name); if (h) p = t.hdriThumb(h.file); }
+  if (!p) return;
+  void p.then((url) => { if (!url) return; clear(slot); const img = el("img", "af-prev"); img.src = url; slot.append(img); });
+}
+
+export function assetField(o: AssetFieldOpts): HTMLElement {
+  const row = el("label", "field");
+  row.append(el("span", "field-label", o.label));
+  const box = el("div", "assetfield");
+  const prev = el("div", "af-prevwrap");
+  const nameEl = el("span", "af-name");
+
+  const warn = el("span", "af-warn"); warn.append(icon("warn"));
+  warn.title = "missing asset — falls back to a default; pick another or clear it";
+  const refresh = (): void => {
+    const v = o.get();
+    // a reference to an asset that no longer exists (deleted) is dangling: keep the
+    // name but flag it red. The engine + game fall back gracefully (default material,
+    // default texture, no model), so the map still loads.
+    const missing = !!v && !names(o.catalog, o.kind).includes(v);
+    nameEl.textContent = v || "none";
+    nameEl.classList.toggle("empty", !v);
+    nameEl.classList.toggle("dangling", missing);
+    box.classList.toggle("dangling", missing);
+    warn.style.display = missing ? "" : "none";
+    preview(prev, o, v);
+  };
+
+  const apply = (v: string): void => { o.set(v); o.onChange(); refresh(); };
+
+  // drag from the asset browser
+  box.addEventListener("dragover", (e) => { e.preventDefault(); box.classList.add("drop"); });
+  box.addEventListener("dragleave", () => box.classList.remove("drop"));
+  box.addEventListener("drop", (e) => {
+    e.preventDefault(); box.classList.remove("drop");
+    const raw = e.dataTransfer?.getData("application/x-slop"); if (!raw) return;
+    try {
+      const p = JSON.parse(raw) as { kind: string; name: string };
+      if (p.kind === o.kind && p.name) apply(p.name);
+    } catch { /* ignore malformed */ }
+  });
+
+  // click → thumbnail picker
+  box.addEventListener("click", () => openPicker(o, apply));
+
+  const clearBtn = el("button", "btn mini"); clearBtn.append(icon("x"));
+  clearBtn.title = "clear";
+  clearBtn.addEventListener("click", (e) => { e.stopPropagation(); apply(""); });
+
+  box.append(prev, nameEl, warn, clearBtn);
+  row.append(box);
+  refresh();
+  return row;
+}
+
+/** modal grid of thumbnails for the field's kind */
+function openPicker(o: AssetFieldOpts, apply: (v: string) => void): void {
+  const grid = el("div", "picker-grid");
+  const dlg = modal(`Pick ${o.kind}`, grid);
+  const none = el("button", "picker-card", "");
+  none.append(el("div", "asset-thumb", ""), el("div", "asset-name", "none"));
+  none.addEventListener("click", () => { dlg.close(); apply(""); });
+  grid.append(none);
+  for (const name of names(o.catalog, o.kind)) {
+    const card = el("button", "picker-card");
+    const thumb = el("div", "asset-thumb");
+    card.append(thumb, el("div", "asset-name", name));
+    preview(thumb, o, name);
+    card.addEventListener("click", () => { dlg.close(); apply(name); });
+    grid.append(card);
+  }
+}

@@ -1,0 +1,1140 @@
+// ─── 3D viewport: fly camera + selection + transform gizmos ──────────────────
+// Reuses the game's exact rendering stack (GameMap + MapBuilder + the object
+// registry + catalog-driven loaders) so the preview is faithful. On top of the
+// WebGL canvas sits a 2D overlay canvas that draws object markers and the active
+// transform gizmo; all projection/picking math is done manually from the camera
+// basis so it doesn't depend on engine screen-space conventions.
+import {
+  AmbientLight, BackgroundMode, BloomEffect, BoundingBox, Camera, Color, DirectLight, Entity,
+  FogMode, MeshRenderer, MSAASamples, PostProcess, PrimitiveMesh, RenderFace,
+  SkyBoxMaterial, TextureCube, TonemappingEffect, TonemappingMode, UnlitMaterial, Vector3, WebGLEngine,
+} from "@galacean/engine";
+import type { MapDef, MaterialAsset, MaterialDef, ModelAsset, ModelMeta, Placement, ShadowQuality, Tuple3, WorldTf } from "@slopwars/shared";
+import { envSunColor, groupWorldTf, invComposeTf, resolveWorld } from "@slopwars/shared";
+import { applyFogFalloff, applyPost, applyShadows } from "@game/rendersettings";
+import { GameMap } from "@game/map";
+import { GameModels, loadModels } from "@game/models";
+import { resolveTextures, type MapTextures } from "@game/textures";
+import { mapTextureFolders, objectCategory, objectIcon } from "@game/objects";
+import { loadHDRCube, loadGLTF } from "@game/assets";
+import "@game/objects"; // side effect: register built-in object types
+import { state } from "./state";
+import { iconMarkup } from "./icons";
+import {
+  AXIS_DIR, AXIS_IDX, GIZMO_AXES, GIZMO_COL as AXIS_COL, ROT_SNAP_DEG,
+  clamp, cross, distToSeg, dot, norm, rotateAxis, type GizmoHandle as Handle,
+} from "./vecmath";
+
+/** an axis-aligned world box, min/max as plain tuples */
+interface Box { min: Tuple3; max: Tuple3 }
+
+/** transform tools (no "select" — clicking always selects; a tool just decides
+ *  which gizmo shows). */
+export type Tool = "move" | "rotate" | "scale";
+
+export interface PerfStats { fps: number; tris: number; objects: number; draws: number }
+
+const DEG = Math.PI / 180;
+
+export class Viewport {
+  ready = false;
+  tool: Tool = "move";
+  /** called after a gizmo edit finishes (so the inspector can refresh) */
+  onEditCommit: (() => void) | null = null;
+
+  private engine!: WebGLEngine;
+  private root!: Entity;
+  private camE!: Entity;
+  private camera!: Camera;
+  private sun!: DirectLight;
+  private amb!: AmbientLight;
+  private skyMat!: SkyBoxMaterial;
+  private bloom!: BloomEffect;
+  private tone!: TonemappingEffect;
+  // viewport quality ceiling (from the Graphics dropdown); caps the map's shadows
+  private cap: ShadowQuality = "ultra";
+  private hdriCache = new Map<string, Promise<TextureCube>>();
+  private models!: GameModels;
+  private map = new GameMap();
+
+  private canvas!: HTMLCanvasElement;
+  private overlay!: HTMLCanvasElement;
+  private octx!: CanvasRenderingContext2D;
+  // rasterized marker icons, cached by "iconName|color" (built from the editor icon set)
+  private iconCache = new Map<string, HTMLImageElement>();
+
+  // per-object-index → entities produced for it (for 3D picking + highlighting)
+  private objEntities: Entity[][] = [];
+  // selection outline: inverted-hull "shell" entities cloned from the selected
+  // meshes (see refreshHighlight). Rebuilt whenever the selection or scene changes.
+  private outlineEntities: Entity[] = [];
+  private outlineCore: UnlitMaterial | null = null;
+  // cached resolved textures so a live drag can rebuild synchronously each frame
+  private texCache: MapTextures | null = null;
+  private texKey = "";
+  // live material defs (from the editor catalog + unsaved edits) so tweaking a
+  // material re-shades the viewport immediately, before it's saved to a file.
+  private matDefs = new Map<string, MaterialDef>();
+  // live per-model calibration metas (base/scale/material), so editing a model's
+  // meta re-poses/reskins its placements in the viewport immediately.
+  private modelMetas = new Map<string, ModelMeta>();
+  // set while a transform drag mutates the map; consumed in the frame loop so the
+  // rebuild is throttled to one per frame (the object follows the cursor live)
+  private liveDirty = false;
+
+  // free-fly camera (position + yaw/pitch), Unreal-style RMB-to-fly
+  private pos = new Vector3(0, 24, 52);
+  private yaw = 0;      // radians; 0 → looking toward -Z
+  private pitch = -0.4;
+  private keys = new Set<string>();
+  private flying = false;
+  private speed = 4.5;   // fly speed (m/s baseline; Shift = faster)
+
+  // gizmo handle the pointer is hovering (for highlight), recomputed each frame
+  private hover: Handle | null = null;
+  // snapshot captured when a gizmo handle is grabbed; drives axis-constrained edits.
+  // `members` is every selected object (start transforms) so a group moves/scales/
+  // rotates together around the shared `pivot`.
+  private drag: {
+    handle: Handle;
+    pivot: Tuple3;             // gizmo centre in world (selection centroid / group origin)
+    // per-member snapshot: WORLD transform at grab + the parent-group world transform
+    // to store the result back into (identity for ungrouped objects). A group drag
+    // uses `group` instead and leaves members untouched.
+    members: { o: Placement; at: Tuple3; rot: Tuple3; scale: Tuple3; parent: WorldTf }[];
+    group: { id: string; at: Tuple3; rot: Tuple3; scale: Tuple3 } | null;   // group world transform at grab
+    unit: [number, number];    // screen-space axis direction (unit)
+    wpp: number;               // world units per screen pixel along the axis
+    cx: number; cy: number;    // gizmo centre in screen px
+    startAngle: number;        // pointer angle around centre (rotate)
+    startPx: number; startPy: number;
+    rvec: number[]; uvec: number[]; pwpp: number;   // camera right/up + world/px, for screen-plane (xyz) moves
+  } | null = null;
+
+  // perf stats (rolling fps)
+  private perf: PerfStats = { fps: 0, tris: 0, objects: 0, draws: 0 };
+  private frameTimes: number[] = [];
+  private lastFrameT = 0;
+  onPerf: ((p: PerfStats) => void) | null = null;
+
+  // drag state
+  private dragging = false;
+  private dragKind: "camera" | "transform" | null = null;
+  // virtual pointer in canvas-local pixels — kept in sync from movementX/Y so
+  // transform math still works while the real cursor is pointer-locked/hidden
+  private px = 0;
+  private py = 0;
+
+  async init(canvasId: string): Promise<void> {
+    this.canvas = document.getElementById(canvasId) as HTMLCanvasElement;
+    // preserveDrawingBuffer lets the MCP bridge read the canvas back as a PNG
+    const engine = await WebGLEngine.create({ canvas: this.canvas, graphicDeviceOptions: { preserveDrawingBuffer: true } });
+    this.engine = engine;
+    engine.canvas.resizeByClientSize();
+
+    const scene = engine.sceneManager.activeScene;
+    this.root = scene.createRootEntity("root");
+
+    const sunE = this.root.createChild("sun");
+    sunE.transform.setRotation(-50, -35, 0);
+    this.sun = sunE.addComponent(DirectLight);
+    this.sun.color = new Color(1.3, 1.22, 1.05, 1);
+
+    this.amb = scene.ambientLight;
+    this.amb.diffuseSolidColor = new Color(0.5, 0.55, 0.66, 1);
+    this.amb.diffuseIntensity = 0.75;
+    // HDRI skybox shell — the sky needs BOTH a material and a mesh to render;
+    // without the cube mesh the sky is simply never drawn (why it looked absent).
+    this.skyMat = new SkyBoxMaterial(engine);
+    this.skyMat.textureDecodeRGBM = true;
+    scene.background.sky.material = this.skyMat;
+    scene.background.sky.mesh = PrimitiveMesh.createCuboid(engine, 2, 2, 2);
+
+    this.camE = this.root.createChild("camera");
+    this.camera = this.camE.addComponent(Camera);
+    this.camera.fieldOfView = 55;
+    this.camera.nearClipPlane = 0.05;
+    this.camera.farClipPlane = 600;
+    this.camera.opaqueTextureEnabled = true;   // transmissive water refracts the scene
+    this.camera.enableHDR = true;
+    this.camera.enablePostProcess = true;      // bloom + tonemapping, like the game
+    this.camera.msaaSamples = MSAASamples.FourX;
+
+    // post stack — its bloom/tonemapping params are set per-map from env.post
+    const pp = this.root.createChild("post").addComponent(PostProcess);
+    this.bloom = pp.addEffect(BloomEffect);
+    this.bloom.enabled = true;
+    this.tone = pp.addEffect(TonemappingEffect);
+    this.tone.enabled = true;
+    this.tone.mode.value = TonemappingMode.ACES;
+
+    this.setupOverlay();
+    this.models = await loadModels(engine);
+    this.bindInput();
+    this.bindResize();
+    // selection changes (viewport or outliner) restyle the 3D outline without a
+    // full scene rebuild — cheap, since only the selected meshes get a shell.
+    state.onSelect(() => this.refreshHighlight());
+    engine.run();
+    this.applyCamera();
+    this.ready = true;
+    requestAnimationFrame(this.frame);
+  }
+
+  /** keep the WebGL drawing buffer matched to the canvas's on-screen size so the
+   *  image is resized (not stretched) when the editor layout changes. Never resize
+   *  while the canvas is hidden (a preview/empty tab is up): a 0-sized drawing buffer
+   *  degrades the HDR/opaque/post render targets and the map comes back black. */
+  private bindResize(): void {
+    const resize = (): void => { if ((this.ready || this.engine) && this.visibleSize()) this.engine.canvas.resizeByClientSize(); };
+    if (typeof ResizeObserver !== "undefined") {
+      new ResizeObserver(resize).observe(this.canvas.parentElement ?? this.canvas);
+    }
+    window.addEventListener("resize", resize);
+  }
+
+  /** true when the map canvas is actually on-screen with a non-zero size */
+  private visibleSize(): boolean {
+    return this.canvas.clientWidth > 0 && this.canvas.clientHeight > 0 && this.canvas.style.display !== "none";
+  }
+
+  /** the map viewport just became visible again (switched back from a preview/empty
+   *  tab). Re-match the drawing buffer to the now-visible canvas and re-render, so the
+   *  scene isn't left black from a hidden/zero-sized frame. */
+  onShown(): void {
+    if (!this.ready) return;
+    this.engine.canvas.resizeByClientSize();
+    if (state.map) void this.render(state.map);
+    // the canvas may still be laying out this frame — re-fit + re-render next frame too
+    requestAnimationFrame(() => { if (this.ready && this.visibleSize()) { this.engine.canvas.resizeByClientSize(); if (state.map) void this.render(state.map); } });
+  }
+
+  /** pause (or resume) the current map's looping sounds — the shell calls this when
+   *  the map viewport is hidden behind a preview tab so ambience/music stops. */
+  setAudioPlaying(play: boolean): void { this.map.setSoundsPlaying(play); }
+
+  /** update the material defs used to shade the viewport (from the editor catalog
+   *  and any unsaved material edits). Pass `rebuild` to re-shade immediately. */
+  setMaterials(materials: MaterialAsset[], rebuild = false): void {
+    this.matDefs = new Map(materials.map((m) => [m.name, m.def]));
+    this.texKey = "";   // force a texture re-resolve (a material may point at a new folder)
+    if (rebuild && this.ready && state.map) void this.render(state.map);
+  }
+
+  /** update the per-model calibration metas used to pose/reskin model placements
+   *  (from the editor catalog + any unsaved model-inspector edit). */
+  setModelMetas(models: ModelAsset[], rebuild = false): void {
+    this.modelMetas = new Map(models.map((m) => [m.name, m.meta ?? {}]));
+    this.texKey = "";   // a material override may pull in a new texture folder
+    if (rebuild && this.ready && state.map) void this.render(state.map);
+  }
+
+  /** load the geometry of any catalog models not already loaded (e.g. just imported),
+   *  straight from the live editor catalog. The compiled-in `virtual:asset-catalog`
+   *  that loadModels() uses is a dev-server-start snapshot and never sees post-start
+   *  imports, so without this a freshly imported model renders as nothing until the
+   *  dev server restarts. Re-renders when anything new loaded (or `rebuild`). */
+  async refreshModels(models: ModelAsset[], rebuild = false): Promise<void> {
+    if (!this.ready) return;
+    const missing = models.filter((m) => !(m.name in this.models));
+    await Promise.all(missing.map((m) =>
+      loadGLTF(this.engine, m.gltf)
+        .then((r) => { this.models[m.name] = r; })
+        .catch((e) => { console.warn("[model] load failed:", m.name, e); this.models[m.name] = null; }),
+    ));
+    if ((rebuild || missing.length > 0) && state.map) await this.render(state.map);
+  }
+
+  async render(def: MapDef): Promise<void> {
+    if (!this.ready) return;
+    const folders = mapTextureFolders(def, this.matDefs);
+    const key = folders.slice().sort().join(",");
+    if (key !== this.texKey || !this.texCache) {
+      this.texCache = await resolveTextures(this.engine, folders);
+      this.texKey = key;
+    }
+    this.rebuild(def, this.texCache);
+  }
+
+  /** synchronous rebuild with already-resolved textures (used by live drags) */
+  private rebuild(def: MapDef, tex: MapTextures): void {
+    this.objEntities = [];
+    this.outlineEntities = [];   // torn down with the old map root; drop stale refs
+    this.map.onBuildEntity = (i, e) => { (this.objEntities[i] ??= []).push(e); };
+    this.map.load(this.engine, this.root, tex, this.models, def, this.matDefs, this.modelMetas);
+    this.applyEnv(def);
+    this.refreshHighlight();     // re-attach the selection outline to fresh entities
+  }
+
+  /** immediate re-render during a drag (textures already cached from render()) */
+  private renderLive(): void {
+    if (!this.ready || !this.texCache || !state.map) return;
+    this.rebuild(state.map, this.texCache);
+  }
+
+  setTool(t: Tool): void { this.tool = t; }
+
+  /** editor-only viewport-quality preset. Not persisted and independent of the
+   *  map: it's a *ceiling* on the map's authored shadow tier (+ toggles the pricey
+   *  camera features), so you can preview a heavy map cheaply. The map's env still
+   *  owns the actual look. */
+  setGraphics(preset: "low" | "medium" | "high"): void {
+    if (!this.sun) return;
+    this.cap = preset === "low" ? "off" : preset === "medium" ? "medium" : "ultra";
+    this.camera.enableHDR = preset !== "low";
+    this.camera.enablePostProcess = preset !== "low";
+    if (state.map) applyShadows(this.engine.sceneManager.activeScene, this.sun, state.map.env, this.cap);
+  }
+
+  /** ground point (y=0) under a client pixel — for drag-drop placement */
+  dropGround(clientX: number, clientY: number): Tuple3 | null {
+    const rc = this.rect();
+    return this.groundPoint(clientX - rc.left, clientY - rc.top, 0);
+  }
+
+  /** best drop point under a client pixel: the nearest surface the ray hits
+   *  (so objects land on top of desks/crates/etc.), falling back to the ground
+   *  plane when the ray misses all geometry. */
+  dropSurface(clientX: number, clientY: number): Tuple3 | null {
+    const rc = this.rect();
+    const px = clientX - rc.left, py = clientY - rc.top;
+    const map = state.map;
+    if (map) {
+      const { o, d } = this.pixelRay(px, py);
+      let best = Infinity, hit: Tuple3 | null = null;
+      for (let i = 0; i < map.objects.length; i++) {
+        const b = this.objBox(i);
+        if (!b) continue;
+        const t = rayBox(o, d, b);
+        if (t !== null && t < best) { best = t; hit = [o[0] + d[0] * t, o[1] + d[1] * t, o[2] + d[2] * t]; }
+      }
+      if (hit) return [round(hit[0]), round(hit[1]), round(hit[2])];
+    }
+    return this.groundPoint(px, py, 0);
+  }
+
+  /** frame the camera on a world point; `dist` is the true camera distance from
+   *  it (kept along a fixed 3/4 view direction for a natural angle). */
+  focus(x: number, y: number, z: number, dist = 14): void {
+    if (!this.ready) return;
+    // unit-length 3/4 view offset (|d| ≈ 1), so `dist` is the real distance
+    const dir = [0.62, 0.53, 0.62];
+    this.pos.set(x + dir[0] * dist, y + dir[1] * dist, z + dir[2] * dist);
+    const dx = x - this.pos.x, dy = y - this.pos.y, dz = z - this.pos.z;
+    this.yaw = Math.atan2(dx, -dz);
+    this.pitch = Math.atan2(dy, Math.hypot(dx, dz));
+    this.applyCamera();
+  }
+
+  /** frame the camera on the current selection so it fills a comfortable portion
+   *  of the view (close, ~2/3 of the height — not way out). Fits the union bounds
+   *  of the whole selection, so a group frames as one. */
+  focusSelected(): void {
+    const map = state.map;
+    if (!this.ready || !map) return;
+    const sel = state.selectedObjects();
+    if (!sel.length) return;
+    // union AABB over every selected object (fall back to a small box at its
+    // position for objects with no rendered mesh, e.g. lights/markers)
+    let mn: Tuple3 | null = null, mx: Tuple3 | null = null;
+    for (const o of sel) {
+      const b = this.objBox(map.objects.indexOf(o));
+      const wa = this.worldAt(o);
+      const box = b ?? { min: [wa[0] - 0.5, wa[1] - 0.5, wa[2] - 0.5] as Tuple3, max: [wa[0] + 0.5, wa[1] + 0.5, wa[2] + 0.5] as Tuple3 };
+      if (!mn || !mx) { mn = box.min.slice() as Tuple3; mx = box.max.slice() as Tuple3; }
+      else for (let i = 0; i < 3; i++) { mn[i] = Math.min(mn[i], box.min[i]); mx[i] = Math.max(mx[i], box.max[i]); }
+    }
+    if (!mn || !mx) return;
+    const cx = (mn[0] + mx[0]) / 2, cy = (mn[1] + mx[1]) / 2, cz = (mn[2] + mx[2]) / 2;
+    const radius = 0.5 * Math.hypot(mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2]) || 0.5;
+    // distance so the bounding sphere fills ~70% of the viewport height:
+    // d = R / (fill · tan(fov/2)). Closer than the old radius·2.4 pull-back.
+    const tanF = Math.tan((this.camera.fieldOfView * DEG) / 2);
+    this.focus(cx, cy, cz, Math.max(3, radius / (0.7 * tanF)));
+  }
+
+  // ── programmatic camera + capture (used by the MCP bridge) ─────────────────
+  /** current camera pose for tools to read back */
+  cameraState(): { pos: Tuple3; yaw: number; pitch: number } {
+    return { pos: [this.pos.x, this.pos.y, this.pos.z], yaw: this.yaw, pitch: this.pitch };
+  }
+  /** set the camera pose absolutely (any field optional) */
+  setCamera(pos?: Tuple3, yaw?: number, pitch?: number): void {
+    if (pos) this.pos.set(pos[0], pos[1], pos[2]);
+    if (typeof yaw === "number") this.yaw = yaw;
+    if (typeof pitch === "number") this.pitch = clamp(pitch, -1.5, 1.5);
+    this.applyCamera();
+  }
+  /** rotate (orbit look) the camera by deltas in radians, and/or dolly forward */
+  moveCamera(dYaw = 0, dPitch = 0, dolly = 0): void {
+    this.yaw += dYaw;
+    this.pitch = clamp(this.pitch + dPitch, -1.5, 1.5);
+    if (dolly) { const f = this.forward(); this.pos.x += f[0] * dolly; this.pos.y += f[1] * dolly; this.pos.z += f[2] * dolly; }
+    this.applyCamera();
+  }
+  /** PNG data-URL of the current viewport (needs preserveDrawingBuffer). Forces one
+   *  synchronous frame first: the engine's rAF render loop is throttled to ~0 fps when
+   *  the editor tab/window is backgrounded, which would otherwise return a stale image
+   *  and make camera/scene changes look like they never applied. */
+  screenshot(): string | null {
+    try {
+      if (this.ready) { this.applyCamera(); this.engine.update(); }
+      return this.canvas.toDataURL("image/png");
+    } catch { return null; }
+  }
+
+  // ── env (mirrors the game's applyEnv so the preview is faithful) ───────────
+  private envToken = 0;   // guards against a stale HDRI load applying out of order
+  private applyEnv(def: MapDef): void {
+    const scene = this.engine.sceneManager.activeScene;
+    const e = def.env;
+    const sc = envSunColor(e);
+    this.sun.color = new Color(sc[0], sc[1], sc[2], 1);
+    this.sun.entity.transform.setRotation(e.sun.rot[0], e.sun.rot[1], e.sun.rot[2]);
+    this.amb.diffuseSolidColor = new Color(e.ambient.color[0], e.ambient.color[1], e.ambient.color[2], 1);
+    this.amb.diffuseIntensity = Math.max(0.05, e.ambient.intensity);
+    this.amb.specularIntensity = e.ambient.specular ?? 0.85;
+
+    applyShadows(scene, this.sun, e, this.cap);   // quality clamped to the viewport preset
+    applyPost(e, this.bloom, this.tone);          // tonemapping + bloom
+    if (e.fog) applyFogFalloff(scene, e.fog);
+    else scene.fogMode = FogMode.None;
+
+    const token = ++this.envToken;
+    if (e.sky.hdri) {
+      const path = e.sky.hdri;
+      let p = this.hdriCache.get(path);
+      if (!p) { p = loadHDRCube(this.engine, path); this.hdriCache.set(path, p); }
+      void p.then((cube) => {
+        if (token !== this.envToken) return;   // a newer env replaced this one
+        this.skyMat.texture = cube;
+        this.amb.specularTexture = cube;
+        scene.background.mode = BackgroundMode.Sky;
+        scene.background.sky.material = this.skyMat;
+      }).catch(() => { /* fall back to solid on load failure */ });
+    } else {
+      this.amb.specularTexture = null as unknown as TextureCube;
+      const s = e.sky.solid ?? [0.04, 0.045, 0.05];
+      scene.background.mode = BackgroundMode.SolidColor;
+      scene.background.solidColor = new Color(s[0], s[1], s[2], 1);
+    }
+  }
+
+  // ── camera basis + manual projection/picking ───────────────────────────────
+  private forward(): [number, number, number] {
+    const cp = Math.cos(this.pitch);
+    return [Math.sin(this.yaw) * cp, Math.sin(this.pitch), -Math.cos(this.yaw) * cp];
+  }
+  private basis(): { f: number[]; r: number[]; u: number[] } {
+    const f = this.forward();
+    const r = norm([-f[2], 0, f[0]]);   // normalize(cross(f, worldUp))
+    const u = norm(cross(r, f));         // camera up
+    return { f, r, u };
+  }
+  private applyCamera(): void {
+    const f = this.forward();
+    this.camE.transform.setPosition(this.pos.x, this.pos.y, this.pos.z);
+    this.camE.transform.lookAt(new Vector3(this.pos.x + f[0], this.pos.y + f[1], this.pos.z + f[2]), new Vector3(0, 1, 0));
+  }
+  private rect(): DOMRect { return this.canvas.getBoundingClientRect(); }
+
+  /** world → overlay pixel; visible=false if behind the camera */
+  private project(w: Tuple3): { x: number; y: number; visible: boolean } {
+    const { f, r, u } = this.basis();
+    const rel = [w[0] - this.pos.x, w[1] - this.pos.y, w[2] - this.pos.z];
+    const fz = dot(rel, f);
+    if (fz <= 0.02) return { x: 0, y: 0, visible: false };
+    const rc = this.rect();
+    const aspect = rc.width / rc.height;
+    const tanF = Math.tan((this.camera.fieldOfView * DEG) / 2);
+    const ndcx = (dot(rel, r) / fz) / (tanF * aspect);
+    const ndcy = (dot(rel, u) / fz) / tanF;
+    return { x: (ndcx * 0.5 + 0.5) * rc.width, y: (1 - (ndcy * 0.5 + 0.5)) * rc.height, visible: true };
+  }
+
+  /** overlay pixel → point on the horizontal plane y=planeY (null if parallel) */
+  private groundPoint(px: number, py: number, planeY: number): Tuple3 | null {
+    const { f, r, u } = this.basis();
+    const rc = this.rect();
+    const aspect = rc.width / rc.height;
+    const tanF = Math.tan((this.camera.fieldOfView * DEG) / 2);
+    const ndcx = (px / rc.width) * 2 - 1;
+    const ndcy = 1 - (py / rc.height) * 2;
+    const dir = norm([
+      f[0] + r[0] * ndcx * tanF * aspect + u[0] * ndcy * tanF,
+      f[1] + r[1] * ndcx * tanF * aspect + u[1] * ndcy * tanF,
+      f[2] + r[2] * ndcx * tanF * aspect + u[2] * ndcy * tanF,
+    ]);
+    if (Math.abs(dir[1]) < 1e-4) return null;
+    const t = (planeY - this.pos.y) / dir[1];
+    if (t <= 0) return null;
+    return [this.pos.x + dir[0] * t, planeY, this.pos.z + dir[2] * t];
+  }
+
+  // ── overlay + per-frame ────────────────────────────────────────────────────
+  private setupOverlay(): void {
+    const o = document.createElement("canvas");
+    o.className = "viewport-overlay";
+    this.canvas.parentElement!.appendChild(o);
+    this.overlay = o;
+    this.octx = o.getContext("2d")!;
+  }
+
+  private frame = (): void => {
+    // fly integration
+    if (this.flying) {
+      const { f, r } = this.basis();
+      const dt = 1 / 60;
+      const kf = (this.keys.has("KeyW") ? 1 : 0) - (this.keys.has("KeyS") ? 1 : 0);
+      const kr = (this.keys.has("KeyD") ? 1 : 0) - (this.keys.has("KeyA") ? 1 : 0);
+      const ku = (this.keys.has("KeyE") ? 1 : 0) - (this.keys.has("KeyQ") ? 1 : 0);
+      const sp = this.speed * (this.keys.has("ShiftLeft") ? 2.4 : 1) * dt;
+      this.pos.x += (f[0] * kf + r[0] * kr) * sp;
+      this.pos.y += (f[1] * kf + ku) * sp;
+      this.pos.z += (f[2] * kf + r[2] * kr) * sp;
+      if (kf || kr || ku) this.applyCamera();
+    }
+    // live transform: rebuild at most once per frame so the object follows the drag
+    if (this.liveDirty) { this.liveDirty = false; this.renderLive(); }
+    this.updatePerf();
+    this.drawOverlay();
+    requestAnimationFrame(this.frame);
+  };
+
+  /** rolling FPS + scene counters, pushed to the toolbar overlay */
+  private updatePerf(): void {
+    const now = performance.now();
+    if (this.lastFrameT) {
+      this.frameTimes.push(now - this.lastFrameT);
+      if (this.frameTimes.length > 40) this.frameTimes.shift();
+    }
+    this.lastFrameT = now;
+    const avg = this.frameTimes.reduce((a, b) => a + b, 0) / (this.frameTimes.length || 1);
+    this.perf.fps = avg ? Math.round(1000 / avg) : 0;
+    this.perf.tris = this.map.tris;
+    this.perf.objects = state.map?.objects.length ?? 0;
+    this.perf.draws = this.objEntities.reduce((n, e) => n + (e?.length ?? 0), 0);
+    this.onPerf?.(this.perf);
+  }
+
+  private drawOverlay(): void {
+    const rc = this.rect();
+    if (this.overlay.width !== Math.round(rc.width) || this.overlay.height !== Math.round(rc.height)) {
+      this.overlay.width = Math.round(rc.width); this.overlay.height = Math.round(rc.height);
+    }
+    const ctx = this.octx;
+    ctx.clearRect(0, 0, this.overlay.width, this.overlay.height);
+    const map = state.map; if (!map) return;
+
+    // object markers. Objects with no 3D mesh to click (lights, spawns, pickups,
+    // sounds) get a big legible icon badge instead of a 3px dot — otherwise they're
+    // near-impossible to hit in the viewport; meshed objects keep a small dot since
+    // the mesh itself is the click target.
+    for (let i = 0; i < map.objects.length; i++) {
+      const o = map.objects[i];
+      const p = this.project(this.worldAt(o));
+      if (!p.visible) continue;
+      const selected = state.isSelected(o);
+      if (markerlessType(o.type)) this.drawMarkerIcon(ctx, p.x, p.y, o.type, selected);
+      else {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, selected ? 5 : 3, 0, Math.PI * 2);
+        ctx.fillStyle = selected ? "#f5a623" : markerColor(o.type);
+        ctx.globalAlpha = selected ? 1 : 0.55;
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    // (selection is highlighted in 3D by refreshHighlight — see below)
+    // a single transform gizmo at the selection pivot
+    const pivot = this.selPivot();
+    if (pivot) this.drawGizmo(pivot);
+  }
+
+  /** an icon badge for a markerless object: a rounded backing (so it's a big click
+   *  target that reads against any scene) plus the object type's icon. */
+  private drawMarkerIcon(ctx: CanvasRenderingContext2D, x: number, y: number, type: string, selected: boolean): void {
+    const R = MARKER_ICON_R;
+    ctx.beginPath();
+    ctx.arc(x, y, R, 0, Math.PI * 2);
+    ctx.fillStyle = selected ? "rgba(245,166,35,0.92)" : "rgba(12,11,8,0.66)";
+    ctx.fill();
+    ctx.lineWidth = selected ? 2 : 1.5;
+    ctx.strokeStyle = selected ? "#f5a623" : markerColor(type);
+    ctx.stroke();
+    const img = this.markerIcon(objectIcon(type), selected ? "#1a1206" : markerColor(type));
+    if (img.complete && img.naturalWidth) {
+      const s = R * 1.35;
+      ctx.drawImage(img, x - s / 2, y - s / 2, s, s);
+    }
+  }
+
+  /** an <img> of an editor icon stroked in `color` (rasterized SVG, cached) */
+  private markerIcon(name: string, color: string): HTMLImageElement {
+    const key = `${name}|${color}`;
+    let img = this.iconCache.get(key);
+    if (!img) {
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${iconMarkup(name)}</svg>`;
+      img = new Image();
+      img.src = `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+      this.iconCache.set(key, img);
+    }
+    return img;
+  }
+
+  /** world position of a placement, resolving its group chain (local → world) */
+  private worldAt(o: Placement): Tuple3 {
+    return state.map ? resolveWorld(state.map, o).at : o.at;
+  }
+
+  /** gizmo pivot. For a group selection it's the group's own world origin (so the
+   *  gizmo pivots exactly where the group's transform does); otherwise the centroid
+   *  of the selected objects' world positions. Null if nothing is selected. */
+  private selPivot(): Tuple3 | null {
+    if (state.selGroup && state.map) return groupWorldTf(state.map, state.selGroup).at;
+    const sel = state.selectedObjects();
+    if (!sel.length) return null;
+    let x = 0, y = 0, z = 0;
+    for (const o of sel) { const w = this.worldAt(o); x += w[0]; y += w[1]; z += w[2]; }
+    return [x / sel.length, y / sel.length, z / sel.length];
+  }
+
+  /** outermost ancestor group id of a group (for click-selects-whole-group) */
+  private topGroup(id: string): string {
+    let g = state.groupById(id); let top = id;
+    while (g?.parent) { top = g.parent; g = state.groupById(g.parent); }
+    return top;
+  }
+
+  // ── selection highlight: 3D inverted-hull outline ──────────────────────────
+  // A selected mesh gets a cloned "shell": the same geometry, slightly enlarged,
+  // rendered back-faces-only in an unlit amber and depth-tested, so it only shows
+  // where it pokes past the real object's silhouette — a crisp border hugging the
+  // mesh. Deliberately border-only: an earlier see-through halo tinted the whole
+  // object, hiding the very texture/colour/material changes you were making to it.
+  private static SHELL = "__sel_outline";
+
+  /** the shared outline material (created lazily on first selection) */
+  private outlineMaterial(): UnlitMaterial {
+    if (!this.outlineCore) {
+      const core = new UnlitMaterial(this.engine);
+      core.baseColor = new Color(1.0, 0.6, 0.12, 1);
+      core.renderFace = RenderFace.Back;
+      this.outlineCore = core;
+    }
+    return this.outlineCore;
+  }
+
+  /** rebuild the outline shells for the current selection */
+  private refreshHighlight(): void {
+    if (!this.ready) return;
+    for (const e of this.outlineEntities) if (!e.destroyed) e.destroy();
+    this.outlineEntities = [];
+    const map = state.map; if (!map) return;
+    const sel = state.selectedObjects();
+    if (!sel.length) return;
+
+    const core = this.outlineMaterial();
+    for (const o of sel) {
+      const ents = this.objEntities[map.objects.indexOf(o)];
+      if (!ents) continue;
+      for (const e of ents) {
+        if (e.destroyed) continue;
+        for (const r of e.getComponentsIncludeChildren(MeshRenderer, [])) {
+          if (!r.mesh || r.entity.name === Viewport.SHELL) continue;
+          this.addShell(r, 1.035, core, 0);   // thin silhouette border only
+        }
+      }
+    }
+  }
+
+  /** clone a mesh renderer into an enlarged, unlit "shell" child for the outline.
+   *  `priority` orders draws — the see-through glow uses a high value so it renders
+   *  last, on top of the rest of the scene. */
+  private addShell(src: MeshRenderer, factor: number, mat: UnlitMaterial, priority: number): void {
+    const s = src.entity.createChild(Viewport.SHELL);
+    s.transform.setScale(factor, factor, factor);
+    const r = s.addComponent(MeshRenderer);
+    r.mesh = src.mesh;
+    r.setMaterial(mat);
+    r.castShadows = false;
+    r.receiveShadows = false;
+    r.priority = priority;
+    this.outlineEntities.push(s);
+  }
+
+  // ── gizmo geometry ─────────────────────────────────────────────────────────
+  /** world length that keeps the gizmo ~constant on-screen size at the object */
+  private gizmoLen(at: Tuple3): number {
+    const { f } = this.basis();
+    const fz = Math.max(0.5, dot([at[0] - this.pos.x, at[1] - this.pos.y, at[2] - this.pos.z], f));
+    const rc = this.rect();
+    const tanF = Math.tan((this.camera.fieldOfView * DEG) / 2);
+    const pixPerWorld = (rc.height / 2) / (tanF * fz);
+    return clamp(96 / pixPerWorld, 0.3, 1e5);
+  }
+
+  /** N sampled screen points of the rotation ring in the plane ⟂ to `dir` */
+  private ring(at: Tuple3, dir: Tuple3, L: number): { x: number; y: number; visible: boolean }[] {
+    const u = norm(Math.abs(dir[1]) > 0.9 ? [1, 0, 0] : [0, 1, 0]);
+    const a = norm(cross(dir, u)), b = norm(cross(dir, a));
+    const pts = [];
+    for (let i = 0; i <= 48; i++) {
+      const t = (i / 48) * Math.PI * 2;
+      const w: Tuple3 = [
+        at[0] + (a[0] * Math.cos(t) + b[0] * Math.sin(t)) * L,
+        at[1] + (a[1] * Math.cos(t) + b[1] * Math.sin(t)) * L,
+        at[2] + (a[2] * Math.cos(t) + b[2] * Math.sin(t)) * L,
+      ];
+      pts.push(this.project(w));
+    }
+    return pts;
+  }
+
+  private drawGizmo(pivot: Tuple3): void {
+    const ctx = this.octx;
+    const c = this.project(pivot);
+    if (!c.visible) return;
+    const L = this.gizmoLen(pivot);
+
+    if (this.tool === "rotate") {
+      for (const { h, dir } of GIZMO_AXES) {
+        const pts = this.ring(pivot, dir, L);
+        ctx.beginPath();
+        let started = false;
+        for (const p of pts) { if (!p.visible) { started = false; continue; } if (!started) { ctx.moveTo(p.x, p.y); started = true; } else ctx.lineTo(p.x, p.y); }
+        const on = this.hover === h || this.drag?.handle === h;
+        ctx.strokeStyle = on ? "#ffd257" : AXIS_COL[h]; ctx.lineWidth = on ? 3 : 2; ctx.stroke();
+      }
+    } else {
+      for (const { h, dir } of GIZMO_AXES) {
+        const tip = this.project([pivot[0] + dir[0] * L, pivot[1] + dir[1] * L, pivot[2] + dir[2] * L]);
+        if (!tip.visible) continue;
+        const on = this.hover === h || this.drag?.handle === h;
+        ctx.strokeStyle = on ? "#ffd257" : AXIS_COL[h];
+        ctx.fillStyle = ctx.strokeStyle;
+        ctx.lineWidth = on ? 3 : 2;
+        ctx.beginPath(); ctx.moveTo(c.x, c.y); ctx.lineTo(tip.x, tip.y); ctx.stroke();
+        if (this.tool === "move") {  // arrowhead
+          const a = Math.atan2(tip.y - c.y, tip.x - c.x);
+          ctx.beginPath();
+          ctx.moveTo(tip.x, tip.y);
+          ctx.lineTo(tip.x - 9 * Math.cos(a - 0.4), tip.y - 9 * Math.sin(a - 0.4));
+          ctx.lineTo(tip.x - 9 * Math.cos(a + 0.4), tip.y - 9 * Math.sin(a + 0.4));
+          ctx.closePath(); ctx.fill();
+        } else {                     // scale → box handle
+          ctx.fillRect(tip.x - 4, tip.y - 4, 8, 8);
+        }
+      }
+      if (this.tool === "scale") {   // centre = uniform scale
+        const on = this.hover === "xyz" || this.drag?.handle === "xyz";
+        ctx.fillStyle = on ? "#ffd257" : AXIS_COL.xyz;
+        ctx.fillRect(c.x - 5, c.y - 5, 10, 10);
+      } else if (this.tool === "move") {   // centre = screen-plane move (all axes)
+        const on = this.hover === "xyz" || this.drag?.handle === "xyz";
+        ctx.beginPath(); ctx.arc(c.x, c.y, 6, 0, Math.PI * 2);
+        ctx.strokeStyle = on ? "#ffd257" : AXIS_COL.xyz; ctx.lineWidth = on ? 3 : 2; ctx.stroke();
+      }
+    }
+    ctx.beginPath(); ctx.arc(c.x, c.y, 3, 0, Math.PI * 2); ctx.fillStyle = "#f5a623"; ctx.fill();
+  }
+
+  /** which gizmo handle (if any) is under a screen pixel, for the active tool */
+  private pickHandle(px: number, py: number, pivot: Tuple3): Handle | null {
+    const c = this.project(pivot);
+    if (!c.visible) return null;
+    const L = this.gizmoLen(pivot);
+    let best = 10, hit: Handle | null = null;   // 10px grab radius
+    if (this.tool === "rotate") {
+      for (const { h, dir } of GIZMO_AXES) {
+        for (const p of this.ring(pivot, dir, L)) {
+          if (!p.visible) continue;
+          const d = Math.hypot(p.x - px, p.y - py);
+          if (d < best) { best = d; hit = h; }
+        }
+      }
+      return hit;
+    }
+    for (const { h, dir } of GIZMO_AXES) {
+      const tip = this.project([pivot[0] + dir[0] * L, pivot[1] + dir[1] * L, pivot[2] + dir[2] * L]);
+      if (!tip.visible) continue;
+      const d = distToSeg(px, py, c.x, c.y, tip.x, tip.y);
+      if (d < best) { best = d; hit = h; }
+    }
+    // centre handle → all-axes (screen-plane move / uniform scale)
+    if ((this.tool === "scale" || this.tool === "move") && Math.hypot(c.x - px, c.y - py) < 9) hit = "xyz";
+    return hit;
+  }
+
+  // ── input ──────────────────────────────────────────────────────────────────
+  private bindInput(): void {
+    const ov = this.canvas;
+    ov.addEventListener("contextmenu", (e) => e.preventDefault());
+    ov.addEventListener("pointerdown", (e) => this.onDown(e));
+    ov.addEventListener("dblclick", (e) => this.onDblClick(e));
+    window.addEventListener("pointermove", (e) => this.onMove(e));
+    window.addEventListener("pointerup", () => this.endDrag());
+    // Esc (or any external unlock) while dragging → finish the drag cleanly
+    document.addEventListener("pointerlockchange", () => {
+      if (!document.pointerLockElement && this.dragging) this.endDrag();
+    });
+    ov.addEventListener("wheel", (e) => {
+      e.preventDefault();
+      const { f } = this.basis();
+      const step = -Math.sign(e.deltaY) * 3;
+      this.pos.x += f[0] * step; this.pos.y += f[1] * step; this.pos.z += f[2] * step;
+      this.applyCamera();
+    }, { passive: false });
+
+    window.addEventListener("keydown", (e) => {
+      if (isTyping()) return;
+      this.keys.add(e.code);
+      if (e.code === "KeyW" && !this.flying) this.emitTool("move");   // Unreal-style W/E/R
+      else if (e.code === "KeyE" && !this.flying) this.emitTool("rotate");
+      else if (e.code === "KeyR" && !this.flying) this.emitTool("scale");
+      else if (e.code === "Digit1") this.emitTool("move");
+      else if (e.code === "Digit2") this.emitTool("rotate");
+      else if (e.code === "Digit3") this.emitTool("scale");
+      // F or Space → frame (fit) the current selection close in view
+      else if ((e.code === "KeyF" || e.code === "Space") && state.selectedObjects().length) { e.preventDefault(); this.focusSelected(); }
+    });
+    window.addEventListener("keyup", (e) => this.keys.delete(e.code));
+  }
+
+  private toolListeners = new Set<(t: Tool) => void>();
+  onToolChange(fn: (t: Tool) => void): void { this.toolListeners.add(fn); }
+  private emitTool(t: Tool): void { this.tool = t; for (const fn of this.toolListeners) fn(t); }
+
+  private onDown(e: PointerEvent): void {
+    const rc = this.rect();
+    this.px = clamp(e.clientX - rc.left, 0, rc.width);
+    this.py = clamp(e.clientY - rc.top, 0, rc.height);
+    if (e.button === 2) { this.flying = true; this.beginCamera(); return; }  // RMB → fly
+    if (e.button !== 0) return;
+    const map = state.map; if (!map) return;
+    // grabbing a gizmo handle of the current selection starts an axis-locked edit
+    const pivot = this.selPivot();
+    if (pivot) { const h = this.pickHandle(this.px, this.py, pivot); if (h) { this.beginTransform(h); return; } }
+    // otherwise click selects: prefer the 3D model, fall back to the marker dot
+    let hit = this.pick3D(this.px, this.py);
+    if (hit < 0) hit = this.pick(this.px, this.py);
+    if (hit < 0) { state.select(-1, "viewport"); return; }
+    const additive = e.ctrlKey || e.metaKey || e.shiftKey;   // toggle in a multi-select
+    if (additive) { state.select(hit, "viewport", true); return; }
+    // a plain click on a grouped object selects the whole (top-level) group so it moves
+    // together; Alt-click drills straight to the single object. If we're already focused
+    // inside a group the click landed in, keep that focus (don't pop back to the top) so
+    // successive double-clicks can descend the hierarchy level by level.
+    const o = map.objects[hit];
+    if (o.group && !e.altKey) {
+      if (state.selGroup && this.isAncestorGroup(state.selGroup, o)) state.selectGroup(state.selGroup, "viewport");
+      else state.selectGroup(this.topGroup(o.group), "viewport");
+    } else state.select(hit, "viewport");
+  }
+
+  /** double-click drills one level down the clicked object's group hierarchy: from the
+   *  currently-focused container toward the object itself (group → sub-group → … →
+   *  object). Repeated double-clicks descend one step each; an ungrouped object selects
+   *  directly. */
+  private onDblClick(e: MouseEvent): void {
+    const rc = this.rect();
+    const px = clamp(e.clientX - rc.left, 0, rc.width), py = clamp(e.clientY - rc.top, 0, rc.height);
+    const map = state.map; if (!map) return;
+    let hit = this.pick3D(px, py);
+    if (hit < 0) hit = this.pick(px, py);
+    if (hit < 0) return;
+    const o = map.objects[hit];
+    if (!o.group) { state.select(hit, "viewport"); return; }
+    const chain = this.ancestryChain(o);   // [topGroupId, …, directParentId, object]
+    // deepest chain element currently selected → descend one past it
+    let depth = -1;
+    for (let i = 0; i < chain.length; i++) {
+      const c = chain[i];
+      if (typeof c === "string") { if (state.selGroup === c) depth = i; }
+      else if (!state.selGroup && state.selObj === c) depth = i;
+    }
+    const next = depth < 0 ? 0 : Math.min(depth + 1, chain.length - 1);
+    const sel = chain[next];
+    if (typeof sel === "string") state.selectGroup(sel, "viewport");
+    else state.select(map.objects.indexOf(sel), "viewport");
+  }
+
+  /** an object's group ancestry, outermost-first, ending with the object itself:
+   *  [topGroupId, …, directParentGroupId, object]. */
+  private ancestryChain(o: Placement): (string | Placement)[] {
+    const groups: string[] = [];
+    let g: string | undefined = o.group;
+    while (g) { groups.unshift(g); g = state.groupById(g)?.parent; }
+    return [...groups, o];
+  }
+
+  /** is `groupId` an ancestor of (or the direct group of) object `o`? */
+  private isAncestorGroup(groupId: string, o: Placement): boolean {
+    let g: string | undefined = o.group;
+    while (g) { if (g === groupId) return true; g = state.groupById(g)?.parent; }
+    return false;
+  }
+
+  /** RMB fly: capture + hide the cursor so it can't leave the viewport */
+  private beginCamera(): void {
+    this.dragging = true; this.dragKind = "camera";
+    this.canvas.style.cursor = "none";
+    try { this.canvas.requestPointerLock?.(); } catch { /* not fatal */ }
+  }
+
+  /** grab a gizmo handle → snapshot the pivot, every selected object's transform,
+   *  and the screen-space axis basis (so a group edits together) */
+  private beginTransform(h: Handle): void {
+    const pivot = this.selPivot();
+    if (!pivot) return;
+    const c = this.project(pivot);
+    const L = this.gizmoLen(pivot);
+    let unit: [number, number] = [1, 0], wpp = 0;
+    if (h !== "xyz") {
+      const dir = GIZMO_AXES.find((a) => a.h === h)!.dir;
+      const tip = this.project([pivot[0] + dir[0] * L, pivot[1] + dir[1] * L, pivot[2] + dir[2] * L]);
+      const dxp = tip.x - c.x, dyp = tip.y - c.y, len = Math.hypot(dxp, dyp) || 1;
+      unit = [dxp / len, dyp / len]; wpp = L / len;
+    }
+    // screen-plane basis for the centre (xyz) move handle: camera right/up in
+    // world + world-units-per-screen-pixel at the pivot's depth
+    const { r, u, f } = this.basis();
+    const fz = Math.max(0.5, dot([pivot[0] - this.pos.x, pivot[1] - this.pos.y, pivot[2] - this.pos.z], f));
+    const tanF = Math.tan((this.camera.fieldOfView * DEG) / 2);
+    const pwpp = (2 * tanF * fz) / this.rect().height;
+    // a group selection edits the group's own transform; otherwise each member's
+    // world transform (rebased into its group on write-back).
+    const map = state.map!;
+    let group: { id: string; at: Tuple3; rot: Tuple3; scale: Tuple3 } | null = null;
+    if (state.selGroup) {
+      const gw = groupWorldTf(map, state.selGroup);
+      group = { id: state.selGroup, at: gw.at.slice() as Tuple3, rot: gw.rot.slice() as Tuple3, scale: gw.scale.slice() as Tuple3 };
+    }
+    const members = group ? [] : state.selectedObjects().map((o) => {
+      const w = resolveWorld(map, o);
+      return { o, at: w.at.slice() as Tuple3, rot: w.rot.slice() as Tuple3, scale: w.scale.slice() as Tuple3, parent: groupWorldTf(map, o.group) };
+    });
+    this.drag = { handle: h, pivot, members, group, unit, wpp, cx: c.x, cy: c.y, startAngle: Math.atan2(this.py - c.y, this.px - c.x), startPx: this.px, startPy: this.py, rvec: r, uvec: u, pwpp };
+    this.dragging = true; this.dragKind = "transform";
+    this.canvas.style.cursor = "grabbing";
+  }
+
+  private onMove(e: PointerEvent): void {
+    const rc = this.rect();
+    if (!this.dragging) { this.updateHover(e, rc); return; }
+    if (this.dragKind === "camera") {
+      this.yaw += e.movementX * 0.0032;
+      this.pitch = clamp(this.pitch - e.movementY * 0.0032, -1.5, 1.5);
+      this.applyCamera();
+      return;
+    }
+    // transform drag: track the real pointer (no lock) and re-solve the handle
+    this.px = clamp(e.clientX - rc.left, 0, rc.width);
+    this.py = clamp(e.clientY - rc.top, 0, rc.height);
+    this.applyTransformDrag();
+  }
+
+  /** hover-highlight the handle under the cursor when idle */
+  private updateHover(e: PointerEvent, rc: DOMRect): void {
+    const inside = e.clientX >= rc.left && e.clientX <= rc.right && e.clientY >= rc.top && e.clientY <= rc.bottom;
+    const pivot = inside ? this.selPivot() : null;
+    if (!pivot) { if (this.hover) { this.hover = null; this.canvas.style.cursor = ""; } return; }
+    this.px = e.clientX - rc.left; this.py = e.clientY - rc.top;
+    const h = this.pickHandle(this.px, this.py, pivot);
+    if (h !== this.hover) { this.hover = h; this.canvas.style.cursor = h ? "grab" : ""; }
+  }
+
+  private endDrag(): void {
+    if (!this.dragging) return;
+    const wasTransform = this.dragKind === "transform";
+    this.dragging = false; this.dragKind = null; this.flying = false; this.drag = null;
+    this.canvas.style.cursor = "";
+    if (document.pointerLockElement === this.canvas) { try { document.exitPointerLock?.(); } catch { /* ignore */ } }
+    if (wasTransform) this.onEditCommit?.();
+  }
+
+  /** nearest object marker to a pixel, within its grab radius (−1 if none). A
+   *  markerless object (light/marker/sound — no mesh) uses the full icon-badge radius
+   *  so it's easy to click; a meshed object keeps a tight dot radius (its mesh is the
+   *  real target, picked by pick3D first). */
+  private pick(px: number, py: number): number {
+    const map = state.map; if (!map) return -1;
+    let best = Infinity, idx = -1;
+    for (let i = 0; i < map.objects.length; i++) {
+      const p = this.project(this.worldAt(map.objects[i]));
+      if (!p.visible) continue;
+      const rad = markerlessType(map.objects[i].type) ? MARKER_ICON_R + 5 : 12;
+      const d = Math.hypot(p.x - px, p.y - py);
+      if (d <= rad && d < best) { best = d; idx = i; }
+    }
+    return idx;
+  }
+
+  /** axis-constrained edit driven by the snapshot captured in beginTransform. The
+   *  drag is expressed as one `op` that maps a starting WORLD transform to a new one
+   *  about the shared pivot. A group selection applies it to the group's own
+   *  transform (children ride along, unchanged in local space); otherwise it applies
+   *  per selected object, rebasing the world result back into each object's group
+   *  local space on write (identity for ungrouped objects → classic behaviour). */
+  private applyTransformDrag(): void {
+    const d = this.drag;
+    if (!d) return;
+    const ddx = this.px - d.startPx, ddy = this.py - d.startPy;
+    type Tf = { at: Tuple3; rot: Tuple3; scale: Tuple3 };
+    let op: (at: Tuple3, rot: Tuple3, scale: Tuple3) => Tf;
+
+    if (this.tool === "move") {
+      let disp: Tuple3;
+      if (d.handle === "xyz") {
+        disp = [d.rvec[0] * ddx * d.pwpp - d.uvec[0] * ddy * d.pwpp, d.rvec[1] * ddx * d.pwpp - d.uvec[1] * ddy * d.pwpp, d.rvec[2] * ddx * d.pwpp - d.uvec[2] * ddy * d.pwpp];
+      } else {
+        const along = (ddx * d.unit[0] + ddy * d.unit[1]) * d.wpp;
+        const dir = AXIS_DIR[d.handle];
+        disp = [dir[0] * along, dir[1] * along, dir[2] * along];
+      }
+      op = (at, rot, scale) => ({ at: [at[0] + disp[0], at[1] + disp[1], at[2] + disp[2]], rot, scale });
+    } else if (this.tool === "scale") {
+      if (d.handle === "xyz") {
+        const f = Math.max(0.02, 1 - ddy / 140);
+        op = (at, rot, scale) => ({
+          at: [d.pivot[0] + (at[0] - d.pivot[0]) * f, d.pivot[1] + (at[1] - d.pivot[1]) * f, d.pivot[2] + (at[2] - d.pivot[2]) * f],
+          rot, scale: [Math.max(0.02, scale[0] * f), Math.max(0.02, scale[1] * f), Math.max(0.02, scale[2] * f)],
+        });
+      } else {
+        const idx = AXIS_IDX[d.handle];
+        const f = 1 + (ddx * d.unit[0] + ddy * d.unit[1]) / 70;
+        op = (at, rot, scale) => {
+          const nat = at.slice() as Tuple3; nat[idx] = d.pivot[idx] + (at[idx] - d.pivot[idx]) * f;
+          const ns = scale.slice() as Tuple3; ns[idx] = Math.max(0.02, scale[idx] * f);
+          return { at: nat, rot, scale: ns };
+        };
+      }
+    } else {   // rotate
+      const ang = Math.atan2(this.py - d.cy, this.px - d.cx);
+      const deg = ((ang - d.startAngle) * 180) / Math.PI;
+      const idx = AXIS_IDX[d.handle];
+      const sign = d.handle === "y" ? -1 : 1;
+      let sdeg = deg * sign;
+      // hold Shift → snap the rotation to 30° increments (from the grab angle)
+      if (this.keys.has("ShiftLeft") || this.keys.has("ShiftRight")) sdeg = Math.round(sdeg / ROT_SNAP_DEG) * ROT_SNAP_DEG;
+      const rad = sdeg * DEG;
+      op = (at, rot, scale) => {
+        const rel: Tuple3 = [at[0] - d.pivot[0], at[1] - d.pivot[1], at[2] - d.pivot[2]];
+        const rr = rotateAxis(rel, idx, rad);
+        const nrot = rot.slice() as Tuple3; nrot[idx] = rot[idx] + sdeg;
+        return { at: [d.pivot[0] + rr[0], d.pivot[1] + rr[1], d.pivot[2] + rr[2]], rot: nrot, scale };
+      };
+    }
+
+    if (d.group) {
+      const w = op(d.group.at, d.group.rot, d.group.scale);
+      state.setGroupWorld(d.group.id, w, false);   // stores back to parent-local + touches
+    } else {
+      for (const m of d.members) {
+        const w = op(m.at, m.rot, m.scale);
+        const lw = invComposeTf(m.parent, w);   // world → the object's group-local space
+        m.o.at = [round(lw.at[0]), round(lw.at[1]), round(lw.at[2])];
+        m.o.rot = [round(lw.rot[0]), round(lw.rot[1]), round(lw.rot[2])];
+        m.o.scale = [round2(lw.scale[0]), round2(lw.scale[1]), round2(lw.scale[2])];
+      }
+      state.touch();
+    }
+    this.liveDirty = true;   // rebuild on the next frame so the change is visible live
+  }
+
+  // ── 3D picking + selection highlight ───────────────────────────────────────
+  /** camera ray through an overlay pixel: origin + normalized direction */
+  private pixelRay(px: number, py: number): { o: number[]; d: number[] } {
+    const { f, r, u } = this.basis();
+    const rc = this.rect();
+    const aspect = rc.width / rc.height;
+    const tanF = Math.tan((this.camera.fieldOfView * DEG) / 2);
+    const ndcx = (px / rc.width) * 2 - 1;
+    const ndcy = 1 - (py / rc.height) * 2;
+    const d = norm([
+      f[0] + r[0] * ndcx * tanF * aspect + u[0] * ndcy * tanF,
+      f[1] + r[1] * ndcx * tanF * aspect + u[1] * ndcy * tanF,
+      f[2] + r[2] * ndcx * tanF * aspect + u[2] * ndcy * tanF,
+    ]);
+    return { o: [this.pos.x, this.pos.y, this.pos.z], d };
+  }
+
+  /** union world-AABB of an object's rendered geometry (null if it has none) */
+  private objBox(index: number): Box | null {
+    const ents = this.objEntities[index];
+    if (!ents || ents.length === 0) return null;
+    const box = new BoundingBox();
+    let has = false;
+    for (const e of ents) {
+      if (e.destroyed) continue;
+      for (const r of e.getComponentsIncludeChildren(MeshRenderer, [])) {
+        if (!r.mesh || r.entity.name === Viewport.SHELL) continue;   // ignore outline shells
+        if (!has) { box.copyFrom(r.bounds); has = true; } else BoundingBox.merge(box, r.bounds, box);
+      }
+    }
+    if (!has) return null;
+    const { min, max } = box;
+    return { min: [min.x, min.y, min.z], max: [max.x, max.y, max.z] };
+  }
+
+  /** nearest object whose 3D mesh the pixel ray hits (−1 if the ray misses all) */
+  private pick3D(px: number, py: number): number {
+    const map = state.map; if (!map) return -1;
+    const { o, d } = this.pixelRay(px, py);
+    let best = Infinity, idx = -1;
+    for (let i = 0; i < map.objects.length; i++) {
+      const b = this.objBox(i);
+      if (!b) continue;
+      const t = rayBox(o, d, b);
+      if (t !== null && t < best) { best = t; idx = i; }
+    }
+    return idx;
+  }
+}
+
+// ── misc helpers (vector maths live in ./vecmath, shared with the preview scene) ─
+function round(n: number): number { return Math.round(n * 100) / 100; }
+function round2(n: number): number { return Math.round(n * 1000) / 1000; }
+function isTyping(): boolean { const el = document.activeElement; return !!el && (el.tagName === "INPUT" || el.tagName === "SELECT" || el.tagName === "TEXTAREA"); }
+
+/** ray (origin o, dir d) vs AABB — returns entry distance along d, or null if no
+ *  hit in front of the ray (slab method). */
+function rayBox(o: number[], d: number[], b: Box): number | null {
+  let tmin = 0, tmax = Infinity;
+  for (let i = 0; i < 3; i++) {
+    if (Math.abs(d[i]) < 1e-9) {
+      if (o[i] < b.min[i] || o[i] > b.max[i]) return null;
+    } else {
+      const inv = 1 / d[i];
+      let t1 = (b.min[i] - o[i]) * inv;
+      let t2 = (b.max[i] - o[i]) * inv;
+      if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; }
+      if (t1 > tmin) tmin = t1;
+      if (t2 < tmax) tmax = t2;
+      if (tmin > tmax) return null;
+    }
+  }
+  return tmin > 0 ? tmin : null;
+}
+
+/** radius (px) of the icon badge drawn for a markerless object's viewport marker */
+const MARKER_ICON_R = 13;
+
+/** an object type with no clickable 3D mesh — its viewport handle is the icon badge */
+function markerlessType(type: string): boolean {
+  const c = objectCategory(type);
+  return c === "marker" || c === "sound" || c === "light";
+}
+
+function markerColor(type: string): string {
+  if (type === "spawn") return "#4caf50";
+  if (type === "pickup") return "#29b6f6";
+  if (type === "powerup") return "#ffca28";
+  if (type === "sound") return "#ab47bc";
+  if (type === "box") return "#78909c";
+  // lights (point/dir/spot/lantern) glow yellow so they read at a glance even
+  // though the light itself has no mesh to click in 3D — only this marker dot.
+  if (objectCategory(type) === "light") return "#ffd54f";
+  return "#cfc3a8";
+}

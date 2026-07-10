@@ -1,0 +1,7 @@
+{
+  "materials": {
+    "metal_trash_can": "metal_trash_can",
+    "metal_trash_can_rust": "metal_trash_can_rust"
+  },
+  "propHunt": true
+}

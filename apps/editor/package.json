@@ -1,0 +1,19 @@
+{
+  "name": "@slopwars/editor",
+  "version": "1.0.0",
+  "description": "SlopWars map editor (local dev tool — Vite web app + MCP host)",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "vite --open",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@galacean/engine": "^1.6.13",
+    "@slopwars/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3",
+    "vite": "^7.0.0"
+  }
+}

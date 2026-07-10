@@ -117,17 +117,7 @@
     {
       "doubleSided": true,
       "name": "service_pistol",
-      "normalTexture": {
-        "index": 0
-      },
-      "pbrMetallicRoughness": {
-        "baseColorTexture": {
-          "index": 1
-        },
-        "metallicRoughnessTexture": {
-          "index": 2
-        }
-      }
+      "pbrMetallicRoughness": {}
     }
   ],
   "meshes": [
@@ -284,37 +274,6 @@
           "material": 0
         }
       ]
-    }
-  ],
-  "textures": [
-    {
-      "sampler": 0,
-      "source": 0
-    },
-    {
-      "sampler": 0,
-      "source": 1
-    },
-    {
-      "sampler": 0,
-      "source": 2
-    }
-  ],
-  "images": [
-    {
-      "mimeType": "image/jpeg",
-      "name": "service_pistol_nor_gl",
-      "uri": "textures/service_pistol_nor_gl_1k.jpg"
-    },
-    {
-      "mimeType": "image/jpeg",
-      "name": "service_pistol_diff",
-      "uri": "textures/service_pistol_diff_1k.jpg"
-    },
-    {
-      "mimeType": "image/jpeg",
-      "name": "service_pistol_metal-service_pistol_rough",
-      "uri": "textures/service_pistol_arm_1k.jpg"
     }
   ],
   "accessors": [
@@ -933,12 +892,6 @@
       "byteLength": 1140,
       "byteOffset": 1050908,
       "target": 34963
-    }
-  ],
-  "samplers": [
-    {
-      "magFilter": 9729,
-      "minFilter": 9987
     }
   ],
   "buffers": [

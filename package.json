@@ -3,21 +3,18 @@
   "version": "1.0.0",
   "description": "SlopWars — AI-built multiplayer browser FPS (serverless P2P, Galacean engine)",
   "type": "module",
+  "private": true,
   "packageManager": "pnpm@11.9.0",
   "engines": {
     "node": ">=24"
   },
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "dev": "pnpm --filter @slopwars/game dev",
+    "dev:editor": "pnpm --filter @slopwars/editor dev",
+    "build": "pnpm --filter @slopwars/game build",
+    "typecheck": "pnpm -r typecheck"
   },
   "license": "ISC",
-  "dependencies": {
-    "@galacean/engine": "^1.6.13",
-    "peerjs": "^1.5.5"
-  },
   "devDependencies": {
     "typescript": "^6.0.3",
     "vite": "^7.0.0"
