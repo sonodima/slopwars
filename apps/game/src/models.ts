@@ -3,7 +3,7 @@
 // from public/assets/models/ into `virtual:asset-catalog`) — no asset file list
 // is hardcoded here, so committing a new model folder makes it load with zero
 // code changes. Models are referenced everywhere by their folder name directly
-// (e.g. "Barrel_01", "bolt_action_rifle_7_62") — there is no aliasing layer.
+// (e.g. "Barrel_01", "wep_ak47") — there is no aliasing layer.
 import { Engine, Entity, GLTFResource } from "@galacean/engine";
 import type { ModelMeta } from "@slopwars/shared";
 import catalog from "virtual:asset-catalog";

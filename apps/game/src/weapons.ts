@@ -1,24 +1,28 @@
 // ─── Weapon system: viewmodels, firing state, recoil, tracers, muzzle flash ──
 import {
-  BlinnPhongMaterial, Color, Engine, Entity, MeshRenderer, PointLight,
-  PrimitiveMesh, Quaternion, UnlitMaterial,
+  Color, Engine, Entity, MeshRenderer, PointLight,
+  PrimitiveMesh, Quaternion, UnlitMaterial, Vector3,
 } from "@galacean/engine";
 import { sfx } from "./audio";
-import { GameModels, instantiate } from "./models";
+import { GameModels, instantiate, modelMetaOf } from "./models";
 import { MaterialLibrary, shadeModelSlots } from "./materials";
 import { Vec3, WEAPONS, WeaponDef, WeaponId, LOADOUT, clamp } from "./types";
-import type { ModelMeta } from "@slopwars/shared";
+import { modelAnchor, type ModelMeta } from "@slopwars/shared";
 
 interface Ammo { mag: number; reserve: number }
 
-// first-person placement for the PH proxy meshes (scale + position + euler deg).
-// Real-scale detailed meshes → tuned to sit in view. Adjust here to reframe.
-const WEP_TUNE: Record<"ak47" | "usp" | "knife" | "awp" | "mol", { s: number; p: [number, number, number]; r: [number, number, number] }> = {
-  ak47:  { s: 0.5,  p: [0.18, -0.22, -0.15], r: [0, 90, 0] },
-  usp:   { s: 0.7,  p: [0.15, -0.16, -0.08], r: [0, 90, 0] },
-  knife: { s: 0.6,  p: [0.12, -0.12, -0.12], r: [0, 90, 0] },
-  awp:   { s: 0.55, p: [0.16, -0.20, -0.12], r: [0, 90, 0] },
-  mol:   { s: 0.9,  p: [0.12, -0.16, -0.06], r: [0, 0, 0] },
+// The model each weapon slot is held as — the ONLY weapon-specific model data in code.
+// These are ordinary geometry-only models (CC0 "Guns & Explosives" + "Melee Weapons"
+// packs, 3dmodelscc0): they carry their own library materials (meta.materials) and
+// their held pose (meta.scale + meta.anchors.grip), authored in the editor exactly
+// like any other model — so there are no per-weapon offsets/rotations here.
+const WEAPON_MODEL: Record<WeaponId, string> = {
+  knife: "wep_knife",
+  usp: "wep_makarov",
+  ak47: "wep_ak47",
+  awp: "wep_sniper",
+  he: "wep_frag",
+  mol: "wep_molotov",
 };
 
 export class WeaponSystem {
@@ -183,63 +187,34 @@ export class WeaponSystem {
 
   // ─── visuals ────────────────────────────────────────────────────────────────
 
-  private matDark!: BlinnPhongMaterial;
-
   private buildModels(): void {
-    const e = this.engine;
-    this.matDark = new BlinnPhongMaterial(e); this.matDark.baseColor = new Color(0.08, 0.08, 0.09, 1);
-
-    const box = (parent: Entity, x: number, y: number, z: number, w: number, h: number, d: number, m: BlinnPhongMaterial): void => {
-      const c = parent.createChild("p");
-      c.transform.setPosition(x, y, z);
-      const r = c.addComponent(MeshRenderer);
-      r.mesh = PrimitiveMesh.createCuboid(e, w, h, d);
-      r.setMaterial(m);
-    };
-
-    // ── proxy GLB viewmodels (Poly Haven CC0), referenced by model folder name.
-    // Only 2 real firearms exist on Poly Haven → AWP reuses the bolt-action rifle.
-    for (const [id, folder] of [
-      ["ak47", "bolt_action_rifle_7_62"], ["usp", "service_pistol"],
-      ["knife", "machete"], ["awp", "bolt_action_rifle_7_62"],
-    ] as const) {
-      const t = WEP_TUNE[id];
+    // Each weapon is an ordinary model, seated at the hand by its own meta (scale +
+    // the `grip` anchor). Setting modelFolders lets applyModelMaterials shade them
+    // with their library materials, exactly like a placed prop.
+    for (const id of LOADOUT) {
+      const folder = WEAPON_MODEL[id];
       const m = instantiate(this.src[folder]);
-      if (!m) continue;
-      m.transform.setPosition(t.p[0], t.p[1], t.p[2]);
-      m.transform.setScale(t.s, t.s, t.s);
-      m.transform.setRotation(t.r[0], t.r[1], t.r[2]);
+      if (!m) { console.warn("[weapon] model missing:", folder); continue; }
+      this.placeByGrip(m, modelMetaOf(folder));
       this.vm.addChild(m);
       this.models[id] = m;
       this.modelFolders[id] = folder;
     }
+  }
 
-    // he grenade
-    let g = this.vm.createChild("he");
-    const olive = new BlinnPhongMaterial(e); olive.baseColor = new Color(0.14, 0.2, 0.12, 1);
-    box(g, 0, -0.02, -0.05, 0.09, 0.11, 0.09, olive);
-    box(g, 0, 0.055, -0.05, 0.03, 0.04, 0.03, this.matDark);      // fuse cap
-    this.models.he = g;
-
-    // molotov: bottle model if it loaded, else box
-    if (this.src.bleach_bottle) {
-      const t = WEP_TUNE.mol;
-      const m = instantiate(this.src.bleach_bottle)!;
-      m.transform.setPosition(t.p[0], t.p[1], t.p[2]);
-      m.transform.setScale(t.s, t.s, t.s);
-      m.transform.setRotation(t.r[0], t.r[1], t.r[2]);
-      this.vm.addChild(m);
-      this.models.mol = m;
-      this.modelFolders.mol = "bleach_bottle";
-    } else {
-      g = this.vm.createChild("mol");
-      const amber = new BlinnPhongMaterial(e); amber.baseColor = new Color(0.6, 0.32, 0.08, 1);
-      const rag = new BlinnPhongMaterial(e); rag.baseColor = new Color(0.8, 0.76, 0.65, 1);
-      box(g, 0, -0.03, -0.05, 0.09, 0.16, 0.09, amber);           // bottle
-      box(g, 0, 0.075, -0.05, 0.04, 0.06, 0.04, amber);           // neck
-      box(g, 0, 0.12, -0.05, 0.05, 0.04, 0.05, rag);              // rag
-      this.models.mol = g;
-    }
+  /** seat a held model at the hand: scale by meta.scale, orient by its `grip` anchor,
+   *  then offset so the anchor's model-local point lands at the viewmodel origin
+   *  (P = −R·S·grip.at). Same held-item convention as the third-person remote. */
+  private placeByGrip(m: Entity, meta: ModelMeta): void {
+    const s = meta.scale ?? 1;
+    m.transform.setScale(s, s, s);
+    const grip = modelAnchor(meta, "grip");
+    if (!grip) return;
+    const gr = grip.rot ?? [0, 0, 0];
+    m.transform.setRotation(gr[0], gr[1], gr[2]);
+    const g = new Vector3(grip.at[0] * s, grip.at[1] * s, grip.at[2] * s);
+    Vector3.transformByQuat(g, m.transform.rotationQuaternion, g);
+    m.transform.setPosition(-g.x, -g.y, -g.z);
   }
 
   private buildFlash(): void {

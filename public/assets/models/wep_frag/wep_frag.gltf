@@ -1,0 +1,206 @@
+{
+  "asset": {
+    "generator": "Khronos glTF Blender I/O v5.0.21",
+    "version": "2.0"
+  },
+  "scene": 0,
+  "scenes": [
+    {
+      "name": "Scene",
+      "nodes": [
+        2
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "mesh": 0,
+      "name": "Grenade"
+    },
+    {
+      "mesh": 1,
+      "name": "Pin"
+    },
+    {
+      "children": [
+        0,
+        1
+      ],
+      "name": "FragGrenade_obj",
+      "rotation": [
+        0.7071068286895752,
+        0,
+        0,
+        0.7071068286895752
+      ],
+      "scale": [
+        0.009999999776482582,
+        0.009999999776482582,
+        0.009999999776482582
+      ]
+    }
+  ],
+  "materials": [
+    {
+      "doubleSided": true,
+      "name": "FragGrenade_MasterMat",
+      "pbrMetallicRoughness": {}
+    }
+  ],
+  "meshes": [
+    {
+      "name": "Mesh",
+      "primitives": [
+        {
+          "attributes": {
+            "POSITION": 0,
+            "NORMAL": 1,
+            "TEXCOORD_0": 2
+          },
+          "indices": 3,
+          "material": 0
+        }
+      ]
+    },
+    {
+      "name": "Mesh.001",
+      "primitives": [
+        {
+          "attributes": {
+            "POSITION": 4,
+            "NORMAL": 5,
+            "TEXCOORD_0": 6
+          },
+          "indices": 7,
+          "material": 0
+        }
+      ]
+    }
+  ],
+  "accessors": [
+    {
+      "bufferView": 0,
+      "componentType": 5126,
+      "count": 2509,
+      "max": [
+        2.717895030975342,
+        2.717891216278076,
+        0.02406500279903412
+      ],
+      "min": [
+        -2.717895030975342,
+        -3.63070011138916,
+        -10.153544425964355
+      ],
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 1,
+      "componentType": 5126,
+      "count": 2509,
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 2,
+      "componentType": 5126,
+      "count": 2509,
+      "type": "VEC2"
+    },
+    {
+      "bufferView": 3,
+      "componentType": 5123,
+      "count": 8454,
+      "type": "SCALAR"
+    },
+    {
+      "bufferView": 4,
+      "componentType": 5126,
+      "count": 575,
+      "max": [
+        1.8007010221481323,
+        -0.1743164211511612,
+        -6.621105194091797
+      ],
+      "min": [
+        -0.9395433664321899,
+        -3.0913805961608887,
+        -9.562241554260254
+      ],
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 5,
+      "componentType": 5126,
+      "count": 575,
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 6,
+      "componentType": 5126,
+      "count": 575,
+      "type": "VEC2"
+    },
+    {
+      "bufferView": 7,
+      "componentType": 5123,
+      "count": 2472,
+      "type": "SCALAR"
+    }
+  ],
+  "bufferViews": [
+    {
+      "buffer": 0,
+      "byteOffset": 0,
+      "byteLength": 30108,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 30108,
+      "byteLength": 30108,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 60216,
+      "byteLength": 20072,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 80288,
+      "byteLength": 16908,
+      "target": 34963
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 97196,
+      "byteLength": 6900,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 104096,
+      "byteLength": 6900,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 110996,
+      "byteLength": 4600,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 115596,
+      "byteLength": 4944,
+      "target": 34963
+    }
+  ],
+  "buffers": [
+    {
+      "uri": "wep_frag.bin",
+      "byteLength": 120540
+    }
+  ]
+}

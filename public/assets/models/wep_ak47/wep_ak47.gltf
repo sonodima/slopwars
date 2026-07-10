@@ -1,0 +1,459 @@
+{
+  "asset": {
+    "generator": "Khronos glTF Blender I/O v5.0.21",
+    "version": "2.0"
+  },
+  "scene": 0,
+  "scenes": [
+    {
+      "name": "Scene",
+      "nodes": [
+        4
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "mesh": 0,
+      "name": "Ejection_Port",
+      "translation": [
+        0.5604845881462097,
+        14.231215476989746,
+        2.0332882404327393
+      ]
+    },
+    {
+      "mesh": 1,
+      "name": "Magazine",
+      "translation": [
+        -0.2546917796134949,
+        16.018524169921875,
+        6.276612758636475
+      ]
+    },
+    {
+      "mesh": 2,
+      "name": "Selector_Switch",
+      "rotation": [
+        0.00799756683409214,
+        0,
+        0,
+        0.9999680519104004
+      ],
+      "translation": [
+        1.2901204824447632,
+        26.692420959472656,
+        1.5222793817520142
+      ]
+    },
+    {
+      "mesh": 3,
+      "name": "Trigger",
+      "translation": [
+        -0.2546917796134949,
+        24.267322540283203,
+        4.618690490722656
+      ]
+    },
+    {
+      "children": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "mesh": 4,
+      "name": "AK_47",
+      "rotation": [
+        0.7071068286895752,
+        0,
+        0,
+        0.7071068286895752
+      ],
+      "scale": [
+        0.009999999776482582,
+        0.009999999776482582,
+        0.009999999776482582
+      ]
+    }
+  ],
+  "materials": [
+    {
+      "doubleSided": true,
+      "name": "AK47_MasterMat",
+      "pbrMetallicRoughness": {}
+    }
+  ],
+  "meshes": [
+    {
+      "name": "Mesh.004",
+      "primitives": [
+        {
+          "attributes": {
+            "POSITION": 0,
+            "NORMAL": 1,
+            "TEXCOORD_0": 2
+          },
+          "indices": 3,
+          "material": 0
+        }
+      ]
+    },
+    {
+      "name": "Mesh.001",
+      "primitives": [
+        {
+          "attributes": {
+            "POSITION": 4,
+            "NORMAL": 5,
+            "TEXCOORD_0": 6
+          },
+          "indices": 7,
+          "material": 0
+        }
+      ]
+    },
+    {
+      "name": "Mesh.003",
+      "primitives": [
+        {
+          "attributes": {
+            "POSITION": 8,
+            "NORMAL": 9,
+            "TEXCOORD_0": 10
+          },
+          "indices": 11,
+          "material": 0
+        }
+      ]
+    },
+    {
+      "name": "Mesh.002",
+      "primitives": [
+        {
+          "attributes": {
+            "POSITION": 12,
+            "NORMAL": 13,
+            "TEXCOORD_0": 14
+          },
+          "indices": 15,
+          "material": 0
+        }
+      ]
+    },
+    {
+      "name": "Mesh",
+      "primitives": [
+        {
+          "attributes": {
+            "POSITION": 16,
+            "NORMAL": 17,
+            "TEXCOORD_0": 18
+          },
+          "indices": 19,
+          "material": 0
+        }
+      ]
+    }
+  ],
+  "accessors": [
+    {
+      "bufferView": 0,
+      "componentType": 5126,
+      "count": 293,
+      "max": [
+        1.6443179845809937,
+        2.900297164916992,
+        -1.957403540611267
+      ],
+      "min": [
+        -2.205859422683716,
+        -5.177341461181641,
+        -3.7377750873565674
+      ],
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 1,
+      "componentType": 5126,
+      "count": 293,
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 2,
+      "componentType": 5126,
+      "count": 293,
+      "type": "VEC2"
+    },
+    {
+      "bufferView": 3,
+      "componentType": 5123,
+      "count": 756,
+      "type": "SCALAR"
+    },
+    {
+      "bufferView": 4,
+      "componentType": 5126,
+      "count": 420,
+      "max": [
+        1.129610538482666,
+        2.892848491668701,
+        14.936238288879395
+      ],
+      "min": [
+        -1.129610538482666,
+        -12.356142044067383,
+        -3.4743099212646484
+      ],
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 5,
+      "componentType": 5126,
+      "count": 420,
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 6,
+      "componentType": 5126,
+      "count": 420,
+      "type": "VEC2"
+    },
+    {
+      "bufferView": 7,
+      "componentType": 5123,
+      "count": 1332,
+      "type": "SCALAR"
+    },
+    {
+      "bufferView": 8,
+      "componentType": 5126,
+      "count": 216,
+      "max": [
+        0.08550000190734863,
+        1.2388405799865723,
+        1.166446566581726
+      ],
+      "min": [
+        -0.08550000190734863,
+        -9.358969688415527,
+        -1.4912991523742676
+      ],
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 9,
+      "componentType": 5126,
+      "count": 216,
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 10,
+      "componentType": 5126,
+      "count": 216,
+      "type": "VEC2"
+    },
+    {
+      "bufferView": 11,
+      "componentType": 5123,
+      "count": 564,
+      "type": "SCALAR"
+    },
+    {
+      "bufferView": 12,
+      "componentType": 5126,
+      "count": 70,
+      "max": [
+        0.294711172580719,
+        0.7203912734985352,
+        1.910250186920166
+      ],
+      "min": [
+        -0.294711172580719,
+        -1.0041614770889282,
+        -0.5015563368797302
+      ],
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 13,
+      "componentType": 5126,
+      "count": 70,
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 14,
+      "componentType": 5126,
+      "count": 70,
+      "type": "VEC2"
+    },
+    {
+      "bufferView": 15,
+      "componentType": 5123,
+      "count": 156,
+      "type": "SCALAR"
+    },
+    {
+      "bufferView": 16,
+      "componentType": 5126,
+      "count": 4163,
+      "max": [
+        1.2795636653900146,
+        56.083988189697266,
+        14.513649940490723
+      ],
+      "min": [
+        -1.7889472246170044,
+        -31.568864822387695,
+        -4.604755401611328
+      ],
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 17,
+      "componentType": 5126,
+      "count": 4163,
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 18,
+      "componentType": 5126,
+      "count": 4163,
+      "type": "VEC2"
+    },
+    {
+      "bufferView": 19,
+      "componentType": 5123,
+      "count": 11595,
+      "type": "SCALAR"
+    }
+  ],
+  "bufferViews": [
+    {
+      "buffer": 0,
+      "byteOffset": 0,
+      "byteLength": 3516,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 3516,
+      "byteLength": 3516,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 7032,
+      "byteLength": 2344,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 9376,
+      "byteLength": 1512,
+      "target": 34963
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 10888,
+      "byteLength": 5040,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 15928,
+      "byteLength": 5040,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 20968,
+      "byteLength": 3360,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 24328,
+      "byteLength": 2664,
+      "target": 34963
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 26992,
+      "byteLength": 2592,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 29584,
+      "byteLength": 2592,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 32176,
+      "byteLength": 1728,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 33904,
+      "byteLength": 1128,
+      "target": 34963
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 35032,
+      "byteLength": 840,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 35872,
+      "byteLength": 840,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 36712,
+      "byteLength": 560,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 37272,
+      "byteLength": 312,
+      "target": 34963
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 37584,
+      "byteLength": 49956,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 87540,
+      "byteLength": 49956,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 137496,
+      "byteLength": 33304,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 170800,
+      "byteLength": 23190,
+      "target": 34963
+    }
+  ],
+  "buffers": [
+    {
+      "uri": "wep_ak47.bin",
+      "byteLength": 193990
+    }
+  ]
+}

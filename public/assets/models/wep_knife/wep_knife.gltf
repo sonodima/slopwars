@@ -1,0 +1,128 @@
+{
+  "asset": {
+    "generator": "Khronos glTF Blender I/O v5.0.21",
+    "version": "2.0"
+  },
+  "scene": 0,
+  "scenes": [
+    {
+      "name": "Scene",
+      "nodes": [
+        0
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "mesh": 0,
+      "name": "Combat_Knife",
+      "rotation": [
+        0.7071068286895752,
+        0,
+        0,
+        0.7071068286895752
+      ],
+      "scale": [
+        0.009999999776482582,
+        0.009999999776482582,
+        0.009999999776482582
+      ],
+      "translation": [
+        0,
+        -0.0010433853603899479,
+        0
+      ]
+    }
+  ],
+  "materials": [
+    {
+      "doubleSided": true,
+      "name": "Combat_Knife_Material",
+      "pbrMetallicRoughness": {}
+    }
+  ],
+  "meshes": [
+    {
+      "name": "Combat_Knife",
+      "primitives": [
+        {
+          "attributes": {
+            "POSITION": 0,
+            "NORMAL": 1,
+            "TEXCOORD_0": 2
+          },
+          "indices": 3,
+          "material": 0
+        }
+      ]
+    }
+  ],
+  "accessors": [
+    {
+      "bufferView": 0,
+      "componentType": 5126,
+      "count": 1378,
+      "max": [
+        2.6896567344665527,
+        1.1999902725219727,
+        13.303174018859863
+      ],
+      "min": [
+        -2.831177234649658,
+        -1.1999902725219727,
+        -16.412261962890625
+      ],
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 1,
+      "componentType": 5126,
+      "count": 1378,
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 2,
+      "componentType": 5126,
+      "count": 1378,
+      "type": "VEC2"
+    },
+    {
+      "bufferView": 3,
+      "componentType": 5123,
+      "count": 4650,
+      "type": "SCALAR"
+    }
+  ],
+  "bufferViews": [
+    {
+      "buffer": 0,
+      "byteOffset": 0,
+      "byteLength": 16536,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 16536,
+      "byteLength": 16536,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 33072,
+      "byteLength": 11024,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 44096,
+      "byteLength": 9300,
+      "target": 34963
+    }
+  ],
+  "buffers": [
+    {
+      "uri": "wep_knife.bin",
+      "byteLength": 53396
+    }
+  ]
+}
