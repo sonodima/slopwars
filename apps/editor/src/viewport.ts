@@ -572,7 +572,7 @@ export class Viewport {
   private drawMarkerIcon(ctx: CanvasRenderingContext2D, x: number, y: number, type: string, selected: boolean, alpha: number): void {
     const img = this.markerIcon(objectIcon(type), selected ? "#f5a623" : "#ffffff");
     if (!img.complete || !img.naturalWidth) return;
-    const s = MARKER_ICON_R * 1.85;
+    const s = MARKER_ICON_R * 1.6;
     ctx.save();
     ctx.globalAlpha = alpha;
     // dark halo (drawn via the shadow, twice) so a white glyph reads on any background
@@ -588,7 +588,9 @@ export class Viewport {
     const key = `${name}|${color}`;
     let img = this.iconCache.get(key);
     if (!img) {
-      const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${iconMarkup(name)}</svg>`;
+      // filled glyph: fill AND stroke the same colour so the Lucide line-icons read as
+      // solid shapes (not thin outlines); a thin stroke keeps their open sub-lines visible.
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="${color}" stroke="${color}" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">${iconMarkup(name)}</svg>`;
       img = new Image();
       img.src = `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
       this.iconCache.set(key, img);
@@ -829,8 +831,11 @@ export class Viewport {
     // grabbing a gizmo handle of the current selection starts an axis-locked edit
     const pivot = this.selPivot();
     if (pivot) { const h = this.pickHandle(this.px, this.py, pivot); if (h) { this.beginTransform(h); return; } }
-    // otherwise click selects: prefer the 3D model, fall back to the marker dot
-    let hit = this.pick3D(this.px, this.py);
+    // otherwise click selects. A markerless object's icon badge is a screen-space
+    // handle drawn on top of everything, so it wins first (else a light in front of a
+    // wall would pick the wall); then the 3D mesh; then a meshed object's origin dot.
+    let hit = this.pick(this.px, this.py, true);
+    if (hit < 0) hit = this.pick3D(this.px, this.py);
     if (hit < 0) hit = this.pick(this.px, this.py);
     if (hit < 0) { state.select(-1, "viewport"); return; }
     const additive = e.ctrlKey || e.metaKey || e.shiftKey;   // toggle in a multi-select
@@ -854,7 +859,8 @@ export class Viewport {
     const rc = this.rect();
     const px = clamp(e.clientX - rc.left, 0, rc.width), py = clamp(e.clientY - rc.top, 0, rc.height);
     const map = state.map; if (!map) return;
-    let hit = this.pick3D(px, py);
+    let hit = this.pick(px, py, true);
+    if (hit < 0) hit = this.pick3D(px, py);
     if (hit < 0) hit = this.pick(px, py);
     if (hit < 0) return;
     const o = map.objects[hit];
@@ -971,13 +977,15 @@ export class Viewport {
    *  markerless object (light/marker/sound — no mesh) uses the full icon-badge radius
    *  so it's easy to click; a meshed object keeps a tight dot radius (its mesh is the
    *  real target, picked by pick3D first). */
-  private pick(px: number, py: number): number {
+  private pick(px: number, py: number, markerlessOnly = false): number {
     const map = state.map; if (!map) return -1;
     let best = Infinity, idx = -1;
     for (let i = 0; i < map.objects.length; i++) {
+      const markerless = markerlessType(map.objects[i].type);
+      if (markerlessOnly !== markerless) continue;
       const p = this.project(this.worldAt(map.objects[i]));
       if (!p.visible) continue;
-      const rad = markerlessType(map.objects[i].type) ? MARKER_ICON_R + 5 : 12;
+      const rad = markerless ? MARKER_ICON_R + 3 : 12;
       const d = Math.hypot(p.x - px, p.y - py);
       if (d <= rad && d < best) { best = d; idx = i; }
     }
@@ -1132,7 +1140,7 @@ function rayBox(o: number[], d: number[], b: Box): number | null {
 }
 
 /** radius (px) of the icon badge drawn for a markerless object's viewport marker */
-const MARKER_ICON_R = 13;
+const MARKER_ICON_R = 9;
 /** camera distances (world units) between which a marker badge fades from full to nil */
 const ICON_NEAR = 34;
 const ICON_FAR = 72;

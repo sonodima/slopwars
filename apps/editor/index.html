@@ -37,6 +37,10 @@
   .bar-label{color:var(--dim)}
   .map-name{margin-left:auto;color:#eef1f4;font-weight:600;font-size:12px;letter-spacing:.02em}
   .map-picker{background:var(--panel2);color:var(--text);border:1px solid var(--line2);border-radius:4px;padding:4px 7px;font-family:var(--font)}
+  /* uniform toolbar button box so the icon-bearing Save doesn't sit taller/raised than the text-only buttons */
+  #toolbar .btn{box-sizing:border-box;min-height:26px}
+  /* centre-align the save cluster so the icon-bearing Save shares the text buttons' baseline (else it rides ~2.5px high) */
+  #save-group{display:inline-flex;align-items:center;gap:5px}
   .tool-group{display:flex;gap:0;border:1px solid var(--line2);border-radius:5px;overflow:hidden}
   .tool-group .btn{border:none;border-right:1px solid var(--line);border-radius:0}
   .tool-group .btn:last-child{border-right:none}

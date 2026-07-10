@@ -263,6 +263,20 @@ export class WeaponSystem {
     this.flash.transform.setRotation(0, 0, Math.random() * 360);
     this.flashTtl = 0.045;
   }
+
+  /** Warm up the muzzle-flash shaders during the loading screen. The first shot
+   *  otherwise stalls ~800ms: Galacean compiles the flash's unlit shader on first
+   *  render, and — worse — enabling its PointLight bumps the scene's point-light-count
+   *  macro, forcing every lit material in view to recompile. Enabling it now compiles
+   *  that "+1 point light" permutation up front; because a grenade blast and molotov
+   *  light are also just +1, this single prewarm covers those first-explosion stalls
+   *  too. Hidden again after a few rendered frames (independent of the in-game loop). */
+  prewarm(): void {
+    this.flash.isActive = true;
+    this.flashLight.enabled = true;
+    this.flashTtl = 0; // don't let a later update() also try to hide it
+    window.setTimeout(() => { this.flash.isActive = false; this.flashLight.enabled = false; }, 350);
+  }
 }
 
 // ─── tracers + impact puffs (pooled) ─────────────────────────────────────────
@@ -325,5 +339,17 @@ export class TracerPool {
   update(dt: number): void {
     for (const s of this.pool) if (s.ttl > 0) { s.ttl -= dt; if (s.ttl <= 0) s.e.isActive = false; }
     for (const s of this.puffs) if (s.ttl > 0) { s.ttl -= dt; if (s.ttl <= 0) s.e.isActive = false; }
+  }
+
+  /** compile the tracer + impact-puff shaders during loading (each is a first-render
+   *  shader compile) so the first shot doesn't hitch. Rendered far underground for a
+   *  few frames, then hidden — not driven by the in-game update loop. */
+  prewarm(): void {
+    this.spawn({ x: 0, y: -120, z: 2 }, { x: 0, y: -120, z: 8 });
+    this.impact({ x: 0, y: -120, z: 2 });
+    window.setTimeout(() => {
+      for (const s of this.pool) { s.ttl = 0; s.e.isActive = false; }
+      for (const s of this.puffs) { s.ttl = 0; s.e.isActive = false; }
+    }, 350);
   }
 }

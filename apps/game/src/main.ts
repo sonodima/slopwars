@@ -300,6 +300,13 @@ class Game {
     requestAnimationFrame(loop);
     engine.run();
 
+    // warm up combat FX shaders while the menu shows, so the first shot / first
+    // explosion don't stall ~800ms compiling shaders (muzzle-flash point-light
+    // permutation, tracer/puff/fireball/smoke/particle materials + sphere meshes).
+    this.ws.prewarm();
+    this.tracers.prewarm();
+    this.nades.prewarm();
+
     this.hud.show("menu");
     // theme music starts on first user gesture (autoplay policy)
     window.addEventListener("pointerdown", () => {

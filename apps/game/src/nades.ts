@@ -230,6 +230,33 @@ export class Projectiles {
     this.onBoom?.(c);
   }
 
+  /** Pre-compile every explosion / molotov FX shader + upload its sphere meshes during
+   *  the loading screen, so the first blast doesn't stall on shader compilation and
+   *  first-time GPU mesh uploads. Renders one of each (material, segment-tier) sphere
+   *  plus an additive + a normal particle emitter far underground for a few frames,
+   *  then tears them down. No sound / damage / physics — visuals only, unseen. The
+   *  blast PointLight's shader permutation is warmed by the weapon flash prewarm (both
+   *  are +1 point light), so it isn't toggled here. */
+  prewarm(): void {
+    const c = { x: 0, y: -120, z: 0 };
+    const combos: [UnlitMaterial, number, number][] = [
+      [this.mFlash, 1.2, 12], [this.mFlame2, 0.7, 12], [this.mFlame, 0.5, 10],
+      [this.mSmoke, 0.5, 6], [this.mHe, 0.12, 8], [this.mMol, 0.12, 8],
+    ];
+    const spheres = combos.map(([m, r, seg]) => {
+      const e = this.acquireSphere(m, r, seg);
+      e.transform.setPosition(c.x, c.y, c.z);
+      return e;
+    });
+    const fire = this.root.createChild("prewarm-fx");
+    buildParticles(this.engine, fire, c.x, c.y, c.z, { rate: 6, lifetime: 0.4, additive: true });
+    buildParticles(this.engine, fire, c.x, c.y, c.z, { rate: 6, lifetime: 0.4, additive: false });
+    window.setTimeout(() => {
+      for (const e of spheres) this.releaseSphere(e);
+      fire.destroy();
+    }, 400);
+  }
+
   // ── molotov ──
   private breakMol(n: Nade, now: number): void {
     n.entity.destroy();
