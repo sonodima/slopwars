@@ -49,10 +49,17 @@ function tileNoise(u: number, v: number, f: number): number {
 // octave frequencies (integers → tileable) and amplitudes; `AMP_SUM` normalises
 const OCTAVES: [number, number][] = [[3, 1], [6, 0.5], [12, 0.26], [24, 0.14]];
 const AMP_SUM = OCTAVES.reduce((s, [, a]) => s + a, 0);
-/** fractal height field ∈ ~[-0.5, 0.5] */
+// domain-warp strength: before sampling the octaves we bend the lookup coordinates
+// by a low-frequency field, so straight fBm "grain" becomes swirling, overlapping
+// wavelets (the look of little ripples expanding into each other) instead of a
+// directional weave. The warp field is itself tileable, so the texture still wraps.
+const WARP = 0.16;
+/** fractal height field ∈ ~[-0.5, 0.5], with domain warping for organic ripples */
 function waterHeight(u: number, v: number): number {
+  const wu = u + (tileNoise(u, v, 2) - 0.5) * WARP;
+  const wv = v + (tileNoise(u + 0.37, v + 0.11, 2) - 0.5) * WARP;
   let h = 0;
-  for (const [f, a] of OCTAVES) h += (tileNoise(u, v, f) - 0.5) * a;
+  for (const [f, a] of OCTAVES) h += (tileNoise(wu, wv, f) - 0.5) * a;
   return h / AMP_SUM;
 }
 
@@ -86,11 +93,16 @@ function waveNormal(engine: Engine): Texture2D {
   return tex;
 }
 
-/** scrolls the wave normal's UVs each frame so the surface visibly flows */
+/** animates the wave normal each frame so the surface flows. Rather than a single
+ *  straight UV scroll (which the eye reads as a sliding sheet), the offset follows a
+ *  slow curved drift, the UV scale gently "breathes" so wavelets swell and expand,
+ *  and the ripple strength pulses a touch — a much less obvious, more liquid motion
+ *  for the cost of one Vector4 + one scalar per frame. */
 export class WaterAnim extends Script {
   mat!: PBRMaterial;
   tiling = 1;
   speed = 0.04;
+  waves = 0.7;
   private t = 0;
   private v = new Vector4();
   /** current animation phase (seconds) — read/seed it to keep the flow continuous
@@ -99,9 +111,16 @@ export class WaterAnim extends Script {
   set phase(t: number) { this.t = t; }
   onUpdate(dt: number): void {
     this.t += dt;
-    const off = this.t * this.speed;
-    this.v.set(this.tiling, this.tiling, off, off * 0.73);
+    const t = this.t, s = this.speed;
+    // primary drift + a slow elliptical wobble → the flow curves instead of sliding
+    const ox = t * s * 0.6 + Math.sin(t * 0.35) * 0.03;
+    const oy = t * s * 0.42 + Math.cos(t * 0.27) * 0.03;
+    // breathing UV scale → ripples subtly expand/contract like spreading rings
+    const scale = this.tiling * (1 + Math.sin(t * 0.4) * 0.05);
+    this.v.set(scale, scale, ox, oy);
     this.mat.tilingOffset = this.v;
+    // pulse crest strength so the surface feels alive rather than a static bump map
+    this.mat.normalTextureIntensity = this.waves * (0.85 + Math.sin(t * 0.9) * 0.15);
   }
 }
 
@@ -148,11 +167,12 @@ export function applyWaterLook(engine: Engine, m: PBRMaterial, L: WaterLook, til
  *  ripples scroll. `tiling` must match the material's UV repeat; `flow` the speed.
  *  `startPhase` seeds the elapsed time so a rebuilt surface flows on continuously
  *  instead of snapping back to t=0. Returns the anim so callers can read its phase. */
-export function attachWaterAnim(entity: Entity, m: PBRMaterial, tiling: number, flow: number, startPhase = 0): WaterAnim {
+export function attachWaterAnim(entity: Entity, m: PBRMaterial, tiling: number, flow: number, waves = WATER_LOOK.waves, startPhase = 0): WaterAnim {
   const anim = entity.addComponent(WaterAnim);
   anim.mat = m;
   anim.tiling = tiling;
   anim.speed = flow;
+  anim.waves = waves;
   anim.phase = startPhase;
   return anim;
 }

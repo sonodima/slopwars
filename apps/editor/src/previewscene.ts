@@ -200,7 +200,7 @@ export class PreviewScene {
     if (this.content.kind !== "material" || this.content.name !== name || e.destroyed) return;
     r.setMaterial(mat);
     // water flows: scroll the wave-normal UVs so ripples move like they do in-game
-    if (def.type === "water") this.waterAnim = attachWaterAnim(e, mat, WATER_PREVIEW_TILING, waterLookOf(def).flow, prevPhase);
+    if (def.type === "water") { const L = waterLookOf(def); this.waterAnim = attachWaterAnim(e, mat, WATER_PREVIEW_TILING, L.flow, L.waves, prevPhase); }
   }
 
   /** build an engine material from a def (mirrors the thumbnail renderer) */

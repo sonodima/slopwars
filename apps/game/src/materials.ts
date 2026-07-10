@@ -90,7 +90,7 @@ export class MaterialLibrary {
   /** attach any per-entity animation the material needs (water ripple flow). Call
    *  right after setMaterial with the same tiling `build()` used; no-op otherwise. */
   animate(entity: Entity, name: string, material: PBRMaterial, tiling: number): void {
-    if (this.isWater(name)) attachWaterAnim(entity, material, tiling, this.waterLook(name).flow);
+    if (this.isWater(name)) { const L = this.waterLook(name); attachWaterAnim(entity, material, tiling, L.flow, L.waves); }
   }
 
   private buildWater(d: WaterMaterialDef, tiling: number): PBRMaterial {
