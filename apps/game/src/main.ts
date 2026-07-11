@@ -480,10 +480,11 @@ class Game {
   /** position the camera + local avatar for the current perspective */
   updateSelfView(eye: number, pitch: number): void {
     const third = this.thirdPersonActive();
-    // hiders never show a first-person viewmodel; everyone else does (first-person)
-    this.ws.showViewmodel(!third);
+    // viewmodel only in first-person while alive (third-person shows the world avatar;
+    // a dead player shows no gun in either mode)
+    this.ws.showViewmodel(!third && this.alive);
 
-    if (!third || !this.alive) {
+    if (!third) {
       // first person: camera at the eye, avatar hidden
       this.camEntity.transform.setPosition(this.body.pos.x, eye, this.body.pos.z);
       if (this.selfAvatar) this.selfAvatar.isActive = false;
@@ -491,7 +492,9 @@ class Game {
       return;
     }
 
-    // third person: pull the camera back along the aim, over the right shoulder.
+    // third person (alive OR the death-cam): pull the camera back along the aim, over
+    // the right shoulder. When dead the body is frozen where you fell, so the camera
+    // holds behind your operator while it plays out the Death clip.
     const cp = Math.cos(pitch), sp = Math.sin(pitch);
     const dir: Vec3 = { x: -Math.sin(this.body.yaw) * cp, y: sp, z: -Math.cos(this.body.yaw) * cp };
     const rx = Math.cos(this.body.yaw), rz = -Math.sin(this.body.yaw); // right vector
@@ -506,10 +509,10 @@ class Game {
     this.camEntity.transform.setPosition(cx, cy, cz);
 
     if (this.isHider()) {
-      // Prop-Hunt hider: the crate disguise standing at the player's feet
+      // Prop-Hunt hider: the crate disguise standing at the player's feet (alive only)
       if (this.selfOperator) this.selfOperator.entity.isActive = false;
       const a = this.selfAvatar;
-      a.isActive = true;
+      a.isActive = this.alive;
       a.transform.setPosition(this.body.pos.x, this.body.pos.y, this.body.pos.z);
       a.transform.setRotation(0, (this.body.yaw * 180) / Math.PI, 0);
       return;
@@ -517,11 +520,12 @@ class Game {
 
     // general third-person: drive the local operator avatar with the body's pose so
     // you see the same rigged character (animated, holding your gun) as everyone else.
+    // Passing `alive` lets the avatar play its Death clip in place when you're killed.
     if (this.selfAvatar) this.selfAvatar.isActive = false;
     const op = this.ensureSelfOperator();
     if (op) {
       op.weapon = this.ws.current;
-      op.setPose(this.body.pos, this.body.yaw, this.body.crouched, true);
+      op.setPose(this.body.pos, this.body.yaw, this.body.crouched, this.alive);
     }
   }
 

@@ -8,7 +8,7 @@
 // (a model from the map's prop-hunt pool, or a plain crate when the pool is empty).
 import {
   Animator, AnimatorCullingMode, BlinnPhongMaterial, Color, Engine, Entity, MeshRenderer,
-  PrimitiveMesh, SkinnedMeshRenderer, Vector3,
+  PrimitiveMesh, SkinnedMeshRenderer, Vector3, WrapMode,
 } from "@galacean/engine";
 import { modelAnchor } from "@slopwars/shared";
 import { AABB, rayAABB } from "./map";
@@ -44,6 +44,16 @@ const TP_HAND_OFFSET: [number, number, number] = [0, 0, 0];
 const LOCO_RUN = 4.5;  // m/s above which the avatar plays Run
 const LOCO_WALK = 0.7; // m/s above which the avatar plays Walk
 
+/** pick the directional locomotion clip from a movement vector expressed in the
+ *  avatar's own frame (fwd = +forward/-back, strafe = +right/-left) and speed. Falls
+ *  back through the clip set the operator glTF ships (see NOTICE.txt). */
+function locoClip(fwd: number, strafe: number, run: boolean): string {
+  // strafing dominates only when clearly more sideways than forward/back
+  if (Math.abs(strafe) > Math.abs(fwd) * 1.3) return strafe > 0 ? "StrafeRight" : "StrafeLeft";
+  if (fwd < 0) return run ? "RunBack" : "WalkBack";
+  return run ? "Run" : "Walk";
+}
+
 export class RemotePlayer {
   entity: Entity;
   hp = 100;
@@ -78,6 +88,10 @@ export class RemotePlayer {
   private prevZ = 0;
   private prevY = 0;
   private prevT = 0;
+  private deathPlayed = false;   // Death clip latched for the current death (kept prone)
+  private deathKick = 0;         // frames the Death play has been (re)issued (see syncDeath)
+  private smFwd = 0;             // smoothed local forward/strafe velocity (anti-jitter)
+  private smStrafe = 0;
 
   constructor(engine: Engine, parent: Entity, public id: string, public name: string, _color: number, models: GameModels) {
     this.engine = engine;
@@ -114,7 +128,15 @@ export class RemotePlayer {
     this.animator = char.getComponentsIncludeChildren(Animator, [])[0] ?? char.getComponent(Animator);
     // Complete culling: skip the skeleton/animation evaluation entirely while the
     // avatar is off-screen — the dominant per-frame CPU cost with many players.
-    if (this.animator) this.animator.cullingMode = AnimatorCullingMode.Complete;
+    if (this.animator) {
+      this.animator.cullingMode = AnimatorCullingMode.Complete;
+      // one-shot clips must hold their final frame instead of looping (Death stays
+      // prone; Jump doesn't restart mid-air). Locomotion/idle keep the default loop.
+      for (const clip of ["Death", "Jump", "JumpBack"]) {
+        const st = this.animator.findAnimatorState(clip);
+        if (st) st.wrapMode = WrapMode.Once;
+      }
+    }
     // the actual Idle play is forced on first activation (driveAnimation), since
     // the avatar is built inactive and re-enabling resets the animator's pose.
 
@@ -241,6 +263,7 @@ export class RemotePlayer {
     this.yaw = a.yaw + dy * k;
     this.crouched = c.cr === 1;
 
+    this.syncDeath();
     this.applyTransform();
     this.syncWeapon();
     this.driveAnimation();
@@ -252,13 +275,36 @@ export class RemotePlayer {
     this.yaw = yaw;
     this.crouched = crouched;
     this.alive = alive;
+    this.syncDeath();
     this.applyTransform();
     this.syncWeapon();
     this.driveAnimation();
   }
 
+  /** Latch the death animation on the alive→dead edge, BEFORE applyTransform runs — so
+   *  the entity never toggles inactive at death (re-activating would reset the animator
+   *  to its bind/T-pose). The Death clip plays once and holds prone until respawn. */
+  private syncDeath(): void {
+    if (this.disguised) return;
+    if (!this.alive) {
+      if (this.deathPlayed) return;
+      this.wasActive = true; this.locoState = "Death";
+      // Galacean quirk: the very first play() right after the avatar (re)activates can
+      // be swallowed (renders the bind/T-pose), so (re)issue it for the first two death
+      // frames before latching — a single delayed play is enough to make it stick.
+      if (this.animator?.findAnimatorState("Death")) this.animator.play("Death");
+      if (++this.deathKick >= 2) this.deathPlayed = true;
+    } else if (this.deathPlayed || this.deathKick) {
+      this.deathPlayed = false; this.deathKick = 0; this.locoState = ""; // respawned
+    }
+  }
+
   private applyTransform(): void {
-    this.entity.isActive = this.alive;
+    // keep a just-killed avatar visible so its Death clip can play out (it lies prone
+    // until the game respawns it); disguised crates and live avatars follow `alive`.
+    // Use deathKick (set on the first dead frame, before this runs) so the entity never
+    // deactivates — a toggle would reset the animator to its bind/T-pose.
+    this.entity.isActive = this.alive || (this.deathKick > 0 && !this.disguised);
     this.entity.transform.setPosition(this.pos.x, this.pos.y, this.pos.z);
     // the operator rig is authored facing +Z, but the player's forward (body.yaw) points
     // −Z, so add 180° to turn the avatar to look where it's actually aiming/moving.
@@ -268,26 +314,42 @@ export class RemotePlayer {
     this.entity.transform.setScale(1, s, 1);
   }
 
-  /** pick Jump / Run / Walk / Idle from the interpolated motion and cross-fade */
+  /** pick Death / Jump / directional Run·Walk / Idle from the interpolated motion */
   private driveAnimation(): void {
     if (!this.animator || this.disguised) return;
     const now = performance.now() / 1000;
     const dt = now - this.prevT;
     this.prevT = now;
-    let sp = 0, vy = 0;
+    let vx = 0, vz = 0, vy = 0;
     if (dt > 1e-4 && dt < 0.5) {
-      sp = Math.hypot(this.pos.x - this.prevX, this.pos.z - this.prevZ) / dt;
+      vx = (this.pos.x - this.prevX) / dt;
+      vz = (this.pos.z - this.prevZ) / dt;
       vy = (this.pos.y - this.prevY) / dt;
     }
     this.prevX = this.pos.x; this.prevZ = this.pos.z; this.prevY = this.pos.y;
+
+    if (!this.alive) return; // death handled in syncDeath (before the transform toggle)
+
     // re-enabling the entity resets the animator to its default pose (T-pose), so
     // force a fresh play whenever the avatar comes (back) on-screen.
-    const justActivated = this.alive && !this.wasActive;
-    this.wasActive = this.alive;
-    if (!this.alive) return;
-    // airborne (rising, or falling fast) → jump clip; else locomotion by speed
+    const justActivated = !this.wasActive;
+    this.wasActive = true;
+
+    // resolve movement into the avatar's own frame (forward = where it faces / aims,
+    // matching the game's yaw convention: forward = (-sinYaw,-cosYaw), right = (cosYaw,-sinYaw)).
+    const sy = Math.sin(this.yaw), cy = Math.cos(this.yaw);
+    const fwd = vx * -sy + vz * -cy;
+    const strafe = vx * cy + vz * -sy;
+    // light smoothing so interpolation jitter doesn't flip clips every frame
+    const a = 0.35;
+    this.smFwd += (fwd - this.smFwd) * a;
+    this.smStrafe += (strafe - this.smStrafe) * a;
+    const sp = Math.hypot(this.smFwd, this.smStrafe);
+
     const airborne = vy > 1.8 || vy < -5.5;
-    const want = airborne ? "Jump" : sp > LOCO_RUN ? "Run" : sp > LOCO_WALK ? "Walk" : "Idle";
+    const want = airborne ? (this.smFwd < -0.2 ? "JumpBack" : "Jump")
+      : sp > LOCO_WALK ? locoClip(this.smFwd, this.smStrafe, sp > LOCO_RUN)
+      : "Idle";
     if ((want !== this.locoState || justActivated) && this.animator.findAnimatorState(want)) {
       this.locoState = want;
       if (justActivated) this.animator.play(want);
