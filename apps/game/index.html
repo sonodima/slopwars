@@ -189,9 +189,12 @@
   #banner{position:absolute;top:24%;left:50%;transform:translateX(-50%);font-size:19px;letter-spacing:5px;
     text-transform:uppercase;color:var(--sand);background:var(--panel);border:1px solid var(--line);
     padding:9px 26px;white-space:nowrap;text-align:center}
-  #respawn{position:absolute;inset:0;background:rgba(8,6,4,.55);display:flex;align-items:center;justify-content:center;flex-direction:column}
-  #respawn .d{font-size:30px;letter-spacing:8px;color:var(--red);text-transform:uppercase}
-  #respawn-t{font-size:80px;font-weight:700;font-family:var(--mono);color:#f0e8d5}
+  #respawn{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;padding:0 0 10vh 0;pointer-events:none}
+  #respawn .d{font-size:16px;letter-spacing:6px;color:var(--sand);text-transform:uppercase;opacity:.8}
+  #respawn-t{font-size:72px;font-weight:700;font-family:var(--mono);color:#f0e8d5;line-height:1}
+  /* death cinematic: desaturate the whole scene while dead */
+  #game-canvas{transition:filter .35s ease}
+  body.dead #game-canvas{filter:grayscale(1) contrast(1.05) brightness(.92)}
   #click-to-play{position:absolute;inset:0;background:rgba(8,6,4,.45);display:flex;align-items:center;justify-content:center;
     font-size:15px;letter-spacing:5px;text-transform:uppercase;color:var(--sand);pointer-events:auto;cursor:pointer}
 
@@ -556,7 +559,7 @@
   </div>
   <div id="banner" class="hidden"></div>
   <div id="vote" class="hidden"><div class="vh">vote next map</div><div id="vote-cards"></div></div>
-  <div id="respawn" class="hidden"><div class="d">eliminated</div><div id="respawn-t">3</div></div>
+  <div id="respawn" class="hidden"><div class="d">respawn in</div><div id="respawn-t">3</div></div>
   <div id="click-to-play" class="hidden">click to play</div>
 
   <!-- ═══ ON-SCREEN TOUCH CONTROLS (shown only in touch mode) ═══ -->

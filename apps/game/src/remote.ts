@@ -58,6 +58,18 @@ const ANIM_SPEED_MIN = 0.55, ANIM_SPEED_MAX = 1.6;
 // randomized death sets (see NOTICE.txt): body deaths vs headshot-specific deaths.
 const DEATHS_BODY = ["DeathFront", "DeathBack", "DeathRight", "Death"];
 const DEATHS_HEAD = ["DeathFrontHead", "DeathBackHead"];
+
+// clips that must loop seamlessly vs. one-shots that hold their final frame. Future
+// clips (Falling, TurnLeft/Right, JumpStart, Landing) are listed so they Just Work
+// once present in the glb.
+const LOOP_CLIPS = [
+  "Idle", "Walk", "WalkBack", "StrafeLeft", "StrafeRight", "Run", "RunBack", "Falling",
+];
+const ONCE_CLIPS = [
+  "Jump", "JumpBack", "JumpStart", "Landing", "Fire", "Reload", "ThrowGrenade",
+  "TurnLeft", "TurnRight", "StartWalk", "StartWalkBack", "StopWalk", "StopWalkBack",
+  ...DEATHS_BODY, ...DEATHS_HEAD,
+];
 const pick = (a: string[]): string => a[(Math.random() * a.length) | 0];
 
 /** pick the directional locomotion clip from a movement vector expressed in the
@@ -110,6 +122,10 @@ export class RemotePlayer {
   private smFwd = 0;             // smoothed local forward/strafe velocity (anti-jitter)
   private smStrafe = 0;
   private upperTimer = 0;        // seconds left of a one-shot upper-body clip (reload/throw)
+  private prevUpdateNow = 0;     // wall-clock of the last update (dt for the dead-body fall)
+  private fallVelY = 0;          // downward velocity of a dead body settling to the ground
+  /** ground height sampler (map.floorY), set by the game so a dead body can fall. */
+  groundYAt: ((x: number, z: number) => number) | null = null;
 
   constructor(engine: Engine, parent: Entity, public id: string, public name: string, _color: number, models: GameModels) {
     this.engine = engine;
@@ -147,9 +163,14 @@ export class RemotePlayer {
     // avatar is off-screen — the dominant per-frame CPU cost with many players.
     if (this.animator) {
       this.animator.cullingMode = AnimatorCullingMode.Complete;
-      // one-shot clips must hold their final frame instead of looping (Death stays
-      // prone; Jump doesn't restart mid-air). Locomotion/idle keep the default loop.
-      for (const clip of ["Death", "Jump", "JumpBack"]) {
+      // Explicit wrap modes: locomotion/idle must loop seamlessly (Galacean's default
+      // wrap can hitch at the loop point); every one-shot (deaths, jump, reload, throw)
+      // must play once and hold its final frame instead of restarting.
+      for (const clip of LOOP_CLIPS) {
+        const st = this.animator.findAnimatorState(clip);
+        if (st) st.wrapMode = WrapMode.Loop;
+      }
+      for (const clip of ONCE_CLIPS) {
         const st = this.animator.findAnimatorState(clip);
         if (st) st.wrapMode = WrapMode.Once;
       }
@@ -263,6 +284,20 @@ export class RemotePlayer {
   }
 
   update(now: number): void {
+    const dt = this.prevUpdateNow ? Math.min(now - this.prevUpdateNow, 0.05) : 0;
+    this.prevUpdateNow = now;
+
+    // Dead: the network stops sending updates, so a body killed mid-air would freeze
+    // floating. Ignore the (frozen) buffer and fall under gravity to the ground.
+    if (!this.alive) {
+      this.deadFall(dt);
+      this.syncDeath();
+      this.applyTransform();
+      this.syncWeapon();
+      this.driveAnimation();
+      return;
+    }
+
     const t = now - INTERP_DELAY;
     const b = this.buf;
     if (b.length === 0) return;
@@ -279,11 +314,23 @@ export class RemotePlayer {
     if (dy > Math.PI) dy -= 2 * Math.PI; else if (dy < -Math.PI) dy += 2 * Math.PI;
     this.yaw = a.yaw + dy * k;
     this.crouched = c.cr === 1;
+    this.fallVelY = 0; // reset so the next death starts from rest
 
     this.syncDeath();
     this.applyTransform();
     this.syncWeapon();
     this.driveAnimation();
+  }
+
+  /** apply gravity to a dead body until it reaches the ground (via groundYAt). */
+  private deadFall(dt: number): void {
+    if (!this.groundYAt || dt <= 0) return;
+    const gy = this.groundYAt(this.pos.x, this.pos.z);
+    if (this.pos.y > gy + 0.01) {
+      this.fallVelY -= 19 * dt;
+      this.pos.y += this.fallVelY * dt;
+      if (this.pos.y < gy) { this.pos.y = gy; this.fallVelY = 0; }
+    }
   }
 
   /** directly drive the avatar (offline bots — no interpolation buffer) */

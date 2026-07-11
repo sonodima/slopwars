@@ -53,6 +53,12 @@ interface BotAI {
   jumpCd: number;
 }
 
+// delay from pressing throw to the grenade leaving the hand — matches the toss
+// animation's wind-up so the projectile releases in sync with the arm.
+const THROW_WINDUP_MS = 350;
+// slow cinematic orbit (rad/s) of the death camera around the fallen body.
+const DEATH_CAM_ORBIT_SPEED = 0.4;
+
 class Game {
   engine!: Engine;
   usePhysx = false;   // true once the PhysX rigid-body backend is active
@@ -132,6 +138,9 @@ class Game {
   myHp = MAX_HP;
   alive = true;
   respawnAt = 0;
+  private deathTime = 0;                // wall-clock seconds at death (orbit phase)
+  private deathYaw = 0;                 // facing at death (orbit start angle)
+  private deathLookTarget = new Vector3();
   inGame = false;
   locked = false;
   sbOpen = false;
@@ -365,7 +374,7 @@ class Game {
     });
 
     document.addEventListener("mousemove", (e) => {
-      if (!this.locked || !this.inGame) return;
+      if (!this.locked || !this.inGame || !this.alive) return; // no aiming while dead (cinematic cam)
       const sens = 0.0022 * this.settings.state.sensitivity * (this.ws.scoped ? 0.35 : 1);
       this.body.look(e.movementX, e.movementY, sens);
     });
@@ -482,10 +491,22 @@ class Game {
 
   /** position the camera + local avatar for the current perspective */
   updateSelfView(eye: number, pitch: number): void {
+    // Dead: cinematic orbit death-cam showing your operator play out its death clip —
+    // even in first-person matches. No viewmodel, no aiming (mouse-look is disabled).
+    if (!this.alive) {
+      this.ws.showViewmodel(false);
+      if (this.selfAvatar) this.selfAvatar.isActive = false;
+      if (!this.isHider()) {
+        const op = this.ensureSelfOperator();
+        if (op) { op.weapon = this.ws.current; op.setPose(this.body.pos, this.body.yaw, this.body.crouched, false); }
+      }
+      this.updateDeathCam();
+      return;
+    }
+
     const third = this.thirdPersonActive();
-    // viewmodel only in first-person while alive (third-person shows the world avatar;
-    // a dead player shows no gun in either mode)
-    this.ws.showViewmodel(!third && this.alive);
+    // viewmodel only in first-person while alive (third-person shows the world avatar)
+    this.ws.showViewmodel(!third);
 
     if (!third) {
       // first person: camera at the eye, avatar hidden
@@ -542,6 +563,40 @@ class Game {
       this.engine, root, "self", this.names.get(this.net.myId) ?? "", this.net.colorOf(this.net.myId), this.models,
     );
     return this.selfOperator;
+  }
+
+  /** enter the death cinematic: desaturate the screen (B&W) and start the orbit clock. */
+  startDeathCam(): void {
+    this.deathTime = performance.now() / 1000;
+    this.deathYaw = this.body.yaw;
+    document.body.classList.add("dead");
+  }
+
+  /** leave the death cinematic on respawn. */
+  endDeathCam(): void {
+    document.body.classList.remove("dead");
+  }
+
+  /** slowly orbit the camera around the fallen body (which keeps falling under gravity
+   *  until it lands, so the shot follows it down). Pivots on the live body position. */
+  updateDeathCam(): void {
+    const c = this.body.pos;
+    const t = performance.now() / 1000 - this.deathTime;
+    const ang = this.deathYaw + t * DEATH_CAM_ORBIT_SPEED;
+    const r = 3.4, h = 1.6;
+    let cx = c.x + Math.sin(ang) * r;
+    let cy = c.y + h;
+    let cz = c.z + Math.cos(ang) * r;
+    // don't let the orbit clip through walls — pull in to the nearest hit
+    const o: Vec3 = { x: c.x, y: c.y + 1.0, z: c.z };
+    const dir: Vec3 = { x: cx - o.x, y: cy - o.y, z: cz - o.z };
+    const dl = Math.hypot(dir.x, dir.y, dir.z) || 1;
+    const nd: Vec3 = { x: dir.x / dl, y: dir.y / dl, z: dir.z / dl };
+    const hit = this.map.raycast(o, nd, dl + 0.3);
+    if (hit) { const d = Math.max(0.8, hit.dist - 0.3); cx = o.x + nd.x * d; cy = o.y + nd.y * d; cz = o.z + nd.z * d; }
+    this.camEntity.transform.setPosition(cx, cy, cz);
+    this.deathLookTarget.set(c.x, c.y + 0.5, c.z);
+    this.camEntity.transform.lookAt(this.deathLookTarget, this.worldUp);
   }
 
   /** apply host physics rules (gravity/speed scale) to every local body */
@@ -1134,22 +1189,29 @@ class Game {
   // ─── grenades ───────────────────────────────────────────────────────────────
 
   throwNade(kind: NadeKind): void {
-    const d = this.body.aimDir();
-    const o: Vec3 = { x: this.body.pos.x + d.x * 0.35, y: this.body.eyeY - 0.05, z: this.body.pos.z + d.z * 0.35 };
-    const spd = kind === "he" ? 16 : 14;
-    const v: Vec3 = { x: d.x * spd, y: d.y * spd + 3.2, z: d.z * spd };
-    this.nades.throw_(kind, o, v, this.net.myId, true);
-    this.selfOperator?.triggerUpper("ThrowGrenade", 0.9); // third-person toss animation
-    const m: Msg = { t: "nade", id: this.net.myId, k: kind, o: [o.x, o.y, o.z], v: [v.x, v.y, v.z] };
-    if (this.net.isHost) this.net.broadcast(m);
-    else this.net.send(m);
-    // last one thrown → back to rifle (but keep the gungame/prophunt weapon lock)
-    if (this.ws.ammo[kind].mag <= 0) window.setTimeout(() => {
-      if (this.alive && this.ws.current === kind) {
-        if (this.mode === "gungame") this.applyTier(this.tiers[this.net.myId] ?? 0);
-        else if (this.canSwitchWeapon()) { this.ws.select("ak47"); this.applyScopeFov(); }
-      }
-    }, 500);
+    // play the toss animation first, then release the projectile at the wind-up peak so
+    // the grenade leaves the hand in sync with the arm (was released instantly, before
+    // the animation had even started). Aim is sampled at release, not at button-press.
+    this.selfOperator?.triggerUpper("ThrowGrenade", 0.9);
+    const release = (): void => {
+      if (!this.alive || this.ws.current !== kind) return; // died / switched during wind-up
+      const d = this.body.aimDir();
+      const o: Vec3 = { x: this.body.pos.x + d.x * 0.35, y: this.body.eyeY - 0.05, z: this.body.pos.z + d.z * 0.35 };
+      const spd = kind === "he" ? 16 : 14;
+      const v: Vec3 = { x: d.x * spd, y: d.y * spd + 3.2, z: d.z * spd };
+      this.nades.throw_(kind, o, v, this.net.myId, true);
+      const m: Msg = { t: "nade", id: this.net.myId, k: kind, o: [o.x, o.y, o.z], v: [v.x, v.y, v.z] };
+      if (this.net.isHost) this.net.broadcast(m);
+      else this.net.send(m);
+      // last one thrown → back to rifle (but keep the gungame/prophunt weapon lock)
+      if (this.ws.ammo[kind].mag <= 0) window.setTimeout(() => {
+        if (this.alive && this.ws.current === kind) {
+          if (this.mode === "gungame") this.applyTier(this.tiers[this.net.myId] ?? 0);
+          else if (this.canSwitchWeapon()) { this.ws.select("ak47"); this.applyScopeFov(); }
+        }
+      }, 500);
+    };
+    window.setTimeout(release, THROW_WINDUP_MS);
   }
 
   /** area damage from a blast at `c`. `cause` attributes the kill — a thrown HE
@@ -1791,6 +1853,7 @@ class Game {
     let r = this.remotes.get(id);
     if (!r) {
       r = new RemotePlayer(this.engine, this.engine.sceneManager.activeScene.getRootEntity()!, id, name, this.net.colorOf(id), this.models);
+      r.groundYAt = (x, z) => this.map.floorY(x, z); // let a dead body fall to the floor
       this.remotes.set(id, r);
     }
     return r;
@@ -1996,6 +2059,7 @@ class Game {
         this.alive = false;
         this.selfOperator?.markDead(m.hs === 1); // pick the death variant before syncDeath
         this.respawnAt = performance.now() / 1000 + MODES[this.mode].respawn;
+        this.startDeathCam();
         this.hud.crosshair(false);
         this.ws.setScope(false);
         this.applyScopeFov();
@@ -2017,6 +2081,7 @@ class Game {
         this.ws.ammo.mol = { mag: 1, reserve: -1 };
         this.applyLoadout(); // mode-aware weapon (gungame tier / prophunt disguise)
         this.applyScopeFov();
+        this.endDeathCam();
         this.hud.hp(this.myHp);
         this.hud.respawnOverlay(null);
         this.hud.crosshair(true);
