@@ -2,5 +2,14 @@
   "scale": 0.007,
   "materials": {
     "AK47_MasterMat": "wep_ak47"
+  },
+  "anchors": {
+    "muzzle": {
+      "at": [
+        0,
+        -0.005,
+        -0.31
+      ]
+    }
   }
 }

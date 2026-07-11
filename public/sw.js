@@ -3,8 +3,17 @@
  *   - navigation requests → network-first, fall back to cached shell (offline launch)
  *   - other same-origin GETs → stale-while-revalidate (instant repeat loads)
  * Cross-origin (PeerJS signalling, STUN/TURN, etc.) is left untouched.
+ *
+ * Cache busting on deploy: the cache name carries a per-build id (`__BUILD__`, stamped
+ * into this file at build time — see swVersion() in vite.config.ts). Game assets
+ * (models/textures/HDRI/audio) are served with STABLE, non-hashed URLs, so without a
+ * versioned cache the stale-while-revalidate copy would win on the first load after a
+ * deploy and the new asset would only appear on a *second* refresh (the "needs a force
+ * refresh" bug, incl. iOS PWA). Bumping the cache name each build makes `activate` purge
+ * every older cache, so the new SW starts empty and refetches changed assets fresh.
  */
-const CACHE = "slopwars-v2";
+const BUILD = "__BUILD__";
+const CACHE = `slopwars-${BUILD}`;
 const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./logo.png"];
 
 // Precache the app shell + the build's JS/CSS (from precache.json) so the game
@@ -27,6 +36,8 @@ self.addEventListener("install", (e) => {
 self.addEventListener("activate", (e) => {
   e.waitUntil(
     caches.keys()
+      // drop every previous build's cache (any slopwars-* that isn't this build's), so a
+      // redeployed asset at the same URL can't be served from a stale cache
       .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
   );

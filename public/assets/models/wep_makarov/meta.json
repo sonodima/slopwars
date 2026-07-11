@@ -2,5 +2,14 @@
   "scale": 1.15,
   "materials": {
     "Makarov_MasterMat": "wep_makarov"
+  },
+  "anchors": {
+    "muzzle": {
+      "at": [
+        0.005,
+        0.05,
+        -0.128
+      ]
+    }
   }
 }

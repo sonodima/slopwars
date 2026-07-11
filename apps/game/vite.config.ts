@@ -1,5 +1,7 @@
 import { defineConfig, Plugin } from "vite";
 import { fileURLToPath } from "node:url";
+import { createHash } from "node:crypto";
+import fs from "node:fs";
 import path from "node:path";
 import { assetCatalogPlugin, scanMaps } from "../../packages/shared/src/vite-asset-catalog";
 // @ts-expect-error — plain .mjs helper, no type declarations
@@ -35,6 +37,32 @@ function precacheManifest(): Plugin {
   };
 }
 
+/** Stamp a per-build id into the service worker's cache name (the `__BUILD__` token in
+ *  public/sw.js). The id is a hash of the build's emitted JS/CSS filenames — which are
+ *  content-hashed by Vite, so it changes iff the app code changed. This does two things:
+ *  (1) the sw.js *bytes* change each deploy, so browsers re-run install/activate (a
+ *  byte-identical SW is never re-evaluated); (2) the cache name changes, so activate
+ *  purges the old cache and the new SW refetches the stable-URL game assets fresh —
+ *  killing the "changed asset needs a force refresh" bug (incl. iOS PWA). */
+function swVersion(): Plugin {
+  let build = "dev";
+  return {
+    name: "sw-version",
+    apply: "build",
+    generateBundle(_options, bundle) {
+      const names = Object.keys(bundle).filter((f) => /\.(js|css)$/.test(f)).sort().join("|");
+      build = createHash("sha256").update(names).digest("hex").slice(0, 12);
+    },
+    // rewrite AFTER publicDir (which holds sw.js) has been copied to the out dir
+    writeBundle(options) {
+      const swPath = path.join(options.dir ?? "dist", "sw.js");
+      if (!fs.existsSync(swPath)) return;
+      const src = fs.readFileSync(swPath, "utf8").replace(/__BUILD__/g, build);
+      fs.writeFileSync(swPath, src);
+    },
+  };
+}
+
 export default defineConfig({
   base: "./",
   // assets (models/textures/audio/hdri) live once at the repo root and are shared
@@ -43,7 +71,7 @@ export default defineConfig({
   resolve: {
     alias: { "@slopwars/shared": shared },
   },
-  plugins: [assetCatalogPlugin({ root: repoRoot }), precacheManifest()],
+  plugins: [assetCatalogPlugin({ root: repoRoot }), precacheManifest(), swVersion()],
   build: {
     target: "es2020",
     chunkSizeWarningLimit: 4096,
