@@ -44,6 +44,13 @@ const TP_HAND_OFFSET: [number, number, number] = [0, 0, 0];
 const LOCO_RUN = 4.5;  // m/s above which the avatar plays Run
 const LOCO_WALK = 0.7; // m/s above which the avatar plays Walk
 
+/** Ground speed (m/s) each locomotion clip was authored to move at, so playback can be
+ *  rate-matched to the real speed (feet stop sliding, and slow steps read as slow). */
+const CLIP_REF_SPEED: Record<string, number> = {
+  Walk: 1.6, WalkBack: 1.6, StrafeLeft: 1.6, StrafeRight: 1.6, Run: 4.5, RunBack: 4.0,
+};
+const ANIM_SPEED_MIN = 0.55, ANIM_SPEED_MAX = 1.9;
+
 /** pick the directional locomotion clip from a movement vector expressed in the
  *  avatar's own frame (fwd = +forward/-back, strafe = +right/-left) and speed. Falls
  *  back through the clip set the operator glTF ships (see NOTICE.txt). */
@@ -117,11 +124,10 @@ export class RemotePlayer {
     this.entity.addChild(char);
     this.charRoot = char;
 
-    // Perf: skinned players are the heaviest thing in a match (N animated 46k-tri
-    // rigs). Don't let them cast shadows — the shadow pass would redraw every
-    // off-screen operator's geometry each frame — the map/props still cast shadows.
-    for (const r of char.getComponentsIncludeChildren(SkinnedMeshRenderer, [])) r.castShadows = false;
-    for (const r of char.getComponentsIncludeChildren(MeshRenderer, [])) r.castShadows = false;
+    // Players cast shadows so they're grounded in the scene (matches the map/props).
+    // Animation is still culled off-screen (below) to keep the skeleton cost down.
+    for (const r of char.getComponentsIncludeChildren(SkinnedMeshRenderer, [])) r.castShadows = true;
+    for (const r of char.getComponentsIncludeChildren(MeshRenderer, [])) r.castShadows = true;
 
     // the glTF loader attaches an Animator (auto-built controller, states named
     // after the clips). Start it idling so a standing player isn't a frozen T-pose.
@@ -292,7 +298,10 @@ export class RemotePlayer {
       // Galacean quirk: the very first play() right after the avatar (re)activates can
       // be swallowed (renders the bind/T-pose), so (re)issue it for the first two death
       // frames before latching — a single delayed play is enough to make it stick.
-      if (this.animator?.findAnimatorState("Death")) this.animator.play("Death");
+      if (this.animator) {
+        this.animator.speed = 1; // clear any locomotion rate-scaling for the death clip
+        if (this.animator.findAnimatorState("Death")) this.animator.play("Death");
+      }
       if (++this.deathKick >= 2) this.deathPlayed = true;
     } else if (this.deathPlayed || this.deathKick) {
       this.deathPlayed = false; this.deathKick = 0; this.locoState = ""; // respawned
@@ -355,6 +364,10 @@ export class RemotePlayer {
       if (justActivated) this.animator.play(want);
       else this.animator.crossFade(want, 0.15);
     }
+    // rate-match locomotion playback to the real speed so the animation slows/speeds
+    // with the player (and the feet stop sliding). Idle/Jump/etc. run at normal speed.
+    const ref = CLIP_REF_SPEED[want];
+    this.animator.speed = ref ? clamp(sp / ref, ANIM_SPEED_MIN, ANIM_SPEED_MAX) : 1;
   }
 
   /** ray test → { dist, head } or null. Ray in world space. */

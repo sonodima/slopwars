@@ -61,6 +61,10 @@ export const MOVE = {
   sprintFactor: 1.4, // ground max-speed multiplier while sprinting
 };
 
+// directional move penalties (classic FPS feel): slower moving backward / sideways
+export const MOVE_BACK_FACTOR = 0.72;
+export const MOVE_STRAFE_FACTOR = 0.85;
+
 export const PICKUP_HEAL = 25;
 export const PICKUP_RESPAWN = 15; // s
 export const PICKUP_RADIUS = 1.1;

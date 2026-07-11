@@ -27,7 +27,8 @@ import { Input, PlayerBody } from "./player";
 import { RemotePlayer } from "./remote";
 import { MODEL_LOAD_COUNT, buildProp, instantiate, loadModels, propHuntPool } from "./models";
 import {
-  BOT_TUNING, DEFAULT_CONFIG, GamePhase, GameSnapshot, INTERMISSION, MatchConfig, MAX_HP, ModeId, Msg,
+  BOT_TUNING, DEFAULT_CONFIG, GamePhase, GameSnapshot, INTERMISSION, MatchConfig, MAX_HP, ModeId,
+  MOVE_BACK_FACTOR, MOVE_STRAFE_FACTOR, Msg,
   PICKUP_HEAL, PICKUP_RADIUS, PICKUP_RESPAWN, PlayerState, POWERUPS, POWERUP_INTERVAL,
   POWERUP_RADIUS, PowerupKind, QUAD_MULT, RAPID_MULT, SPEED_MULT, TICK_RATE,
   Vec3, WEAPONS, WeaponDef, WeaponId, DeathCause, LOADOUT, clamp, rand, randomPowerup,
@@ -833,7 +834,11 @@ class Game {
       const isHider = this.mode === "prophunt" && this.myRole === ROLE_HIDE;
       const canPlay = this.alive && this.phase === "play" && !frozen;
       const speedBuff = this.buff?.kind === "speed" ? SPEED_MULT : 1;
-      this.body.update(dt, canPlay ? inp : { fwd: 0, right: 0, jump: false, crouch: false, sprint: false }, this.ws.def().moveFactor * speedBuff * this.cfg.speed);
+      // directional movement penalty (classic FPS feel): backpedalling and strafing are
+      // slower than running forward. Only the dominant wish direction matters.
+      const back = inp.fwd < -0.01, sideDom = Math.abs(inp.right) > Math.abs(inp.fwd) + 0.01;
+      const dirFactor = sideDom ? MOVE_STRAFE_FACTOR : back ? MOVE_BACK_FACTOR : 1;
+      this.body.update(dt, canPlay ? inp : { fwd: 0, right: 0, jump: false, crouch: false, sprint: false }, this.ws.def().moveFactor * speedBuff * this.cfg.speed * dirFactor);
 
       if (this.body.jumped) sfx.jump();
       if (this.body.landed) sfx.land();
