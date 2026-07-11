@@ -319,6 +319,19 @@ class Game {
   /** register the PWA service worker (installable / offline shell) in prod only */
   registerServiceWorker(): void {
     if (!import.meta.env.PROD || !("serviceWorker" in navigator)) return;
+    // If a controller already exists, this page is being run by an OLD service worker.
+    // When a newly-deployed SW claims control (its `activate` purged the stale cache), a
+    // one-time reload fetches the fresh HTML/JS/assets — so an updated deploy applies on
+    // its own, without the user needing a manual force refresh (incl. iOS PWA). Skipped on
+    // the very first install (no prior controller) and while in a match (the reload would
+    // interrupt play — the update lands on the next navigation instead).
+    const hadController = !!navigator.serviceWorker.controller;
+    let refreshing = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (refreshing || !hadController || this.inGame) return;
+      refreshing = true;
+      window.location.reload();
+    });
     void navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch(() => {});
   }
 

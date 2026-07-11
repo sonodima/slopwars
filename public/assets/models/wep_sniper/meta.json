@@ -2,5 +2,14 @@
   "scale": 0.0052,
   "materials": {
     "Sniper_MasterMat": "wep_sniper"
+  },
+  "anchors": {
+    "muzzle": {
+      "at": [
+        0,
+        0.125,
+        -0.5
+      ]
+    }
   }
 }

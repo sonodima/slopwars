@@ -182,6 +182,25 @@ export function assetCatalogPlugin(opts: Options = {}): Plugin {
 
     configureServer(server) {
       const mapsDir = path.join(root, "maps");
+      const assetsDir = path.join(root, "public", "assets");
+
+      // Live catalog refresh: publicDir isn't part of Vite's module graph, so editing an
+      // asset — most importantly a model's meta.json (its scale, materials, or `muzzle`
+      // anchor) — used to leave `virtual:asset-catalog` stale until the dev server was
+      // restarted. The game/editor then rendered with the OLD meta (e.g. a muzzle flash
+      // at the previous anchor), so freshly-authored edits looked like they hadn't
+      // applied. Watch the asset tree and, on any change, invalidate the virtual module
+      // (its `load` re-scans from disk) and full-reload so edits show up immediately.
+      server.watcher.add(assetsDir);
+      const refreshCatalog = (file: string): void => {
+        if (!file.startsWith(assetsDir)) return;
+        const mod = server.moduleGraph.getModuleById("\0" + V_ASSETS);
+        if (mod) server.moduleGraph.invalidateModule(mod);
+        server.ws.send({ type: "full-reload" });
+      };
+      server.watcher.on("add", refreshCatalog);
+      server.watcher.on("change", refreshCatalog);
+      server.watcher.on("unlink", refreshCatalog);
 
       // serve maps/*.json in dev (they are not under publicDir)
       server.middlewares.use((req, res, next) => {
