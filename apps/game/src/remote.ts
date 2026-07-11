@@ -8,9 +8,8 @@
 // (a model from the map's prop-hunt pool, or a plain crate when the pool is empty).
 import {
   Animator, AnimatorCullingMode, BlinnPhongMaterial, Color, Engine, Entity, MeshRenderer,
-  PrimitiveMesh, SkinnedMeshRenderer, Vector3,
+  PrimitiveMesh, SkinnedMeshRenderer,
 } from "@galacean/engine";
-import { modelAnchor } from "@slopwars/shared";
 import { AABB, rayAABB } from "./map";
 import { GameModels, buildProp, instantiate, modelMetaOf } from "./models";
 import type { MaterialLibrary } from "./materials";
@@ -33,13 +32,12 @@ const TP_WEAPON: Partial<Record<WeaponId, string>> = {
 };
 
 // The weapon is parented to `mixamorig:RightHand` so it follows the arm through every
-// clip. Each model is seated by its own `grip` anchor (same authored data the first-
-// person viewmodel uses), but the hand-bone's rest frame differs from the camera frame
-// the grip was authored in — so a fixed correction rotates the whole grip-seated weapon
-// from the viewmodel frame into the hand's aim frame. Tuned once; shared by all weapons.
+// clip. Each model seats by its own meta scale (its authored orientation already faces
+// forward); the hand-bone's rest frame differs from that forward frame, so a fixed
+// correction rotates the weapon into the hand's aim frame. Tuned once; shared by all.
 const TP_HAND_ROT: [number, number, number] = [-87, -155, 59];
-// small extra offset (metres, hand frame) to seat the grip in the palm rather than dead-
-// centre on the bone pivot.
+// small extra offset (metres, hand frame) to seat the weapon in the palm rather than
+// dead-centre on the bone pivot.
 const TP_HAND_OFFSET: [number, number, number] = [0, 0, 0];
 
 const LOCO_RUN = 4.5;  // m/s above which the avatar plays Run
@@ -137,11 +135,6 @@ export class RemotePlayer {
     const folder = TP_WEAPON[this.weapon];
     if (!folder) return; // grenades etc. — nothing held
     const meta = modelMetaOf(folder);
-    // The grip anchor fine-tunes where the model sits in the hand; it's OPTIONAL —
-    // without one the weapon simply seats at the mount origin (scale only), the same
-    // fallback the first-person viewmodel uses. This keeps the gun visible in third
-    // person even for models that carry no grip (rather than showing empty hands).
-    const grip = modelAnchor(meta, "grip");
     const m = instantiate(this.models[folder]);
     if (!m) return;
     // geometry-only weapon glTFs render with a flat default material — give the
@@ -151,10 +144,10 @@ export class RemotePlayer {
       for (let i = 0; i < r.getMaterials().length; i++) r.setMaterial(i, this.weaponMat);
     }
     // Parent to the hand bone via a "mount" whose fixed rotation corrects the bone's
-    // rest frame to the aim frame (TP_HAND_ROT), so the same grip data that seats the
-    // first-person viewmodel also seats the hand weapon. Fall back to the yaw-aligned
-    // holder if the bone is missing. Scale/offset are compensated for the bone's world
-    // scale (the skeleton lives in a centimetre-scaled subtree).
+    // rest frame to the aim frame (TP_HAND_ROT), matching the model's forward-facing
+    // authored orientation. Fall back to the yaw-aligned holder if the bone is missing.
+    // Scale is compensated for the bone's world scale (the skeleton lives in a
+    // centimetre-scaled subtree); the model seats at the mount origin by scale only.
     const parent = this.handBone ?? this.weaponHolder;
     const mount = parent.createChild("wep-mount");
     mount.transform.setRotation(TP_HAND_ROT[0], TP_HAND_ROT[1], TP_HAND_ROT[2]);
@@ -162,18 +155,7 @@ export class RemotePlayer {
     const ws = this.handBone ? this.handBone.transform.lossyWorldScale.x : 1;
     const inv = Math.abs(ws) > 1e-6 ? 1 / ws : 1;
     const s = (meta.scale ?? 1) * inv;
-    // seat by the grip anchor: orient by the anchor, then offset so the anchor's
-    // model-local point lands at the mount origin (P = −R·S·gripPos) — identical to
-    // the first-person placeByGrip, just inside the hand-frame mount. With no grip,
-    // scale only and leave the model at the mount origin.
     m.transform.setScale(s, s, s);
-    if (grip) {
-      const gr = grip.rot ?? [0, 0, 0];
-      m.transform.setRotation(gr[0], gr[1], gr[2]);
-      const g = new Vector3(grip.at[0] * s, grip.at[1] * s, grip.at[2] * s);
-      Vector3.transformByQuat(g, m.transform.rotationQuaternion, g);
-      m.transform.setPosition(-g.x, -g.y, -g.z);
-    }
     mount.addChild(m);
     this.heldEntity = mount; // destroying the mount drops the weapon with it
   }

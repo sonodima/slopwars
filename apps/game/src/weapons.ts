@@ -14,12 +14,9 @@ interface Ammo { mag: number; reserve: number }
 // The model each weapon slot is held as — the ONLY weapon-specific model data in code.
 // These are ordinary geometry-only models (CC0 "Guns & Explosives" + "Melee Weapons"
 // packs, 3dmodelscc0): they carry their own library materials (meta.materials) and
-// their held pose (meta.scale + meta.anchors.grip), authored in the editor exactly
-// like any other model — so there are no per-weapon offsets/rotations here.
-// viewmodel-space flash position used when a weapon carries no `muzzle` anchor — the
-// legacy hand-tuned barrel point, kept so unauthored weapons look exactly as before.
-const DEFAULT_MUZZLE: readonly [number, number, number] = [0, 0.01, -0.62];
-
+// their held pose (meta.scale), authored in the editor exactly like any other model —
+// so there are no per-weapon offsets/rotations here. The muzzle flash + shot origin come
+// from each model's `muzzle` anchor (also authored in the editor).
 const WEAPON_MODEL: Record<WeaponId, string> = {
   knife: "wep_knife",
   usp: "wep_makarov",
@@ -82,18 +79,21 @@ export class WeaponSystem {
     this.drawTimer = 0.25;
     this.setScope(false);
     for (const id of LOADOUT) { const e = this.models[id]; if (e) e.isActive = id === w; }
-    // seat the muzzle flash at this weapon's barrel tip (its `muzzle` anchor), or the
-    // default point when it has none.
+    // seat the muzzle flash at this weapon's barrel tip (its `muzzle` anchor)
     const mz = this.muzzles[w];
     if (mz) this.flash.transform.setPosition(mz.x, mz.y, mz.z);
-    else this.flash.transform.setPosition(DEFAULT_MUZZLE[0], DEFAULT_MUZZLE[1], DEFAULT_MUZZLE[2]);
     sfx.draw();
     this.onAmmoChange?.();
   }
 
   /** the current weapon's muzzle point in WORLD space (the tip of the barrel, following
-   *  the animated viewmodel) — the origin a shot's tracer should start from. */
-  muzzleWorld(): Vec3 { const p = this.flash.transform.worldPosition; return { x: p.x, y: p.y, z: p.z }; }
+   *  the animated viewmodel) — the origin a shot's tracer starts from. Null when the
+   *  weapon carries no `muzzle` anchor. */
+  muzzleWorld(): Vec3 | null {
+    if (!this.muzzles[this.current]) return null;
+    const p = this.flash.transform.worldPosition;
+    return { x: p.x, y: p.y, z: p.z };
+  }
 
   /** the distinct model folders the viewmodels were built from (for the host to
    *  resolve just those models' material textures) */
@@ -204,54 +204,35 @@ export class WeaponSystem {
   // ─── visuals ────────────────────────────────────────────────────────────────
 
   private buildModels(): void {
-    // Each weapon is an ordinary model, seated at the hand by its own meta (scale +
-    // the `grip` anchor). Setting modelFolders lets applyModelMaterials shade them
-    // with their library materials, exactly like a placed prop.
+    // Each weapon is an ordinary model, seated at the hand by its own meta scale (the
+    // model's authored orientation already faces forward). Setting modelFolders lets
+    // applyModelMaterials shade them with their library materials, like a placed prop.
     for (const id of LOADOUT) {
       const folder = WEAPON_MODEL[id];
       const m = instantiate(this.src[folder]);
       if (!m) { console.warn("[weapon] model missing:", folder); continue; }
       const meta = modelMetaOf(folder);
-      this.placeByGrip(m, meta);
+      const s = meta.scale ?? 1;
+      m.transform.setScale(s, s, s);
       this.vm.addChild(m);
       this.models[id] = m;
       this.modelFolders[id] = folder;
-      const mz = this.muzzlePoint(m, meta);
+      const mz = this.muzzlePoint(meta);
       if (mz) this.muzzles[id] = mz;
     }
   }
 
-  /** the model's `muzzle` anchor mapped into viewmodel space, given the model already
-   *  seated by placeByGrip (so the point rides its scale/rotation/offset). Null when the
-   *  model carries no muzzle anchor. */
-  private muzzlePoint(m: Entity, meta: ModelMeta): Vector3 | null {
+  /** the model's `muzzle` anchor mapped into viewmodel space (the model is seated at the
+   *  viewmodel origin by scale only). Null when the model carries no muzzle anchor. */
+  private muzzlePoint(meta: ModelMeta): Vector3 | null {
     const muzzle = modelAnchor(meta, "muzzle");
     if (!muzzle) return null;
     const s = meta.scale ?? 1;
-    const p = new Vector3(muzzle.at[0] * s, muzzle.at[1] * s, muzzle.at[2] * s);
-    Vector3.transformByQuat(p, m.transform.rotationQuaternion, p);
-    const mp = m.transform.position;
-    return new Vector3(p.x + mp.x, p.y + mp.y, p.z + mp.z);
-  }
-
-  /** seat a held model at the hand: scale by meta.scale, orient by its `grip` anchor,
-   *  then offset so the anchor's model-local point lands at the viewmodel origin
-   *  (P = −R·S·grip.at). Same held-item convention as the third-person remote. */
-  private placeByGrip(m: Entity, meta: ModelMeta): void {
-    const s = meta.scale ?? 1;
-    m.transform.setScale(s, s, s);
-    const grip = modelAnchor(meta, "grip");
-    if (!grip) return;
-    const gr = grip.rot ?? [0, 0, 0];
-    m.transform.setRotation(gr[0], gr[1], gr[2]);
-    const g = new Vector3(grip.at[0] * s, grip.at[1] * s, grip.at[2] * s);
-    Vector3.transformByQuat(g, m.transform.rotationQuaternion, g);
-    m.transform.setPosition(-g.x, -g.y, -g.z);
+    return new Vector3(muzzle.at[0] * s, muzzle.at[1] * s, muzzle.at[2] * s);
   }
 
   private buildFlash(): void {
     this.flash = this.vm.createChild("flash");
-    this.flash.transform.setPosition(0, 0.01, -0.62);
     const r = this.flash.addComponent(MeshRenderer);
     r.mesh = PrimitiveMesh.createSphere(this.engine, 0.055, 8);
     const m = new UnlitMaterial(this.engine);
@@ -265,6 +246,8 @@ export class WeaponSystem {
   }
 
   private showFlash(): void {
+    // no muzzle anchor authored → no flash to place (author it in the editor's Model view)
+    if (!this.muzzles[this.current]) return;
     this.flash.isActive = true;
     this.flashLight.enabled = true;
     this.flash.transform.setRotation(0, 0, Math.random() * 360);
@@ -279,6 +262,10 @@ export class WeaponSystem {
    *  light are also just +1, this single prewarm covers those first-explosion stalls
    *  too. Hidden again after a few rendered frames (independent of the in-game loop). */
   prewarm(): void {
+    // park the flash a few metres ahead purely for the shader warmup (its real position
+    // comes from the current weapon's muzzle anchor at fire time), so it isn't rendered
+    // sitting on the camera when no muzzle is seated yet.
+    this.flash.transform.setPosition(0, 0, -3);
     this.flash.isActive = true;
     this.flashLight.enabled = true;
     this.flashTtl = 0; // don't let a later update() also try to hide it

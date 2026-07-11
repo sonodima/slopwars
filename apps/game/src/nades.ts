@@ -64,9 +64,9 @@ export class Projectiles {
   private root: Entity;
   private acc = 0;
 
-  // loaded models + a material library, handed over once weapon textures are ready, so
-  // a thrown grenade renders as its actual (shaded) model instead of a placeholder ball.
-  private models: GameModels | null = null;
+  // material library for the thrown-grenade models, handed over once weapon textures are
+  // ready (the models themselves are passed at construction). A grenade thrown before the
+  // library loads shows the model unshaded for its brief life; by match time it's ready.
   private matLib: MaterialLibrary | null = null;
 
   private mHe: UnlitMaterial;
@@ -83,7 +83,7 @@ export class Projectiles {
   private boomLight: PointLight;
   private boomToken = 0;
 
-  constructor(private engine: Engine, parent: Entity, private map: GameMap) {
+  constructor(private engine: Engine, parent: Entity, private map: GameMap, private models: GameModels) {
     this.root = parent.createChild("nades");
     this.mHe = this.unlit(0.12, 0.16, 0.1);
     this.mMol = this.unlit(0.7, 0.4, 0.12);
@@ -116,15 +116,6 @@ export class Projectiles {
     return m;
   }
 
-  private sphere(mat: UnlitMaterial, radius: number, seg = 8): Entity {
-    const e = this.root.createChild("s");
-    const mr = e.addComponent(MeshRenderer);
-    mr.mesh = this.unitSphere(seg);
-    mr.setMaterial(mat);
-    e.transform.setScale(radius, radius, radius);   // radius via scale, not geometry
-    return e;
-  }
-
   // Pool of short-lived FX sphere entities. A blast spawns ~24 of them; creating +
   // destroying that many entities/renderers every explosion is the remaining hitch
   // now the mesh upload is gone. We reuse deactivated ones, reconfiguring the mesh +
@@ -142,31 +133,24 @@ export class Projectiles {
   }
   private releaseSphere(e: Entity): void { e.isActive = false; this.fxPool.push(e); }
 
-  /** supply the loaded models + a material library so thrown grenades render as their
-   *  real (shaded) weapon model. Until this is called (or if a model is missing) the
-   *  projectile falls back to a coloured sphere. Called once weapon textures load. */
-  setModels(models: GameModels, lib: MaterialLibrary): void {
-    this.models = models;
-    this.matLib = lib;
-  }
+  /** supply the material library that shades the thrown-grenade models (loads async,
+   *  after the models are already in hand). */
+  setMaterialLibrary(lib: MaterialLibrary): void { this.matLib = lib; }
 
-  /** the thrown projectile's visual: the weapon's actual model (scaled + shaded by its
-   *  meta), or a plain coloured sphere when the model/library isn't available. */
+  /** the thrown projectile's visual: the weapon's actual model, scaled + shaded by its
+   *  meta (shading applied once the material library is available). */
   private nadeVisual(kind: NadeKind): Entity {
     const folder = NADE_MODEL[kind];
-    const res = this.models?.[folder];
-    if (res && this.matLib) {
-      const m = instantiate(res);
-      if (m) {
-        const meta = modelMetaOf(folder);
-        const s = meta.scale ?? 1;
-        m.transform.setScale(s, s, s);
-        shadeModelSlots(m, meta, this.matLib);
-        this.root.addChild(m);
-        return m;
-      }
-    }
-    return this.sphere(kind === "he" ? this.mHe : this.mMol, kind === "he" ? 0.11 : 0.13);
+    const m = instantiate(this.models[folder]);
+    // a weapon model that failed to load leaves an empty carrier so physics still runs
+    // (it just isn't visible) — never a stand-in sphere.
+    if (!m) return this.root.createChild("nade");
+    const meta = modelMetaOf(folder);
+    const s = meta.scale ?? 1;
+    m.transform.setScale(s, s, s);
+    if (this.matLib) shadeModelSlots(m, meta, this.matLib);
+    this.root.addChild(m);
+    return m;
   }
 
   throw_(kind: NadeKind, o: Vec3, v: Vec3, owner: string, local: boolean): void {

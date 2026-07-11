@@ -327,14 +327,14 @@ function setSlotMaterial(meta: ModelMeta, slot: string, value: string): void {
  *  is a card (its label, a remove button, and its param fields inline, rendered the same
  *  way behaviour params are), with an "Add anchor…" picker at the bottom. Clicking a
  *  card's header selects it, showing its icon-gizmo in the Model view for direct drag.
- *  Extensible via ANCHOR_KINDS — grip (hand-attach) and muzzle (flash/shot origin). */
+ *  Extensible via ANCHOR_KINDS — currently muzzle (a weapon's flash/shot origin). */
 function anchorSection(host: HTMLElement, meta: ModelMeta, hooks: ModelHooks, save: () => void): void {
   group(host, "Anchors");
   const anchors = meta.anchors ?? {};
   const present = ANCHOR_KINDS.filter((k) => anchors[k.key]);
   const sel = hooks.anchorSel();
 
-  if (!present.length) host.append(el("div", "side-note", "No anchors — add a held point (where a hand grips the model) or a muzzle (where a weapon's flash + shots start)."));
+  if (!present.length) host.append(el("div", "side-note", "No anchors — add a muzzle to mark where a weapon's flash + shots start. It shows as an icon in the Model view; drag it with the Move tool."));
 
   for (const kind of present) {
     const a = anchors[kind.key] as ModelAnchor;

@@ -99,7 +99,7 @@ export class PreviewScene {
   /** notified after a gizmo drag mutates the selected solid (persist + reshade) */
   onCollisionChange: (() => void) | null = null;
 
-  // ── model-view anchors (named attach points: grip, muzzle, …) ──
+  // ── model-view anchors (named attach points: muzzle, …) ──
   // Anchors are authored directly in the Model view: each shows as a billboard icon
   // (like the map viewport's object icons), is click-selected, and — when selected —
   // is moved/rotated with the same transform gizmo the collision solids use. `anchors`
@@ -366,8 +366,8 @@ export class PreviewScene {
    *  solid somewhere visible instead of at the origin). */
   modelCenter(): Tuple3 { const c = this.holderBox().center; return [round3(c.x), round3(c.y), round3(c.z)]; }
 
-  /** geometry centre in the model's own (base-excluded) frame — where a new grip
-   *  anchor is dropped so it lands visibly on the model, not at its foot/origin. */
+  /** geometry centre in the model's own (base-excluded) frame — where a new anchor
+   *  is dropped so it lands visibly on the model, not at its foot/origin. */
   modelLocalCenter(): Tuple3 { const c = this.holderBox().center; return [round3(c.x), round3(c.y - this.modelBase), round3(c.z)]; }
 
   /** shade each surface of the previewed model with the material assigned to its glTF
@@ -524,7 +524,7 @@ export class PreviewScene {
   }
 
   /** a click (no drag): Collision view picks the nearest solid; Model view toggles the
-   *  grip-anchor selection when its icon is clicked (deselecting on an empty click). */
+   *  anchor selection when its icon is clicked (deselecting on an empty click). */
   private onClick(e: PointerEvent): void {
     if (this.content.kind !== "model") return;
     if (this.content.view === "model") {
@@ -582,7 +582,7 @@ export class PreviewScene {
   }
 
   /** true when something is selected + editable by the transform gizmo: a collision
-   *  solid (Collision view) or the grip anchor (Model view). */
+   *  solid (Collision view) or the selected anchor (Model view). */
   private gizmoActive(): boolean {
     if (this.content.kind !== "model") return false;
     if (this.content.view === "collision") return this.selBox >= 0 && this.selBox < this.boxes.length;
@@ -855,7 +855,7 @@ export class PreviewScene {
 
   /** draw each anchor as a billboard icon at its world point — a solid glyph (amber
    *  when selected, else white) with a soft dark halo, matching the map viewport's
-   *  object icons. The icon differs per kind (grip vs muzzle). Model view only. */
+   *  object icons. Model view only. */
   private drawAnchorIcons(): void {
     if (!this.anchors) return;
     const ctx = this.octx;

@@ -267,7 +267,7 @@ class Game {
     };
     this.ws.onAmmoChange = () => this.refreshAmmoHud();
     this.tracers = new TracerPool(engine, root);
-    this.nades = new Projectiles(engine, root, this.map);
+    this.nades = new Projectiles(engine, root, this.map, this.models);
     this.nades.onBounce = (p) => { const r = this.relAudio(p); sfx.nadeBounce(r.pan, r.dist); };
     this.nades.onBoom = (p) => { const r = this.relAudio(p); sfx.explosion(r.pan, r.dist); this.physics.applyExplosion(p, HE_RADIUS, 42); };
     this.nades.onBreak = (p) => { const r = this.relAudio(p); sfx.shatter(r.pan, r.dist); };
@@ -961,7 +961,7 @@ class Game {
     this.broadcastShot(o, d, def.id);
     // start the local player's tracer at the viewmodel's muzzle (barrel tip) rather than
     // an eye-relative guess, so it reads as leaving the gun.
-    this.resolveRay(o, d, def, 1, this.net.myId, true, 0, 0, this.ws.muzzleWorld());
+    this.resolveRay(o, d, def, 1, this.net.myId, true, 0, 0, this.ws.muzzleWorld() ?? undefined);
   }
 
   /** trace one segment; may recurse once through a wall (wallbang). `tracerFrom` overrides
@@ -1446,7 +1446,7 @@ class Game {
     this.ws.applyModelMaterials(metas, lib);
     // the thrown-grenade models (wep_frag / wep_molotov) are among these weapon models,
     // so the same library shades the projectiles a player throws.
-    this.nades.setModels(this.models, lib);
+    this.nades.setMaterialLibrary(lib);
   }
 
   /** shade the Prop-Hunt disguise props with their models' assigned MAIN materials.

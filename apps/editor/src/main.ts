@@ -38,7 +38,7 @@ const modelEdits = new Map<string, ModelMeta>();
 // which collision solid is selected in the active model tab (drives highlight +
 // the per-solid fields in the left panel)
 let selBox = -1;
-// which named anchor (grip / muzzle / …) is selected in the active model tab (Model
+// which named anchor (muzzle / …) is selected in the active model tab (Model
 // view) — drives its highlight in the inspector list + its transform gizmo in the
 // preview. null = none selected.
 let selAnchor: string | null = null;
@@ -565,7 +565,7 @@ function collDelete(i: number): void {
   refreshInspector();
 }
 
-// ── anchor authoring (Model view) — named attach points (grip, muzzle, …) each show
+// ── anchor authoring (Model view) — named attach points (muzzle, …) each show
 // as a billboard icon, click-selected, and moved/rotated with the same gizmo as
 // collision solids ──
 function anchorSelect(name: string | null): void { selAnchor = name; preview.selectAnchor(name); refreshInspector(); }

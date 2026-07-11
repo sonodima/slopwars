@@ -32,13 +32,12 @@ export interface CollisionBox {
 export type CollisionMode = "auto" | "manual";
 
 /** a named attachment point on a model, in model-local space. The one the game reads
- *  today is `grip` — where a held item (a weapon, a pickup) sits in the hand: the
- *  point authored here is snapped onto the holder's hand and oriented by `rot`. The
- *  anchors map is deliberately keyed by name so more anchors (muzzle, sight, …) can
- *  be added later with no schema change. */
+ *  today is `muzzle` — where a weapon's flash + shots originate (the barrel tip). The
+ *  anchors map is deliberately keyed by name so more anchors (sight, …) can be added
+ *  later with no schema change. */
 export interface ModelAnchor {
   at: Tuple3;         // model-local position of the anchor
-  rot?: Tuple3;       // model-local euler degrees applied when the item is attached
+  rot?: Tuple3;       // model-local euler degrees applied when the anchor is used
 }
 
 /** one authorable anchor kind, driving the editor's anchor UI (the picker label, help
@@ -46,16 +45,12 @@ export interface ModelAnchor {
  *  (modelAnchor), so a new kind = one entry here plus game code that honours it. */
 export interface AnchorKind { key: string; label: string; help: string; rot: boolean }
 
-/** the anchor kinds a model can carry. `grip` is the hand-attach point (weapons,
- *  pickups); `muzzle` is where a weapon's flash + shots originate (the barrel tip). */
+/** the anchor kinds a model can carry. `muzzle` is where a weapon's flash + shots
+ *  originate (the barrel tip). */
 export const ANCHOR_KINDS: readonly AnchorKind[] = [
   {
-    key: "grip", label: "Held point", rot: true,
-    help: "Where a character grips the model when it's held (weapons, pickups). The hand snaps to this point; its rotation sets the held orientation.",
-  },
-  {
     key: "muzzle", label: "Muzzle", rot: false,
-    help: "Where a weapon's muzzle flash and shots originate — the tip of the barrel. Points forward (−Z) by the held orientation.",
+    help: "Where a weapon's muzzle flash and shots originate — the tip of the barrel. Points forward (−Z) by the model's orientation.",
   },
 ];
 
@@ -93,8 +88,8 @@ export interface ModelMeta {
    *  editor's model options to add the model to the pool a hider is randomly disguised
    *  as (instead of the fixed crate). */
   propHunt?: boolean;
-  /** named attachment points (model-local). `anchors.grip` positions the model when
-   *  it's held in a hand (weapons, pickups); more names can be added later. */
+  /** named attachment points (model-local). `anchors.muzzle` is where a weapon's flash
+   *  + shots originate; more names can be added later. */
   anchors?: Record<string, ModelAnchor>;
   [k: string]: unknown;
 }
@@ -120,8 +115,8 @@ export function modelSlotMaterial(meta: ModelMeta | undefined, slot: string): st
   return typeof meta.material === "string" && meta.material ? meta.material : undefined;
 }
 
-/** a model's named anchor (model-local), or undefined if it has none. `grip` is the
- *  hand-attach point read by the held-weapon code. */
+/** a model's named anchor (model-local), or undefined if it has none. `muzzle` is the
+ *  flash/shot origin read by the weapon code. */
 export function modelAnchor(meta: ModelMeta | undefined, name: string): ModelAnchor | undefined {
   return meta?.anchors?.[name];
 }
