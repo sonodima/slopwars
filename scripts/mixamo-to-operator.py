@@ -13,31 +13,48 @@
 #    mesh* node's own transform, so an empty-parent scale would render at raw cm / cull.
 #  - Hip (root-motion) horizontal translation is zeroed so clips play in place.
 #
-# Usage: blender --background --python scripts/mixamo-to-operator.py -- <toimport_dir> <out.glb>
+# Usage: blender --background --python scripts/mixamo-to-operator.py -- <toimport_dir> <out.glb> [extra_anim_dir ...]
+#   <toimport_dir>   holds Swat.fbx (mesh) + a "Shooter Pack" folder of loco FBX.
+#   [extra_anim_dir] optional flat folders of more Mixamo FBX (deaths/reload/throw).
 import bpy, os, sys, mathutils
 
 argv = sys.argv[sys.argv.index("--")+1:]
 SRC, OUT = argv[0], argv[1]
+EXTRA_DIRS = argv[2:]
 MESH_FBX = os.path.join(SRC, "Swat.fbx")
-ANIM_DIR = os.path.join(SRC, "Shooter Pack")
 
-CLIP_MAP = {
-  "rifle aiming idle":"Idle",
-  "walking":"Walk",
-  "walking backwards":"WalkBack",
-  "strafe":"StrafeLeft",
-  "strafe (2)":"StrafeRight",
-  "rifle run":"Run",
-  "run backwards":"RunBack",
-  "jump forward":"Jump",
-  "jump backward":"JumpBack",
-  "start walking":"StartWalk",
-  "start walking backwards":"StartWalkBack",
-  "stop walking":"StopWalk",
-  "walk backwards stop":"StopWalkBack",
-  "firing rifle":"Fire",
-  "walking to dying":"Death",
+# folder -> { source-fbx-basename (no ext) : glTF clip name }. The game references
+# these clip names (apps/game/src/remote.ts). Death From * feed the randomized death set.
+ANIM_SOURCES = [
+  (os.path.join(SRC, "Shooter Pack"), {
+    "rifle aiming idle":"Idle",
+    "walking":"Walk",
+    "walking backwards":"WalkBack",
+    "strafe":"StrafeLeft",
+    "strafe (2)":"StrafeRight",
+    "rifle run":"Run",
+    "run backwards":"RunBack",
+    "jump forward":"Jump",
+    "jump backward":"JumpBack",
+    "start walking":"StartWalk",
+    "start walking backwards":"StartWalkBack",
+    "stop walking":"StopWalk",
+    "walk backwards stop":"StopWalkBack",
+    "firing rifle":"Fire",
+    "walking to dying":"Death",
+  }),
+]
+EXTRA_MAP = {
+  "Death From The Front":"DeathFront",
+  "Death From The Back":"DeathBack",
+  "Death From Right":"DeathRight",
+  "Death From Front Headshot":"DeathFrontHead",
+  "Death From Back Headshot":"DeathBackHead",
+  "reloading":"Reload",
+  "toss grenade":"ThrowGrenade",
 }
+for d in EXTRA_DIRS:
+    ANIM_SOURCES.append((d, EXTRA_MAP))
 
 for addon in ("io_scene_fbx", "io_scene_gltf2"):
     try: bpy.ops.preferences.addon_enable(module=addon)
@@ -96,26 +113,29 @@ for o in mesh_objs:
         print("  MATERIALS", o.name, [m.name for m in o.data.materials])
 
 actions = []
-for fn in sorted(os.listdir(ANIM_DIR)):
-    if not fn.lower().endswith(".fbx"): continue
-    key = os.path.splitext(fn)[0]
-    name = CLIP_MAP.get(key)
-    if not name:
-        print("SKIP(no map)", fn); continue
-    objs = import_fbx(os.path.join(ANIM_DIR, fn))
-    arm = next((o for o in objs if o.type=='ARMATURE'), None)
-    act = arm.animation_data.action if (arm and arm.animation_data and arm.animation_data.action) else None
-    if act:
-        act.name = name
-        act.use_fake_user = True
-        fr = act.frame_range
-        removed = strip_hips_xz(act)
-        actions.append((name, act))
-        print("ANIM", fn, "->", name, "frames", int(fr[0]), int(fr[1]), "strippedXZ", removed)
-    else:
-        print("ANIM(no action)", fn)
-    for o in objs:
-        if o.name in bpy.data.objects: bpy.data.objects.remove(o, do_unlink=True)
+for anim_dir, clip_map in ANIM_SOURCES:
+    if not os.path.isdir(anim_dir):
+        print("SKIP(dir missing)", anim_dir); continue
+    for fn in sorted(os.listdir(anim_dir)):
+        if not fn.lower().endswith(".fbx"): continue
+        key = os.path.splitext(fn)[0]
+        name = clip_map.get(key)
+        if not name:
+            print("SKIP(no map)", fn); continue
+        objs = import_fbx(os.path.join(anim_dir, fn))
+        arm = next((o for o in objs if o.type=='ARMATURE'), None)
+        act = arm.animation_data.action if (arm and arm.animation_data and arm.animation_data.action) else None
+        if act:
+            act.name = name
+            act.use_fake_user = True
+            fr = act.frame_range
+            removed = strip_hips_xz(act)
+            actions.append((name, act))
+            print("ANIM", fn, "->", name, "frames", int(fr[0]), int(fr[1]), "strippedXZ", removed)
+        else:
+            print("ANIM(no action)", fn)
+        for o in objs:
+            if o.name in bpy.data.objects: bpy.data.objects.remove(o, do_unlink=True)
 
 # Bake the cm->m unit scale into real geometry (verts + armature rest + bind), so the
 # glb is clean meter-scale with correct renderer bounds. Empty-parent scaling fails

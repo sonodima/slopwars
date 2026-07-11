@@ -40,16 +40,37 @@ const TP_HAND_ROT: [number, number, number] = [-87, -155, 59];
 // small extra offset (metres, hand frame) to seat the weapon in the palm rather than
 // dead-centre on the bone pivot.
 const TP_HAND_OFFSET: [number, number, number] = [0, 0, 0];
+// third-person held weapons read too small at the operator's real (1.8 m) size — the
+// authored meta.scale suits the first-person viewmodel. Bump them up in the hand.
+const TP_WEAPON_SCALE = 1.5;
 
 const LOCO_RUN = 4.5;  // m/s above which the avatar plays Run
 const LOCO_WALK = 0.7; // m/s above which the avatar plays Walk
 
-/** Ground speed (m/s) each locomotion clip was authored to move at, so playback can be
- *  rate-matched to the real speed (feet stop sliding, and slow steps read as slow). */
+/** Ground speed (m/s) each locomotion clip is rate-matched against: animator.speed =
+ *  realSpeed / ref. Tuned to the game's (fast) move speeds so the clips play near 1x at
+ *  a normal run instead of frantically — a bump here slows the whole set proportionally. */
 const CLIP_REF_SPEED: Record<string, number> = {
-  Walk: 1.6, WalkBack: 1.6, StrafeLeft: 1.6, StrafeRight: 1.6, Run: 4.5, RunBack: 4.0,
+  Walk: 3.2, WalkBack: 3.2, StrafeLeft: 3.2, StrafeRight: 3.2, Run: 9.0, RunBack: 8.0,
 };
-const ANIM_SPEED_MIN = 0.55, ANIM_SPEED_MAX = 1.9;
+const ANIM_SPEED_MIN = 0.55, ANIM_SPEED_MAX = 1.6;
+
+// randomized death sets (see NOTICE.txt): body deaths vs headshot-specific deaths.
+const DEATHS_BODY = ["DeathFront", "DeathBack", "DeathRight", "Death"];
+const DEATHS_HEAD = ["DeathFrontHead", "DeathBackHead"];
+
+// clips that must loop seamlessly vs. one-shots that hold their final frame. Future
+// clips (Falling, TurnLeft/Right, JumpStart, Landing) are listed so they Just Work
+// once present in the glb.
+const LOOP_CLIPS = [
+  "Idle", "Walk", "WalkBack", "StrafeLeft", "StrafeRight", "Run", "RunBack", "Falling",
+];
+const ONCE_CLIPS = [
+  "Jump", "JumpBack", "JumpStart", "Landing", "Fire", "Reload", "ThrowGrenade",
+  "TurnLeft", "TurnRight", "StartWalk", "StartWalkBack", "StopWalk", "StopWalkBack",
+  ...DEATHS_BODY, ...DEATHS_HEAD,
+];
+const pick = (a: string[]): string => a[(Math.random() * a.length) | 0];
 
 /** pick the directional locomotion clip from a movement vector expressed in the
  *  avatar's own frame (fwd = +forward/-back, strafe = +right/-left) and speed. Falls
@@ -97,8 +118,14 @@ export class RemotePlayer {
   private prevT = 0;
   private deathPlayed = false;   // Death clip latched for the current death (kept prone)
   private deathKick = 0;         // frames the Death play has been (re)issued (see syncDeath)
+  private deathClip = "";        // chosen death variant (markDead); empty → random on death
   private smFwd = 0;             // smoothed local forward/strafe velocity (anti-jitter)
   private smStrafe = 0;
+  private upperTimer = 0;        // seconds left of a one-shot upper-body clip (reload/throw)
+  private prevUpdateNow = 0;     // wall-clock of the last update (dt for the dead-body fall)
+  private fallVelY = 0;          // downward velocity of a dead body settling to the ground
+  /** ground height sampler (map.floorY), set by the game so a dead body can fall. */
+  groundYAt: ((x: number, z: number) => number) | null = null;
 
   constructor(engine: Engine, parent: Entity, public id: string, public name: string, _color: number, models: GameModels) {
     this.engine = engine;
@@ -136,9 +163,14 @@ export class RemotePlayer {
     // avatar is off-screen — the dominant per-frame CPU cost with many players.
     if (this.animator) {
       this.animator.cullingMode = AnimatorCullingMode.Complete;
-      // one-shot clips must hold their final frame instead of looping (Death stays
-      // prone; Jump doesn't restart mid-air). Locomotion/idle keep the default loop.
-      for (const clip of ["Death", "Jump", "JumpBack"]) {
+      // Explicit wrap modes: locomotion/idle must loop seamlessly (Galacean's default
+      // wrap can hitch at the loop point); every one-shot (deaths, jump, reload, throw)
+      // must play once and hold its final frame instead of restarting.
+      for (const clip of LOOP_CLIPS) {
+        const st = this.animator.findAnimatorState(clip);
+        if (st) st.wrapMode = WrapMode.Loop;
+      }
+      for (const clip of ONCE_CLIPS) {
         const st = this.animator.findAnimatorState(clip);
         if (st) st.wrapMode = WrapMode.Once;
       }
@@ -187,7 +219,7 @@ export class RemotePlayer {
     mount.transform.setPosition(TP_HAND_OFFSET[0], TP_HAND_OFFSET[1], TP_HAND_OFFSET[2]);
     const ws = this.handBone ? this.handBone.transform.lossyWorldScale.x : 1;
     const inv = Math.abs(ws) > 1e-6 ? 1 / ws : 1;
-    const s = (meta.scale ?? 1) * inv;
+    const s = (meta.scale ?? 1) * inv * TP_WEAPON_SCALE;
     m.transform.setScale(s, s, s);
     // Seat by the grip anchor: orient the model by the grip's rotation, then offset it
     // so the grip point lands at the mount origin (the hand) — P = −R·S·gripPos. With
@@ -252,6 +284,20 @@ export class RemotePlayer {
   }
 
   update(now: number): void {
+    const dt = this.prevUpdateNow ? Math.min(now - this.prevUpdateNow, 0.05) : 0;
+    this.prevUpdateNow = now;
+
+    // Dead: the network stops sending updates, so a body killed mid-air would freeze
+    // floating. Ignore the (frozen) buffer and fall under gravity to the ground.
+    if (!this.alive) {
+      this.deadFall(dt);
+      this.syncDeath();
+      this.applyTransform();
+      this.syncWeapon();
+      this.driveAnimation();
+      return;
+    }
+
     const t = now - INTERP_DELAY;
     const b = this.buf;
     if (b.length === 0) return;
@@ -268,11 +314,23 @@ export class RemotePlayer {
     if (dy > Math.PI) dy -= 2 * Math.PI; else if (dy < -Math.PI) dy += 2 * Math.PI;
     this.yaw = a.yaw + dy * k;
     this.crouched = c.cr === 1;
+    this.fallVelY = 0; // reset so the next death starts from rest
 
     this.syncDeath();
     this.applyTransform();
     this.syncWeapon();
     this.driveAnimation();
+  }
+
+  /** apply gravity to a dead body until it reaches the ground (via groundYAt). */
+  private deadFall(dt: number): void {
+    if (!this.groundYAt || dt <= 0) return;
+    const gy = this.groundYAt(this.pos.x, this.pos.z);
+    if (this.pos.y > gy + 0.01) {
+      this.fallVelY -= 19 * dt;
+      this.pos.y += this.fallVelY * dt;
+      if (this.pos.y < gy) { this.pos.y = gy; this.fallVelY = 0; }
+    }
   }
 
   /** directly drive the avatar (offline bots — no interpolation buffer) */
@@ -294,18 +352,38 @@ export class RemotePlayer {
     if (this.disguised) return;
     if (!this.alive) {
       if (this.deathPlayed) return;
-      this.wasActive = true; this.locoState = "Death";
+      if (!this.deathClip) this.deathClip = pick(DEATHS_BODY); // died without a marked variant
+      const clip = this.animator?.findAnimatorState(this.deathClip) ? this.deathClip : "Death";
+      this.wasActive = true; this.locoState = clip;
       // Galacean quirk: the very first play() right after the avatar (re)activates can
       // be swallowed (renders the bind/T-pose), so (re)issue it for the first two death
       // frames before latching — a single delayed play is enough to make it stick.
       if (this.animator) {
         this.animator.speed = 1; // clear any locomotion rate-scaling for the death clip
-        if (this.animator.findAnimatorState("Death")) this.animator.play("Death");
+        if (this.animator.findAnimatorState(clip)) this.animator.play(clip);
       }
       if (++this.deathKick >= 2) this.deathPlayed = true;
     } else if (this.deathPlayed || this.deathKick) {
-      this.deathPlayed = false; this.deathKick = 0; this.locoState = ""; // respawned
+      this.deathPlayed = false; this.deathKick = 0; this.deathClip = ""; this.locoState = ""; // respawned
     }
+  }
+
+  /** choose the death variant for the next death (call as the player is killed). Headshots
+   *  use the headshot-specific clips; otherwise a random body death. */
+  markDead(headshot: boolean): void {
+    this.deathClip = headshot ? pick(DEATHS_HEAD) : pick(DEATHS_BODY);
+  }
+
+  /** play a one-shot upper-body clip (reload / grenade toss) over the current locomotion.
+   *  Kept simple: it takes over the single animator layer for `dur` seconds, then
+   *  driveAnimation resumes locomotion. Ignored while dead/disguised. */
+  triggerUpper(clip: string, dur: number): void {
+    if (!this.animator || this.disguised || !this.alive) return;
+    if (!this.animator.findAnimatorState(clip)) return;
+    this.animator.speed = 1;
+    this.animator.crossFade(clip, 0.1);
+    this.locoState = clip;
+    this.upperTimer = dur;
   }
 
   private applyTransform(): void {
@@ -338,6 +416,13 @@ export class RemotePlayer {
     this.prevX = this.pos.x; this.prevZ = this.pos.z; this.prevY = this.pos.y;
 
     if (!this.alive) return; // death handled in syncDeath (before the transform toggle)
+
+    // a one-shot upper-body clip (reload / grenade toss) owns the animator until it ends
+    if (this.upperTimer > 0) {
+      this.upperTimer -= dt;
+      this.wasActive = true;
+      return;
+    }
 
     // re-enabling the entity resets the animator to its default pose (T-pose), so
     // force a fresh play whenever the avatar comes (back) on-screen.
