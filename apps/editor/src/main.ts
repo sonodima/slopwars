@@ -38,9 +38,10 @@ const modelEdits = new Map<string, ModelMeta>();
 // which collision solid is selected in the active model tab (drives highlight +
 // the per-solid fields in the left panel)
 let selBox = -1;
-// whether the grip anchor is selected in the active model tab (Model view) — drives
-// its highlight in the inspector list + its transform gizmo in the preview
-let anchorSel = false;
+// which named anchor (grip / muzzle / …) is selected in the active model tab (Model
+// view) — drives its highlight in the inspector list + its transform gizmo in the
+// preview. null = none selected.
+let selAnchor: string | null = null;
 // content key currently loaded into the preview scene (avoids reloading on unrelated
 // state changes; a live material/model edit rebuilds explicitly)
 let previewKey = "";
@@ -136,10 +137,10 @@ async function main(): Promise<void> {
     collSelect: (i) => collSelect(i),
     collAdd: () => collAdd(),
     collDelete: (i) => collDelete(i),
-    anchorSel: () => anchorSel,
-    anchorSelect: (sel) => anchorSelect(sel),
-    anchorAdd: () => anchorAdd(),
-    anchorRemove: () => anchorRemove(),
+    anchorSel: () => selAnchor,
+    anchorSelect: (name) => anchorSelect(name),
+    anchorAdd: (kind) => anchorAdd(kind),
+    anchorRemove: (kind) => anchorRemove(kind),
   });
   setInspectorTextureHooks({
     maps: (name) => catalog.textures.find((t) => t.name === name)?.maps ?? {},
@@ -177,8 +178,8 @@ async function main(): Promise<void> {
 
   // clicking a collision solid in the preview selects it → reflect in the inspector list
   preview.onCollisionSelect = (i) => { selBox = i; refreshInspector(); };
-  // clicking the grip anchor icon in the preview selects it → reflect in the inspector
-  preview.onAnchorSelect = (sel) => { anchorSel = sel; refreshInspector(); };
+  // clicking an anchor icon in the preview selects it → reflect in the inspector
+  preview.onAnchorSelect = (name) => { selAnchor = name; refreshInspector(); };
   // a gizmo drag in the preview mutated the selected solid → persist + re-shade +
   // refresh the inspector so its numeric transform fields show the new values.
   preview.onCollisionChange = () => { const t = tabs.active(); if (t?.kind === "model" && t.model) { onModelMetaChanged(t.model); refreshInspector(); } };
@@ -227,7 +228,7 @@ function syncViewport(): void {
       if (m) { ensureMatHist(m.name); void preview.showMaterial(m.name, m.def); }
     } else if (tab!.kind === "model") {
       selBox = -1;
-      anchorSel = false; preview.selectAnchor(false);
+      selAnchor = null; preview.selectAnchor(null);
       ensureMetaHist(tab!.model!);
       void preview.showModel(tab!.model!, tab!.view ?? "model", liveMeta(tab!.model!));
     } else if (tab!.kind === "texture") {
@@ -354,11 +355,11 @@ function restoreMeta(name: string, json: string): void {
   // keep the collision selection valid against the restored solid count
   const n = (meta.collision === "manual" ? meta.collisionBoxes?.length : 0) ?? 0;
   if (selBox >= n) selBox = n - 1;
-  // drop the anchor selection if the restored meta no longer has a grip
-  if (!meta.anchors?.grip) anchorSel = false;
+  // drop the anchor selection if the restored meta no longer has that anchor
+  if (selAnchor && !meta.anchors?.[selAnchor]) selAnchor = null;
   applyModelMetaEffects(name);
   preview.selectBox(selBox);
-  preview.selectAnchor(anchorSel);
+  preview.selectAnchor(selAnchor);
   refreshInspector();
 }
 function metaUndo(name: string): void {
@@ -564,34 +565,35 @@ function collDelete(i: number): void {
   refreshInspector();
 }
 
-// ── grip-anchor authoring (Model view) — the hand-attach point shows as a billboard
-// icon, click-selected, and moved/rotated with the same gizmo as collision solids ──
-function anchorSelect(sel: boolean): void { anchorSel = sel; preview.selectAnchor(sel); refreshInspector(); }
+// ── anchor authoring (Model view) — named attach points (grip, muzzle, …) each show
+// as a billboard icon, click-selected, and moved/rotated with the same gizmo as
+// collision solids ──
+function anchorSelect(name: string | null): void { selAnchor = name; preview.selectAnchor(name); refreshInspector(); }
 
-function anchorAdd(): void {
+function anchorAdd(kind: string): void {
   const tab = tabs.active(); if (tab?.kind !== "model" || !tab.model) return;
   const meta = liveMeta(tab.model);
   // author the anchor in Model view; drop it at the model centre so it's immediately
   // visible (not hidden at the origin), pre-selected for a straight drag.
   if (tab.view !== "model") tabs.setModelView(tab.id, "model");
   const anchors = meta.anchors ?? {};
-  if (!anchors.grip) anchors.grip = { at: preview.modelLocalCenter() };
+  if (!anchors[kind]) anchors[kind] = { at: preview.modelLocalCenter() };
   meta.anchors = anchors;
-  anchorSel = true;
+  selAnchor = kind;
   onModelMetaChanged(tab.model);
-  preview.selectAnchor(true);
+  preview.selectAnchor(kind);
   refreshInspector();
 }
 
-function anchorRemove(): void {
+function anchorRemove(kind: string): void {
   const tab = tabs.active(); if (tab?.kind !== "model" || !tab.model) return;
   const meta = liveMeta(tab.model);
   if (!meta.anchors) return;
-  delete meta.anchors.grip;
+  delete meta.anchors[kind];
   if (!Object.keys(meta.anchors).length) meta.anchors = undefined;
-  anchorSel = false;
+  if (selAnchor === kind) selAnchor = null;
   onModelMetaChanged(tab.model);
-  preview.selectAnchor(false);
+  preview.selectAnchor(selAnchor);
   refreshInspector();
 }
 

@@ -16,6 +16,10 @@ interface Ammo { mag: number; reserve: number }
 // packs, 3dmodelscc0): they carry their own library materials (meta.materials) and
 // their held pose (meta.scale + meta.anchors.grip), authored in the editor exactly
 // like any other model — so there are no per-weapon offsets/rotations here.
+// viewmodel-space flash position used when a weapon carries no `muzzle` anchor — the
+// legacy hand-tuned barrel point, kept so unauthored weapons look exactly as before.
+const DEFAULT_MUZZLE: readonly [number, number, number] = [0, 0.01, -0.62];
+
 const WEAPON_MODEL: Record<WeaponId, string> = {
   knife: "wep_knife",
   usp: "wep_makarov",
@@ -52,6 +56,9 @@ export class WeaponSystem {
   private flash!: Entity;
   private flashLight!: PointLight;
   private flashTtl = 0;
+  // per-weapon muzzle point in viewmodel space (from the model's `muzzle` anchor), so
+  // the flash + shot origin sit at the barrel tip. Absent → the default flash position.
+  private muzzles: Partial<Record<WeaponId, Vector3>> = {};
   private bobT = 0;
   private src!: GameModels;
 
@@ -75,9 +82,18 @@ export class WeaponSystem {
     this.drawTimer = 0.25;
     this.setScope(false);
     for (const id of LOADOUT) { const e = this.models[id]; if (e) e.isActive = id === w; }
+    // seat the muzzle flash at this weapon's barrel tip (its `muzzle` anchor), or the
+    // default point when it has none.
+    const mz = this.muzzles[w];
+    if (mz) this.flash.transform.setPosition(mz.x, mz.y, mz.z);
+    else this.flash.transform.setPosition(DEFAULT_MUZZLE[0], DEFAULT_MUZZLE[1], DEFAULT_MUZZLE[2]);
     sfx.draw();
     this.onAmmoChange?.();
   }
+
+  /** the current weapon's muzzle point in WORLD space (the tip of the barrel, following
+   *  the animated viewmodel) — the origin a shot's tracer should start from. */
+  muzzleWorld(): Vec3 { const p = this.flash.transform.worldPosition; return { x: p.x, y: p.y, z: p.z }; }
 
   /** the distinct model folders the viewmodels were built from (for the host to
    *  resolve just those models' material textures) */
@@ -195,11 +211,27 @@ export class WeaponSystem {
       const folder = WEAPON_MODEL[id];
       const m = instantiate(this.src[folder]);
       if (!m) { console.warn("[weapon] model missing:", folder); continue; }
-      this.placeByGrip(m, modelMetaOf(folder));
+      const meta = modelMetaOf(folder);
+      this.placeByGrip(m, meta);
       this.vm.addChild(m);
       this.models[id] = m;
       this.modelFolders[id] = folder;
+      const mz = this.muzzlePoint(m, meta);
+      if (mz) this.muzzles[id] = mz;
     }
+  }
+
+  /** the model's `muzzle` anchor mapped into viewmodel space, given the model already
+   *  seated by placeByGrip (so the point rides its scale/rotation/offset). Null when the
+   *  model carries no muzzle anchor. */
+  private muzzlePoint(m: Entity, meta: ModelMeta): Vector3 | null {
+    const muzzle = modelAnchor(meta, "muzzle");
+    if (!muzzle) return null;
+    const s = meta.scale ?? 1;
+    const p = new Vector3(muzzle.at[0] * s, muzzle.at[1] * s, muzzle.at[2] * s);
+    Vector3.transformByQuat(p, m.transform.rotationQuaternion, p);
+    const mp = m.transform.position;
+    return new Vector3(p.x + mp.x, p.y + mp.y, p.z + mp.z);
   }
 
   /** seat a held model at the hand: scale by meta.scale, orient by its `grip` anchor,

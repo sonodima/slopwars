@@ -16,7 +16,7 @@ import {
   MeshRenderer, PBRMaterial, PrimitiveMesh, RenderFace, SkyBoxMaterial,
   TextureCube, UnlitMaterial, Vector3, Vector4, WebGLEngine,
 } from "@galacean/engine";
-import type { AssetCatalog, CollisionBox, MaterialDef, ModelMeta, TextureMaps, Tuple3 } from "@slopwars/shared";
+import type { AssetCatalog, CollisionBox, MaterialDef, ModelAnchor, ModelMeta, TextureMaps, Tuple3 } from "@slopwars/shared";
 import { rotateEulerInv, modelSlotMaterial } from "@slopwars/shared";
 import { loadGLTF, loadHDRCube, loadTexture2D } from "@game/assets";
 import { applyWaterLook, attachWaterAnim, WATER_LOOK, type WaterAnim, type WaterLook } from "@game/water";
@@ -99,16 +99,17 @@ export class PreviewScene {
   /** notified after a gizmo drag mutates the selected solid (persist + reshade) */
   onCollisionChange: (() => void) | null = null;
 
-  // ── model-view anchors (currently just the hand-attach "grip" point) ──
-  // The grip anchor is authored directly in the Model view: it shows as a billboard
-  // icon (like the map viewport's object icons), is click-selected, and — when
-  // selected — is moved/rotated with the same transform gizmo the collision solids
-  // use. `grip` references the live meta.anchors.grip object so edits write through.
-  private grip: { at: Tuple3; rot?: Tuple3 } | null = null;
-  private anchorSel = false;
+  // ── model-view anchors (named attach points: grip, muzzle, …) ──
+  // Anchors are authored directly in the Model view: each shows as a billboard icon
+  // (like the map viewport's object icons), is click-selected, and — when selected —
+  // is moved/rotated with the same transform gizmo the collision solids use. `anchors`
+  // references the live meta.anchors map so edits write straight through; `selAnchor`
+  // is the name of the currently-selected anchor (null = none).
+  private anchors: Record<string, ModelAnchor> | null = null;
+  private selAnchor: string | null = null;
   private iconImgCache = new Map<string, HTMLImageElement>();
-  /** notified when the anchor icon is click-selected/deselected in the view */
-  onAnchorSelect: ((selected: boolean) => void) | null = null;
+  /** notified when an anchor icon is click-selected (its name), or deselected (null) */
+  onAnchorSelect: ((name: string | null) => void) | null = null;
 
   // input bookkeeping
   private dragging = false;
@@ -204,7 +205,7 @@ export class PreviewScene {
     const prevPhase = samePrev && this.waterAnim ? this.waterAnim.phase : 0;
     this.waterAnim = null;
     this.content = { kind: "material", name };
-    this.grip = null; this.anchorSel = false;
+    this.anchors = null; this.selAnchor = null;
     this.clearHolder();
     this.clearCollision();
     if (!keepCamera) { this.target.set(0, 0, 0); this.dist = 3.2; this.applyCamera(); }
@@ -264,7 +265,7 @@ export class PreviewScene {
   async showTexture(name: string, maps: TextureMaps, keepCamera = false): Promise<void> {
     if (!this.ready) return;
     this.content = { kind: "texture", name };
-    this.grip = null; this.anchorSel = false;
+    this.anchors = null; this.selAnchor = null;
     this.clearHolder();
     this.clearCollision();
     if (!keepCamera) { this.target.set(0, 0, 0); this.dist = 3.2; this.applyCamera(); }
@@ -337,30 +338,29 @@ export class PreviewScene {
     const radius = keep ? this.holderRadius() : this.frameHolder();
     this.indicatorRadius = radius;
     if (meta.materials || meta.material) this.applyModelMaterials(e, meta);
-    this.grip = null;
+    this.anchors = null;
     if (view === "collision") {
       this.dimModel(e);
       this.renderCollision(meta, radius);
     } else {
-      // Model view: the grip anchor is drawn as a billboard icon in the overlay (see
-      // drawAnchorIcon); keep it live so gizmo edits write straight through.
-      this.grip = meta.anchors?.grip ?? null;
-      if (!this.grip) this.anchorSel = false;
+      // Model view: each anchor is drawn as a billboard icon in the overlay (see
+      // drawAnchorIcons); keep the live map so gizmo edits write straight through.
+      this.anchors = meta.anchors ?? null;
+      if (this.selAnchor && !this.anchors?.[this.selAnchor]) this.selAnchor = null;
     }
   }
 
-  /** the grip anchor's world position (its stored point lifted by the model's base) */
-  private gripWorld(): Tuple3 {
-    const g = this.grip!;
-    return [g.at[0], g.at[1] + this.modelBase, g.at[2]];
+  /** an anchor's world position (its stored point lifted by the model's base) */
+  private anchorWorld(a: ModelAnchor): Tuple3 {
+    return [a.at[0], a.at[1] + this.modelBase, a.at[2]];
   }
 
-  /** select/deselect the grip anchor from outside (inspector list click). Not gated on
-   *  `this.grip` — a live showModel may still be loading it in; gizmoActive()/the icon
-   *  draw guard on grip presence, and showModel clears the flag if no grip exists. */
-  selectAnchor(sel: boolean): void { this.anchorSel = sel; }
-  /** whether the grip anchor is currently selected */
-  anchorSelected(): boolean { return this.anchorSel; }
+  /** select an anchor by name (or null to deselect) from outside (inspector row click).
+   *  Not gated on the anchor existing yet — a live showModel may still be loading it in;
+   *  gizmoActive()/the icon draw guard on presence, and showModel clears a stale name. */
+  selectAnchor(name: string | null): void { this.selAnchor = name; }
+  /** the name of the currently-selected anchor, or null */
+  anchorSelected(): string | null { return this.selAnchor; }
 
   /** model-local centre of the previewed geometry (for spawning a new collision
    *  solid somewhere visible instead of at the origin). */
@@ -528,11 +528,17 @@ export class PreviewScene {
   private onClick(e: PointerEvent): void {
     if (this.content.kind !== "model") return;
     if (this.content.view === "model") {
-      if (!this.grip) return;
+      if (!this.anchors) return;
       const { x, y } = this.local(e);
-      const p = this.project(this.gripWorld());
-      const sel = p.visible && Math.hypot(p.x - x, p.y - y) < ANCHOR_HIT;
-      if (sel !== this.anchorSel) { this.anchorSel = sel; this.onAnchorSelect?.(sel); }
+      // pick the nearest anchor icon within the hit radius (empty click deselects)
+      let hit: string | null = null, best = ANCHOR_HIT;
+      for (const [name, a] of Object.entries(this.anchors)) {
+        const p = this.project(this.anchorWorld(a));
+        if (!p.visible) continue;
+        const d = Math.hypot(p.x - x, p.y - y);
+        if (d < best) { best = d; hit = name; }
+      }
+      if (hit !== this.selAnchor) { this.selAnchor = hit; this.onAnchorSelect?.(hit); }
       return;
     }
     if (this.content.view !== "collision" || !this.boxes.length) return;
@@ -580,7 +586,7 @@ export class PreviewScene {
   private gizmoActive(): boolean {
     if (this.content.kind !== "model") return false;
     if (this.content.view === "collision") return this.selBox >= 0 && this.selBox < this.boxes.length;
-    return this.content.view === "model" && this.anchorSel && !!this.grip;
+    return this.content.view === "model" && this.selAnchor !== null && !!this.anchors?.[this.selAnchor];
   }
 
   /** the current gizmo subject as a uniform transform target: its world-space centre,
@@ -609,16 +615,16 @@ export class PreviewScene {
         },
       };
     }
-    const g = this.grip; if (!g) return null;
+    const g = this.selAnchor ? this.anchors?.[this.selAnchor] : null; if (!g) return null;
     const base = this.modelBase;
     // a point anchor has no size — scaling is disabled; move/rotate write straight
-    // through to the live grip (its stored point excludes the base lift).
+    // through to the live anchor (its stored point excludes the base lift).
     return {
       at: [g.at[0], g.at[1] + base, g.at[2]], rot: g.rot ?? [0, 0, 0], size: [1, 1, 1], scalable: false,
       setAt: (v) => { g.at = [v[0], round3(v[1] - base), v[2]]; },
       setRot: (v) => { g.rot = (v[0] || v[1] || v[2]) ? v : undefined; },
       setSize: () => { /* not scalable */ },
-      live: () => { /* the icon redraws from `grip` each frame */ },
+      live: () => { /* the icon redraws from the anchor each frame */ },
     };
   }
 
@@ -797,10 +803,10 @@ export class PreviewScene {
     const ctx = this.octx;
     ctx.clearRect(0, 0, this.overlay.width, this.overlay.height);
     // model view: draw the root (0,0,0) indicator — a ground grid + axis cross — plus
-    // the grip anchor icon; the gizmo (below) shows only when the anchor is selected.
+    // each anchor icon; the gizmo (below) shows only when an anchor is selected.
     if (this.content.kind === "model" && this.content.view === "model") {
       this.drawOriginIndicator();
-      this.drawAnchorIcon();
+      this.drawAnchorIcons();
     }
     const t = this.gizmoActive() ? this.gTarget() : null;
     if (!t) return;
@@ -847,23 +853,26 @@ export class PreviewScene {
     ctx.beginPath(); ctx.arc(c.x, c.y, 3, 0, Math.PI * 2); ctx.fillStyle = "#f5a623"; ctx.fill();
   }
 
-  /** draw the grip anchor as a billboard icon at its world point — a solid glyph (amber
+  /** draw each anchor as a billboard icon at its world point — a solid glyph (amber
    *  when selected, else white) with a soft dark halo, matching the map viewport's
-   *  object icons. Only visible in Model view when a grip exists. */
-  private drawAnchorIcon(): void {
-    if (!this.grip) return;
-    const p = this.project(this.gripWorld());
-    if (!p.visible) return;
-    const img = this.iconImg("anchor", this.anchorSel ? "#f5a623" : "#ffffff");
-    if (!img.complete || !img.naturalWidth) return;
-    const s = 22;
+   *  object icons. The icon differs per kind (grip vs muzzle). Model view only. */
+  private drawAnchorIcons(): void {
+    if (!this.anchors) return;
     const ctx = this.octx;
-    ctx.save();
-    ctx.shadowColor = "rgba(0,0,0,0.9)";
-    ctx.shadowBlur = 3.5;
-    ctx.drawImage(img, p.x - s / 2, p.y - s / 2, s, s);
-    ctx.drawImage(img, p.x - s / 2, p.y - s / 2, s, s);
-    ctx.restore();
+    for (const [name, a] of Object.entries(this.anchors)) {
+      const p = this.project(this.anchorWorld(a));
+      if (!p.visible) continue;
+      const glyph = name === "muzzle" ? "zap" : "anchor";
+      const img = this.iconImg(glyph, name === this.selAnchor ? "#f5a623" : "#ffffff");
+      if (!img.complete || !img.naturalWidth) continue;
+      const s = 22;
+      ctx.save();
+      ctx.shadowColor = "rgba(0,0,0,0.9)";
+      ctx.shadowBlur = 3.5;
+      ctx.drawImage(img, p.x - s / 2, p.y - s / 2, s, s);
+      ctx.drawImage(img, p.x - s / 2, p.y - s / 2, s, s);
+      ctx.restore();
+    }
   }
 
   /** a rasterized editor-icon <img>, stroked in `color`, cached by name+color */

@@ -137,8 +137,11 @@ export class RemotePlayer {
     const folder = TP_WEAPON[this.weapon];
     if (!folder) return; // grenades etc. — nothing held
     const meta = modelMetaOf(folder);
+    // The grip anchor fine-tunes where the model sits in the hand; it's OPTIONAL —
+    // without one the weapon simply seats at the mount origin (scale only), the same
+    // fallback the first-person viewmodel uses. This keeps the gun visible in third
+    // person even for models that carry no grip (rather than showing empty hands).
     const grip = modelAnchor(meta, "grip");
-    if (!grip) return; // every weapon model carries a grip anchor; skip if somehow missing
     const m = instantiate(this.models[folder]);
     if (!m) return;
     // geometry-only weapon glTFs render with a flat default material — give the
@@ -161,13 +164,16 @@ export class RemotePlayer {
     const s = (meta.scale ?? 1) * inv;
     // seat by the grip anchor: orient by the anchor, then offset so the anchor's
     // model-local point lands at the mount origin (P = −R·S·gripPos) — identical to
-    // the first-person placeByGrip, just inside the hand-frame mount.
+    // the first-person placeByGrip, just inside the hand-frame mount. With no grip,
+    // scale only and leave the model at the mount origin.
     m.transform.setScale(s, s, s);
-    const gr = grip.rot ?? [0, 0, 0];
-    m.transform.setRotation(gr[0], gr[1], gr[2]);
-    const g = new Vector3(grip.at[0] * s, grip.at[1] * s, grip.at[2] * s);
-    Vector3.transformByQuat(g, m.transform.rotationQuaternion, g);
-    m.transform.setPosition(-g.x, -g.y, -g.z);
+    if (grip) {
+      const gr = grip.rot ?? [0, 0, 0];
+      m.transform.setRotation(gr[0], gr[1], gr[2]);
+      const g = new Vector3(grip.at[0] * s, grip.at[1] * s, grip.at[2] * s);
+      Vector3.transformByQuat(g, m.transform.rotationQuaternion, g);
+      m.transform.setPosition(-g.x, -g.y, -g.z);
+    }
     mount.addChild(m);
     this.heldEntity = mount; // destroying the mount drops the weapon with it
   }

@@ -959,11 +959,14 @@ class Game {
     }
 
     this.broadcastShot(o, d, def.id);
-    this.resolveRay(o, d, def, 1, this.net.myId, true);
+    // start the local player's tracer at the viewmodel's muzzle (barrel tip) rather than
+    // an eye-relative guess, so it reads as leaving the gun.
+    this.resolveRay(o, d, def, 1, this.net.myId, true, 0, 0, this.ws.muzzleWorld());
   }
 
-  /** trace one segment; may recurse once through a wall (wallbang) */
-  resolveRay(o: Vec3, d: Vec3, def: WeaponDef, dmgScale: number, shooterId: string, localShooter: boolean, depth = 0, baseDist = 0): void {
+  /** trace one segment; may recurse once through a wall (wallbang). `tracerFrom` overrides
+   *  the local player's tracer start (the muzzle); undefined uses an eye-relative point. */
+  resolveRay(o: Vec3, d: Vec3, def: WeaponDef, dmgScale: number, shooterId: string, localShooter: boolean, depth = 0, baseDist = 0, tracerFrom?: Vec3): void {
     const wallHit = this.map.raycast(o, d, def.range);
     const wallDist = wallHit ? wallHit.dist : def.range;
 
@@ -985,7 +988,7 @@ class Game {
       const pp: Vec3 = { x: o.x + d.x * pbh.dist, y: o.y + d.y * pbh.dist, z: o.z + d.z * pbh.dist };
       this.physics.applyImpulseAt(pbh.body, pp, d, def.melee ? 6 : 9);
       if (localShooter) {
-        if (!def.melee) this.tracers.spawn({ x: o.x + d.x * 0.8, y: o.y - 0.12, z: o.z + d.z * 0.8 }, pp);
+        if (!def.melee) this.tracers.spawn(tracerFrom ?? { x: o.x + d.x * 0.8, y: o.y - 0.12, z: o.z + d.z * 0.8 }, pp);
         this.tracers.impact(pp);
         const rel = this.relAudio(pp);
         sfx.impact(rel.pan, rel.dist);
@@ -995,7 +998,7 @@ class Game {
     if (bh) {
       const bp: Vec3 = { x: o.x + d.x * bh.dist, y: o.y + d.y * bh.dist, z: o.z + d.z * bh.dist };
       if (localShooter) {
-        if (!def.melee) this.tracers.spawn({ x: o.x + d.x * 0.8, y: o.y - 0.12, z: o.z + d.z * 0.8 }, bp);
+        if (!def.melee) this.tracers.spawn(tracerFrom ?? { x: o.x + d.x * 0.8, y: o.y - 0.12, z: o.z + d.z * 0.8 }, bp);
         this.tracers.impact(bp);
         const rel = this.relAudio(bp);
         sfx.impact(rel.pan, rel.dist);
@@ -1006,7 +1009,7 @@ class Game {
 
     const end: Vec3 = { x: o.x + d.x * Math.min(vDist, wallDist), y: o.y + d.y * Math.min(vDist, wallDist), z: o.z + d.z * Math.min(vDist, wallDist) };
     if (localShooter) {
-      const mo: Vec3 = { x: o.x + d.x * 0.8, y: o.y - 0.12, z: o.z + d.z * 0.8 };
+      const mo: Vec3 = tracerFrom ?? { x: o.x + d.x * 0.8, y: o.y - 0.12, z: o.z + d.z * 0.8 };
       if (!def.melee) this.tracers.spawn(mo, end);
     }
 
@@ -1441,6 +1444,9 @@ class Game {
     const tex = await resolveTextures(this.engine, materialTextureFolders(matNames));
     const lib = new MaterialLibrary(this.engine, tex);
     this.ws.applyModelMaterials(metas, lib);
+    // the thrown-grenade models (wep_frag / wep_molotov) are among these weapon models,
+    // so the same library shades the projectiles a player throws.
+    this.nades.setModels(this.models, lib);
   }
 
   /** shade the Prop-Hunt disguise props with their models' assigned MAIN materials.

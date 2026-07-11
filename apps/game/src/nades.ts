@@ -5,8 +5,15 @@ import {
 import { GameMap } from "./map";
 import { buildParticles } from "./particles";
 import { Vec3, rand } from "./types";
+import { GameModels, instantiate, modelMetaOf } from "./models";
+import { MaterialLibrary, shadeModelSlots } from "./materials";
 
 export type NadeKind = "he" | "mol";
+
+/** the catalog model each thrown projectile is rendered as — the SAME models the
+ *  player holds for that weapon, so the grenade you throw is the grenade in your hand.
+ *  A missing model falls back to a plain coloured sphere so throwing never breaks. */
+const NADE_MODEL: Record<NadeKind, string> = { he: "wep_frag", mol: "wep_molotov" };
 
 export const HE_RADIUS = 7;
 export const HE_DAMAGE = 92;
@@ -56,6 +63,11 @@ export class Projectiles {
   private fx: Fx[] = [];
   private root: Entity;
   private acc = 0;
+
+  // loaded models + a material library, handed over once weapon textures are ready, so
+  // a thrown grenade renders as its actual (shaded) model instead of a placeholder ball.
+  private models: GameModels | null = null;
+  private matLib: MaterialLibrary | null = null;
 
   private mHe: UnlitMaterial;
   private mMol: UnlitMaterial;
@@ -130,8 +142,35 @@ export class Projectiles {
   }
   private releaseSphere(e: Entity): void { e.isActive = false; this.fxPool.push(e); }
 
+  /** supply the loaded models + a material library so thrown grenades render as their
+   *  real (shaded) weapon model. Until this is called (or if a model is missing) the
+   *  projectile falls back to a coloured sphere. Called once weapon textures load. */
+  setModels(models: GameModels, lib: MaterialLibrary): void {
+    this.models = models;
+    this.matLib = lib;
+  }
+
+  /** the thrown projectile's visual: the weapon's actual model (scaled + shaded by its
+   *  meta), or a plain coloured sphere when the model/library isn't available. */
+  private nadeVisual(kind: NadeKind): Entity {
+    const folder = NADE_MODEL[kind];
+    const res = this.models?.[folder];
+    if (res && this.matLib) {
+      const m = instantiate(res);
+      if (m) {
+        const meta = modelMetaOf(folder);
+        const s = meta.scale ?? 1;
+        m.transform.setScale(s, s, s);
+        shadeModelSlots(m, meta, this.matLib);
+        this.root.addChild(m);
+        return m;
+      }
+    }
+    return this.sphere(kind === "he" ? this.mHe : this.mMol, kind === "he" ? 0.11 : 0.13);
+  }
+
   throw_(kind: NadeKind, o: Vec3, v: Vec3, owner: string, local: boolean): void {
-    const entity = this.sphere(kind === "he" ? this.mHe : this.mMol, kind === "he" ? 0.11 : 0.13);
+    const entity = this.nadeVisual(kind);
     entity.transform.setPosition(o.x, o.y, o.z);
     this.nades.push({
       kind, owner, local,

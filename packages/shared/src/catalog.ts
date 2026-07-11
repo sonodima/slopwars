@@ -41,6 +41,29 @@ export interface ModelAnchor {
   rot?: Tuple3;       // model-local euler degrees applied when the item is attached
 }
 
+/** one authorable anchor kind, driving the editor's anchor UI (the picker label, help
+ *  text, and whether a rotation field is meaningful). The game reads anchors by name
+ *  (modelAnchor), so a new kind = one entry here plus game code that honours it. */
+export interface AnchorKind { key: string; label: string; help: string; rot: boolean }
+
+/** the anchor kinds a model can carry. `grip` is the hand-attach point (weapons,
+ *  pickups); `muzzle` is where a weapon's flash + shots originate (the barrel tip). */
+export const ANCHOR_KINDS: readonly AnchorKind[] = [
+  {
+    key: "grip", label: "Held point", rot: true,
+    help: "Where a character grips the model when it's held (weapons, pickups). The hand snaps to this point; its rotation sets the held orientation.",
+  },
+  {
+    key: "muzzle", label: "Muzzle", rot: false,
+    help: "Where a weapon's muzzle flash and shots originate — the tip of the barrel. Points forward (−Z) by the held orientation.",
+  },
+];
+
+/** the display label for an anchor kind (falls back to the raw key for unknown names) */
+export function anchorLabel(key: string): string {
+  return ANCHOR_KINDS.find((k) => k.key === key)?.label ?? key;
+}
+
 /** author-tunable per-model defaults, persisted to models/{name}/meta.json. Applied
  *  every time the model is instantiated (props, veg, explodables, drops), so a
  *  model can be calibrated once — sit it on its base, size it, reskin it, author its

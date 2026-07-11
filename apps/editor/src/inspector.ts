@@ -6,8 +6,8 @@
 // model's calibration meta, a texture's preview — each with a Delete action. The
 // "World" row edits the map's sky / lighting / effects. A group is a first-class
 // parent, so its inspector edits the group's own transform.
-import type { AssetCatalog, CollisionMode, CollisionShape, FogFalloff, MapDef, MaterialDef, MaterialType, ModelMeta, PhysicsProps, Placement, ShadowQuality, TextureMaps, ToneMode, Tuple3 } from "@slopwars/shared";
-import { MATERIAL_TYPES, PHYSICS_DEFAULTS, defaultMaterialDef, envPost, envShadows } from "@slopwars/shared";
+import type { AssetCatalog, CollisionMode, CollisionShape, FogFalloff, MapDef, MaterialDef, MaterialType, ModelAnchor, ModelMeta, PhysicsProps, Placement, ShadowQuality, TextureMaps, ToneMode, Tuple3 } from "@slopwars/shared";
+import { ANCHOR_KINDS, MATERIAL_TYPES, PHYSICS_DEFAULTS, anchorLabel, defaultMaterialDef, envPost, envShadows } from "@slopwars/shared";
 import { objectDefaults, placementDetail } from "@game/objects";
 import { behaviourCatalog, behaviourDefaults, behaviourLabel, type BehaviourSpec } from "@game/behaviours";
 import type { ThumbRenderer } from "./preview";
@@ -41,14 +41,14 @@ interface ModelHooks {
   collAdd: () => void;
   /** delete collision solid `i` */
   collDelete: (i: number) => void;
-  /** whether the grip anchor is currently selected (Model view) */
-  anchorSel: () => boolean;
-  /** select/deselect the grip anchor — shows its gizmo + highlights its row */
-  anchorSelect: (sel: boolean) => void;
-  /** add the grip anchor (hand-attach point) at the model centre and select it */
-  anchorAdd: () => void;
-  /** remove the grip anchor */
-  anchorRemove: () => void;
+  /** the name of the currently-selected anchor (Model view), or null */
+  anchorSel: () => string | null;
+  /** select an anchor by name (null to deselect) — shows its gizmo + highlights its card */
+  anchorSelect: (name: string | null) => void;
+  /** add an anchor of the given kind at the model centre and select it */
+  anchorAdd: (kind: string) => void;
+  /** remove the anchor of the given kind */
+  anchorRemove: (kind: string) => void;
 }
 /** the three PBR maps a texture set can hold, in editor display order */
 type TexSlot = "color" | "normal" | "arm";
@@ -323,40 +323,55 @@ function setSlotMaterial(meta: ModelMeta, slot: string, value: string): void {
   meta.materials = Object.keys(map).length ? map : undefined;
 }
 
-/** the anchor list — mirrors the behaviour/collision authoring UI. Each anchor is a
- *  selectable row; the currently-selected one shows its icon-gizmo in the Model view
- *  and exposes position/rotation fields here. Today only the hand-attach "grip" anchor
- *  exists (0 or 1 entry), but the list is built so more anchor kinds can be added. */
+/** the anchor list — deliberately built like the object Behaviours section: each anchor
+ *  is a card (its label, a remove button, and its param fields inline, rendered the same
+ *  way behaviour params are), with an "Add anchor…" picker at the bottom. Clicking a
+ *  card's header selects it, showing its icon-gizmo in the Model view for direct drag.
+ *  Extensible via ANCHOR_KINDS — grip (hand-attach) and muzzle (flash/shot origin). */
 function anchorSection(host: HTMLElement, meta: ModelMeta, hooks: ModelHooks, save: () => void): void {
   group(host, "Anchors");
-  const grip = meta.anchors?.grip;
-  if (!grip) {
-    const add = el("button", "btn primary insp-addbtn");
-    add.append(icon("anchor"), el("span", "btn-label", "Add held point"));
-    add.addEventListener("click", () => hooks.anchorAdd());
-    host.append(add);
-    host.append(el("div", "side-note", "For weapons / pickups, add a held point to mark where a character grips the model. It shows as an icon in the Model view — drag it with the Move / Rotate tools."));
-    return;
-  }
+  const anchors = meta.anchors ?? {};
+  const present = ANCHOR_KINDS.filter((k) => anchors[k.key]);
   const sel = hooks.anchorSel();
-  const row = el("div", "cbox-row" + (sel ? " sel" : ""));
-  row.append(icon("anchor", "cbox-ico"), el("span", "cbox-name", "Held point"));
-  const del = el("button", "btn mini"); del.title = "remove held point"; del.append(icon("trash"));
-  del.addEventListener("click", (e) => { e.stopPropagation(); hooks.anchorRemove(); });
-  row.append(del);
-  row.addEventListener("click", () => hooks.anchorSelect(!sel));
-  host.append(row);
 
-  if (sel) {
-    group(host, "Held point Transform");
-    const at = grip.at.slice() as number[];
-    host.append(vecField("Location", at, () => { grip.at = [at[0], at[1], at[2]] as Tuple3; save(); }, 0.01));
-    const rot = (grip.rot ?? [0, 0, 0]).slice() as number[];
-    host.append(vecField("Rotation", rot, () => {
-      grip.rot = (rot[0] || rot[1] || rot[2]) ? [rot[0], rot[1], rot[2]] as Tuple3 : undefined;
-      save();
-    }, 1));
-    host.append(el("div", "side-note", "The character's hand snaps to this point; its rotation sets the held orientation. Move/rotate it directly in the Model view."));
+  if (!present.length) host.append(el("div", "side-note", "No anchors — add a held point (where a hand grips the model) or a muzzle (where a weapon's flash + shots start)."));
+
+  for (const kind of present) {
+    const a = anchors[kind.key] as ModelAnchor;
+    const selected = sel === kind.key;
+    const card = el("div", "beh-card" + (selected ? " sel" : ""));
+    const head = el("div", "beh-head");
+    head.style.cursor = "pointer";
+    head.title = "select — drag it in the Model view";
+    head.append(icon(kind.key === "muzzle" ? "zap" : "anchor", "cbox-ico"), el("span", "beh-title", anchorLabel(kind.key)));
+    const del = el("button", "btn mini"); del.title = "remove " + kind.label.toLowerCase(); del.append(icon("trash"));
+    del.addEventListener("click", (e) => { e.stopPropagation(); hooks.anchorRemove(kind.key); });
+    head.append(del);
+    head.addEventListener("click", () => hooks.anchorSelect(selected ? null : kind.key));
+    card.append(head);
+    // params, backed by the live anchor object — shown inline exactly like a behaviour's
+    const at = a.at.slice() as number[];
+    card.append(vecField("Location", at, () => { a.at = [at[0], at[1], at[2]] as Tuple3; save(); }, 0.01));
+    if (kind.rot) {
+      const rot = (a.rot ?? [0, 0, 0]).slice() as number[];
+      card.append(vecField("Rotation", rot, () => {
+        a.rot = (rot[0] || rot[1] || rot[2]) ? [rot[0], rot[1], rot[2]] as Tuple3 : undefined;
+        save();
+      }, 1));
+    }
+    host.append(card);
+  }
+
+  // add picker: choose a kind not yet present → append it at the model centre + select
+  const remaining = ANCHOR_KINDS.filter((k) => !anchors[k.key]);
+  if (remaining.length) {
+    const bar = el("div", "beh-add");
+    const selEl = el("select", "beh-add-sel") as HTMLSelectElement;
+    const ph = el("option", undefined, "Add anchor…") as HTMLOptionElement; ph.value = ""; selEl.append(ph);
+    for (const k of remaining) { const op = el("option", undefined, k.label) as HTMLOptionElement; op.value = k.key; selEl.append(op); }
+    selEl.addEventListener("change", () => { if (selEl.value) hooks.anchorAdd(selEl.value); });
+    bar.append(selEl);
+    host.append(bar);
   }
 }
 

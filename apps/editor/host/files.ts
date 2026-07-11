@@ -9,7 +9,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { scanAssets, scanMaps, texSlot } from "../../../packages/shared/src/vite-asset-catalog";
 import type { MapDef } from "../../../packages/shared/src/schema";
-import type { CollisionBox, ModelMeta } from "../../../packages/shared/src/catalog";
+import type { CollisionBox, ModelAnchor, ModelMeta } from "../../../packages/shared/src/catalog";
 import type { MaterialDef, MaterialType } from "../../../packages/shared/src/materials";
 import { defaultMaterialDef } from "../../../packages/shared/src/materials";
 
@@ -153,6 +153,21 @@ export function saveModelMeta(root: string, name: string, meta: ModelMeta): { ok
         });
     }
   }
+  // named attachment points (grip, muzzle, …) — model-local `at` + optional euler `rot`.
+  // These were previously dropped here, so authoring a grip in the editor never
+  // persisted; keep every anchor that carries a valid position.
+  if (meta.anchors && typeof meta.anchors === "object") {
+    const anchors: Record<string, ModelAnchor> = {};
+    for (const [k, v] of Object.entries(meta.anchors)) {
+      if (!k || !v || !Array.isArray(v.at)) continue;
+      const a: ModelAnchor = { at: [Number(v.at[0]) || 0, Number(v.at[1]) || 0, Number(v.at[2]) || 0] };
+      if (Array.isArray(v.rot) && v.rot.some((x) => x)) a.rot = [Number(v.rot[0]) || 0, Number(v.rot[1]) || 0, Number(v.rot[2]) || 0];
+      anchors[k] = a;
+    }
+    if (Object.keys(anchors).length) clean.anchors = anchors;
+  }
+  // Prop-Hunt opt-in flag (also previously dropped on save).
+  if (meta.propHunt) clean.propHunt = true;
   if (Object.keys(clean).length === 0) { if (fs.existsSync(p)) fs.rmSync(p); return { ok: true, name: n }; }
   fs.writeFileSync(p, JSON.stringify(clean, null, 2) + "\n");
   return { ok: true, name: n };
