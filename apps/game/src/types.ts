@@ -58,7 +58,7 @@ export const MOVE = {
   airWishCap: 1.1,
   stepHeight: 0.55,
   stopSpeed: 1.2,
-  sprintFactor: 1.4, // ground max-speed multiplier while sprinting
+  sprintFactor: 1.75, // ground max-speed multiplier while sprinting
 };
 
 // directional move penalties (classic FPS feel): slower moving backward / sideways
