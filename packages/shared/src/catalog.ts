@@ -45,9 +45,14 @@ export interface ModelAnchor {
  *  (modelAnchor), so a new kind = one entry here plus game code that honours it. */
 export interface AnchorKind { key: string; label: string; help: string; rot: boolean }
 
-/** the anchor kinds a model can carry. `muzzle` is where a weapon's flash + shots
- *  originate (the barrel tip). */
+/** the anchor kinds a model can carry. `grip` is the hand-attach point (where a
+ *  third-person character holds the weapon); `muzzle` is where a weapon's flash +
+ *  shots originate (the barrel tip). */
 export const ANCHOR_KINDS: readonly AnchorKind[] = [
+  {
+    key: "grip", label: "Held point", rot: true,
+    help: "Where a character's hand grips the model in third person. The hand snaps to this point; its rotation sets the held orientation. Not used by the first-person viewmodel.",
+  },
   {
     key: "muzzle", label: "Muzzle", rot: false,
     help: "Where a weapon's muzzle flash and shots originate — the tip of the barrel. Points forward (−Z) by the model's orientation.",
