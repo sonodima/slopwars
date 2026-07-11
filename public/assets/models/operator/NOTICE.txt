@@ -1,10 +1,14 @@
-operator.glb — realistic CS-style tactical operator, the runtime player-character
-avatar. Rigged (mixamorig skeleton) with in-place skeletal clips: Idle, Walk, Run,
-Jump.
+operator.glb — SWAT tactical operator, the runtime player-character avatar.
+Rigged (mixamorig skeleton, 69 joints) with in-place skeletal clips:
 
-Source: Adobe Mixamo — character "Ch15" + the "Basic Shooter Pack" animation set
-(free to use). Exported from Mixamo as FBX, converted to a single glTF binary
-(three.js FBXLoader -> GLTFExporter): non-metal PBR materials, material groups
-coalesced to 2 primitives, hip (root-motion) translation stripped so clips play
-in place, mesh welded + simplified (~23k tris) and pruned (~1.5 MB). The avatar
-does not cast shadows and its animation is culled off-screen (perf).
+  Idle, Walk, WalkBack, StrafeLeft, StrafeRight, Run, RunBack,
+  Jump, JumpBack, StartWalk, StartWalkBack, StopWalk, StopWalkBack,
+  Fire, Death.
+
+Source: Adobe Mixamo — character "Swat" + the "Shooter Pack" animation set
+(free to use). Exported from Mixamo as FBX, converted and merged into a single
+glTF binary via Blender headless (FBX import -> one action per clip on the shared
+skeleton -> GLB export). Hip (root-motion) horizontal translation is zeroed so the
+clips play in place while the game drives the body position. Textures (body/head
+PBR) are embedded. The avatar does not cast shadows and its animation is culled
+off-screen (perf).

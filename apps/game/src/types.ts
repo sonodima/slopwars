@@ -19,9 +19,11 @@ export interface MatchConfig {
   roundTime: number;   // seconds per round
   gravity: number;     // gravity scale (1 = normal)
   speed: number;       // movement-speed scale (1 = normal)
+  thirdPerson: boolean; // whole match plays in a behind-the-back third-person camera
 }
 export const DEFAULT_CONFIG: MatchConfig = {
   bots: 0, difficulty: "normal", rounds: ROUNDS_PER_GAME, roundTime: ROUND_TIME, gravity: 1, speed: 1,
+  thirdPerson: false,
 };
 // slider bounds (shared by lobby UI + clamping)
 export const CFG_BOUNDS = {
