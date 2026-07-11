@@ -97,8 +97,11 @@ class Game {
   cfg: MatchConfig = { ...DEFAULT_CONFIG };
   leaving = false; // set during an intentional leave (suppresses the unload prompt)
 
-  // third-person self avatar (a Prop-Hunt crate — the only third-person case)
+  // third-person self avatar. Prop-Hunt hiders show a disguise crate (selfAvatar);
+  // a match with the third-person camera enabled shows the local player as the same
+  // rigged operator everyone else sees (selfOperator, built lazily on first use).
   selfAvatar!: Entity;
+  selfOperator: RemotePlayer | null = null;
 
   remotes = new Map<string, RemotePlayer>();
   names = new Map<string, string>();
@@ -432,10 +435,13 @@ class Game {
 
   // ─── camera perspective (first / third person) ────────────────────────────────
 
-  /** true when the camera should sit behind the avatar. Only Prop-Hunt hiders
-   *  (who are disguised props) play in third-person; everyone else is first. */
+  /** true when the camera should sit behind the avatar. Prop-Hunt hiders (disguised
+   *  props) are always third-person; otherwise the whole match is third-person when
+   *  the host enabled the third-person camera in the lobby. */
   thirdPersonActive(): boolean {
-    return this.inGame && this.mode === "prophunt" && this.myRole === ROLE_HIDE;
+    if (!this.inGame) return false;
+    if (this.mode === "prophunt" && this.myRole === ROLE_HIDE) return true;
+    return this.cfg.thirdPerson;
   }
 
   /** build the local player's third-person avatar container (a Prop-Hunt disguise) */
@@ -481,10 +487,11 @@ class Game {
       // first person: camera at the eye, avatar hidden
       this.camEntity.transform.setPosition(this.body.pos.x, eye, this.body.pos.z);
       if (this.selfAvatar) this.selfAvatar.isActive = false;
+      if (this.selfOperator) this.selfOperator.entity.isActive = false;
       return;
     }
 
-    // third person (Prop-Hunt hider): pull the camera back along the aim
+    // third person: pull the camera back along the aim, over the right shoulder.
     const cp = Math.cos(pitch), sp = Math.sin(pitch);
     const dir: Vec3 = { x: -Math.sin(this.body.yaw) * cp, y: sp, z: -Math.cos(this.body.yaw) * cp };
     const rx = Math.cos(this.body.yaw), rz = -Math.sin(this.body.yaw); // right vector
@@ -498,11 +505,36 @@ class Game {
     const cz = o.z + nd.z * back + rz * 0.55;
     this.camEntity.transform.setPosition(cx, cy, cz);
 
-    // show the crate disguise standing at the player's feet
-    const a = this.selfAvatar;
-    a.isActive = true;
-    a.transform.setPosition(this.body.pos.x, this.body.pos.y, this.body.pos.z);
-    a.transform.setRotation(0, (this.body.yaw * 180) / Math.PI, 0);
+    if (this.isHider()) {
+      // Prop-Hunt hider: the crate disguise standing at the player's feet
+      if (this.selfOperator) this.selfOperator.entity.isActive = false;
+      const a = this.selfAvatar;
+      a.isActive = true;
+      a.transform.setPosition(this.body.pos.x, this.body.pos.y, this.body.pos.z);
+      a.transform.setRotation(0, (this.body.yaw * 180) / Math.PI, 0);
+      return;
+    }
+
+    // general third-person: drive the local operator avatar with the body's pose so
+    // you see the same rigged character (animated, holding your gun) as everyone else.
+    if (this.selfAvatar) this.selfAvatar.isActive = false;
+    const op = this.ensureSelfOperator();
+    if (op) {
+      op.weapon = this.ws.current;
+      op.setPose(this.body.pos, this.body.yaw, this.body.crouched, true);
+    }
+  }
+
+  /** build (once) the local player's third-person operator avatar */
+  ensureSelfOperator(): RemotePlayer | null {
+    if (this.selfOperator) return this.selfOperator;
+    if (!this.models) return null;
+    const root = this.engine.sceneManager.activeScene.getRootEntity();
+    if (!root) return null;
+    this.selfOperator = new RemotePlayer(
+      this.engine, root, "self", this.names.get(this.net.myId) ?? "", this.net.colorOf(this.net.myId), this.models,
+    );
+    return this.selfOperator;
   }
 
   /** apply host physics rules (gravity/speed scale) to every local body */
@@ -1400,6 +1432,7 @@ class Game {
   enterEnd(): void {
     this.inGame = false;
     if (this.selfAvatar) this.selfAvatar.isActive = false;
+    if (this.selfOperator) this.selfOperator.entity.isActive = false;
     document.body.classList.remove("hider");
     document.exitPointerLock();
     this.hud.end(this.net.players, this.scores, this.net.isHost, this.resultTitle());
@@ -2237,6 +2270,7 @@ class Game {
     this.lobbyView = true;
     this.ws.showViewmodel(false);
     if (this.selfAvatar) this.selfAvatar.isActive = false;
+    if (this.selfOperator) this.selfOperator.entity.isActive = false;
     document.body.classList.remove("hider");
     this.refreshLobbyAvatars();
   }

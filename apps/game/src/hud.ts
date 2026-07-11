@@ -161,7 +161,8 @@ export class Hud {
       el.innerHTML =
         `<div class="rule-ro">${botTxt} · ${cfg.rounds} rounds · ${mins(cfg.roundTime)}` +
         `${cfg.gravity !== 1 ? ` · grav ${cfg.gravity.toFixed(1)}×` : ""}` +
-        `${cfg.speed !== 1 ? ` · spd ${cfg.speed.toFixed(1)}×` : ""}</div>`;
+        `${cfg.speed !== 1 ? ` · spd ${cfg.speed.toFixed(1)}×` : ""}` +
+        `${cfg.thirdPerson ? " · 3rd-person" : ""}</div>`;
       return;
     }
     if (el.dataset.built !== "host") this.buildRulesGrid(el);
@@ -187,6 +188,9 @@ export class Hud {
     const diff = `<div class="rule rule-wide"><label>Bot difficulty</label><div class="seg" id="rule-diff">` +
       BOT_LEVELS.map((d) => `<button data-v="${d}">${d}</button>`).join("") +
       `</div></div>`;
+    const cam = `<div class="rule rule-wide"><label>Camera</label><div class="seg" id="rule-cam">` +
+      `<button data-v="first">first-person</button><button data-v="third">third-person</button>` +
+      `</div></div>`;
     el.innerHTML =
       `<div class="rules-grid">` +
       cell("bots", "Bots", bMin, bMax, 1) +
@@ -195,6 +199,7 @@ export class Hud {
       cell("grav", "Gravity", gMin, gMax, 0.1) +
       cell("speed", "Speed", sMin, sMax, 0.1) +
       diff +
+      cam +
       `</div>`;
 
     const bind = (key: string, fn: (v: number) => Partial<MatchConfig>, disp: (v: number) => string): void => {
@@ -215,6 +220,9 @@ export class Hud {
     for (const c of Array.from($("rule-diff").children)) {
       c.addEventListener("click", () => this.onCfg?.({ difficulty: (c as HTMLElement).dataset.v as BotLevel }));
     }
+    for (const c of Array.from($("rule-cam").children)) {
+      c.addEventListener("click", () => this.onCfg?.({ thirdPerson: (c as HTMLElement).dataset.v === "third" }));
+    }
   }
 
   /** push cfg values into the already-built host grid without touching the DOM
@@ -234,6 +242,11 @@ export class Hud {
     const diff = document.getElementById("rule-diff");
     if (diff) for (const c of Array.from(diff.children)) {
       c.classList.toggle("on", (c as HTMLElement).dataset.v === cfg.difficulty);
+    }
+    const cam = document.getElementById("rule-cam");
+    if (cam) for (const c of Array.from(cam.children)) {
+      const isThird = (c as HTMLElement).dataset.v === "third";
+      c.classList.toggle("on", isThird === cfg.thirdPerson);
     }
   }
 

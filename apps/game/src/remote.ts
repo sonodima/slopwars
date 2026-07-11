@@ -260,7 +260,9 @@ export class RemotePlayer {
   private applyTransform(): void {
     this.entity.isActive = this.alive;
     this.entity.transform.setPosition(this.pos.x, this.pos.y, this.pos.z);
-    this.entity.transform.setRotation(0, (this.yaw * 180) / Math.PI, 0);
+    // the operator rig is authored facing +Z, but the player's forward (body.yaw) points
+    // −Z, so add 180° to turn the avatar to look where it's actually aiming/moving.
+    this.entity.transform.setRotation(0, (this.yaw * 180) / Math.PI + 180, 0);
     // crouch: settle the whole avatar down a touch (the crate never crouches)
     const s = this.disguised ? 1 : this.crouched ? 0.82 : 1;
     this.entity.transform.setScale(1, s, 1);
