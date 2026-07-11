@@ -373,7 +373,7 @@ class Game {
     document.addEventListener("mousedown", (e) => {
       if (!this.locked || !this.inGame || this.hud.chatOpen) return;
       if (e.button === 0) { this.fireHeld = true; this.triedFireQueued = true; }
-      if (e.button === 2 && this.ws.def().scope && this.alive && !this.thirdPersonActive()) {
+      if (e.button === 2 && this.ws.def().scope && this.alive) {
         this.ws.setScope(!this.ws.scoped);
         this.applyScopeFov();
       }
@@ -413,7 +413,7 @@ class Game {
         return;
       }
       this.keys.add(e.code);
-      if (e.code === "KeyR") this.ws.reload();
+      if (e.code === "KeyR") this.localReload();
       const wi = ["Digit1", "Digit2", "Digit3", "Digit4", "Digit5", "Digit6"].indexOf(e.code);
       if (wi >= 0 && this.alive && this.canSwitchWeapon()) { this.ws.select(LOADOUT[wi]); this.applyScopeFov(); }
     });
@@ -442,7 +442,9 @@ class Game {
   thirdPersonActive(): boolean {
     if (!this.inGame) return false;
     if (this.mode === "prophunt" && this.myRole === ROLE_HIDE) return true;
-    return this.cfg.thirdPerson;
+    // scoping (AWP ADS) drops to a first-person scope even in a third-person match —
+    // you can't aim a sniper scope from over the shoulder.
+    return this.cfg.thirdPerson && !this.ws.scoped;
   }
 
   /** build the local player's third-person avatar container (a Prop-Hunt disguise) */
@@ -781,9 +783,9 @@ class Game {
     t.onCrouch = (down) => { if (down) this.keys.add("ControlLeft"); else this.keys.delete("ControlLeft"); };
     t.onScore = (down) => { this.sbOpen = down; };
     t.onScope = () => {
-      if (this.ws.def().scope && this.alive && !this.thirdPersonActive()) { this.ws.setScope(!this.ws.scoped); this.applyScopeFov(); }
+      if (this.ws.def().scope && this.alive) { this.ws.setScope(!this.ws.scoped); this.applyScopeFov(); }
     };
-    t.onReload = () => { if (this.alive) this.ws.reload(); };
+    t.onReload = () => { if (this.alive) this.localReload(); };
     t.onWeapon = (i) => { if (this.alive && this.canSwitchWeapon()) { this.ws.select(LOADOUT[i]); this.applyScopeFov(); } };
     t.onChat = () => { this.keys.clear(); this.fireHeld = false; this.hud.openChat(); };
     t.onMic = () => {
@@ -1013,9 +1015,13 @@ class Game {
     }
 
     this.broadcastShot(o, d, def.id);
-    // start the local player's tracer at the viewmodel's muzzle (barrel tip) rather than
-    // an eye-relative guess, so it reads as leaving the gun.
-    this.resolveRay(o, d, def, 1, this.net.myId, true, 0, 0, this.ws.muzzleWorld() ?? undefined);
+    // start the local player's tracer at the gun muzzle so it reads as leaving the gun.
+    // In third person the first-person viewmodel is hidden (its muzzle sits at the camera,
+    // which would draw the tracer from the corner) — use the third-person avatar's muzzle.
+    const muzzle = this.thirdPersonActive()
+      ? (this.selfOperator?.gunMuzzle() ?? undefined)
+      : (this.ws.muzzleWorld() ?? undefined);
+    this.resolveRay(o, d, def, 1, this.net.myId, true, 0, 0, muzzle);
   }
 
   /** trace one segment; may recurse once through a wall (wallbang). `tracerFrom` overrides
@@ -1117,6 +1123,14 @@ class Game {
     return { pan, dist };
   }
 
+  /** reload the current weapon and, if it actually started, play the third-person
+   *  reload animation on the local operator avatar. */
+  localReload(): void {
+    const before = this.ws.reloading;
+    this.ws.reload();
+    if (this.ws.reloading > 0 && before <= 0) this.selfOperator?.triggerUpper("Reload", this.ws.reloading);
+  }
+
   // ─── grenades ───────────────────────────────────────────────────────────────
 
   throwNade(kind: NadeKind): void {
@@ -1125,6 +1139,7 @@ class Game {
     const spd = kind === "he" ? 16 : 14;
     const v: Vec3 = { x: d.x * spd, y: d.y * spd + 3.2, z: d.z * spd };
     this.nades.throw_(kind, o, v, this.net.myId, true);
+    this.selfOperator?.triggerUpper("ThrowGrenade", 0.9); // third-person toss animation
     const m: Msg = { t: "nade", id: this.net.myId, k: kind, o: [o.x, o.y, o.z], v: [v.x, v.y, v.z] };
     if (this.net.isHost) this.net.broadcast(m);
     else this.net.send(m);
@@ -1979,6 +1994,7 @@ class Game {
       this.hud.kill(this.names.get(m.k) ?? "?", this.names.get(m.v) ?? "?", m.w, m.hs === 1);
       if (m.v === this.net.myId) {
         this.alive = false;
+        this.selfOperator?.markDead(m.hs === 1); // pick the death variant before syncDeath
         this.respawnAt = performance.now() / 1000 + MODES[this.mode].respawn;
         this.hud.crosshair(false);
         this.ws.setScope(false);
@@ -1987,7 +2003,7 @@ class Game {
         sfx.death();
       } else {
         const r = this.remotes.get(m.v);
-        if (r) r.alive = false;
+        if (r) { r.markDead(m.hs === 1); r.alive = false; }
       }
     } else if (m.t === "spawn") {
       if (m.id === this.net.myId) {
