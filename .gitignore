@@ -3,6 +3,3 @@ dist/
 *.log
 .DS_Store
 public/physx/
-
-# Mixamo FBX source drops (converted to public/assets/models/operator via scripts/mixamo-to-operator.py)
-toimport/
