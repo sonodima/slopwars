@@ -20,10 +20,11 @@ export interface MatchConfig {
   gravity: number;     // gravity scale (1 = normal)
   speed: number;       // movement-speed scale (1 = normal)
   thirdPerson: boolean; // whole match plays in a behind-the-back third-person camera
+  aiChat: boolean;     // host runs the on-device LLM for NPC trash-talk (Chrome only)
 }
 export const DEFAULT_CONFIG: MatchConfig = {
   bots: 0, difficulty: "normal", rounds: ROUNDS_PER_GAME, roundTime: ROUND_TIME, gravity: 1, speed: 1,
-  thirdPerson: false,
+  thirdPerson: false, aiChat: true,
 };
 // slider bounds (shared by lobby UI + clamping)
 export const CFG_BOUNDS = {
