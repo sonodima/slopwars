@@ -44,14 +44,11 @@ export const BOT_TUNING: Record<BotLevel, { aim: number; rate: number; dmg: numb
 // movement (quake/krunker style)
 export const MOVE = {
   eyeHeight: 1.62,
-  eyeCrouch: 1.08,
   height: 1.8,
-  crouchHeight: 1.25,
   radius: 0.38,
   gravity: 19,
   jumpVel: 6.6,
   groundSpeed: 8.6,
-  crouchFactor: 0.55,
   groundAccel: 13,
   friction: 6.0,
   airAccel: 38,
@@ -172,7 +169,6 @@ export interface PlayerState {
   p: [number, number, number]; // feet pos
   yaw: number;
   pitch: number;
-  cr: 0 | 1; // crouch
   w: WeaponId;
   hp: number;
 }

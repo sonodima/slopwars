@@ -23,7 +23,6 @@ export class TouchControls {
   onLook: (dx: number, dy: number) => void = () => {};
   onFire: (down: boolean) => void = () => {};
   onJump: (down: boolean) => void = () => {};
-  onCrouch: (down: boolean) => void = () => {};
   onScore: (down: boolean) => void = () => {};
   // discrete taps
   onScope: () => void = () => {};
@@ -65,7 +64,7 @@ export class TouchControls {
     this.moveX = 0; this.moveY = 0; this.sprint = false;
     this.joyId = -1; this.lookId = -1; this.fireId = -1;
     if (this.knob) this.knob.style.transform = "";
-    this.onFire(false); this.onJump(false); this.onCrouch(false); this.onScore(false);
+    this.onFire(false); this.onJump(false); this.onScore(false);
     for (const el of document.querySelectorAll(".tcb.on, .tc-wep.on")) el.classList.remove("on");
   }
 
@@ -157,7 +156,6 @@ export class TouchControls {
   private bindButtons(): void {
     this.fireButton($("tc-fire"));
     this.hold($("tc-jump"), this.onJump);
-    this.hold($("tc-crouch"), this.onCrouch);
     this.hold($("tc-scores"), this.onScore);
     this.tap($("tc-reload"), () => this.onReload());
     this.tap($("tc-scope"), () => this.onScope());

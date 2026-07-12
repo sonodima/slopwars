@@ -6,7 +6,6 @@ export interface Input {
   fwd: number; // -1..1
   right: number;
   jump: boolean;
-  crouch: boolean;
   sprint: boolean;
 }
 
@@ -16,7 +15,6 @@ export class PlayerBody {
   yaw = 0; // rad
   pitch = 0;
   onGround = false;
-  crouched = false;
   private wasOnGround = false;
   landed = false; // set true for one frame on landing
   jumped = false;
@@ -24,8 +22,8 @@ export class PlayerBody {
 
   constructor(private map: GameMap) {}
 
-  get eyeY(): number { return this.pos.y + (this.crouched ? MOVE.eyeCrouch : MOVE.eyeHeight); }
-  get height(): number { return this.crouched ? MOVE.crouchHeight : MOVE.height; }
+  get eyeY(): number { return this.pos.y + MOVE.eyeHeight; }
+  get height(): number { return MOVE.height; }
 
   teleport(p: Vec3, yaw: number): void {
     this.pos = { ...p };
@@ -39,10 +37,6 @@ export class PlayerBody {
     this.landed = false;
     this.jumped = false;
 
-    // crouch (only stand up if room)
-    if (inp.crouch) this.crouched = true;
-    else if (this.crouched && !this.collides(this.pos, MOVE.height)) this.crouched = false;
-
     // wish direction in world space
     const s = Math.sin(this.yaw), c = Math.cos(this.yaw);
     let wx = -s * inp.fwd + c * inp.right;
@@ -50,8 +44,8 @@ export class PlayerBody {
     const wl = Math.hypot(wx, wz);
     if (wl > 1e-5) { wx /= wl; wz /= wl; }
 
-    const sprint = inp.sprint && !this.crouched ? MOVE.sprintFactor : 1;
-    const maxSpeed = MOVE.groundSpeed * speedFactor * (this.crouched ? MOVE.crouchFactor : 1) * sprint;
+    const sprint = inp.sprint ? MOVE.sprintFactor : 1;
+    const maxSpeed = MOVE.groundSpeed * speedFactor * sprint;
 
     if (this.onGround) {
       if (inp.jump) {
