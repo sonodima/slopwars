@@ -927,14 +927,18 @@ class Game {
 
   /** once support is known, decide what (if anything) to do about the model download:
    *   • already cached / unsupported → nothing;
-   *   • a download is already running → attach the progress toast;
-   *   • the user already opted in earlier → resume the download silently-consented;
-   *   • otherwise, first launch → show the one-time consent pop-up (unless already asked). */
+   *   • not yet asked → ASK FIRST with the consent pop-up (only reached when supported);
+   *   • already explicitly opted in (answered + on) → show / attach the download.
+   *  Consent is the primary gate: we NEVER surface the progress toast before the user
+   *  has said yes — even when `availability()` already reports "downloading". (Gemini
+   *  Nano is a browser-level component, so a fresh/incognito profile can see an
+   *  in-flight download it never triggered; we just don't reveal it until opt-in.) */
   private decideAiDownload(): void {
     const npc = this.npc;
     if (!npc || npc.status === "unavailable" || npc.status === "available") return;
-    if (npc.status === "downloading" || this.settings.state.aiChat) void this.startAiDownload();
-    else if (!this.settings.state.aiPrompted) this.hud.showAiConsent();
+    // status is "downloadable" or "downloading" — model isn't usable yet either way
+    if (!this.settings.state.aiPrompted) this.hud.showAiConsent();
+    else if (this.settings.state.aiChat) void this.startAiDownload();
   }
 
   /** download + warm the model (once), driving the progress toast. Guarded so it never
@@ -1989,7 +1993,7 @@ class Game {
     this.spectateId = null;
     this.hud.spectate(null);
     this.hud.respawnOverlay(null);
-    this.hud.end(this.net.players, this.scores, this.net.isHost, this.resultTitle());
+    this.hud.end(this.net.players, this.scores, this.net.isHost, this.resultTitle(), this.net.myId);
     this.hud.show("end");
     sfx.muffle(false); // clear any death-cam muffle carried into the end screen
     sfx.death();
@@ -3026,7 +3030,7 @@ class Game {
   }
 
   refreshLobby(): void {
-    this.hud.lobby(this.net.lobbyCode, this.net.players, this.net.isHost, this.mode, this.cfg);
+    this.hud.lobby(this.net.lobbyCode, this.net.players, this.net.isHost, this.mode, this.cfg, this.net.myId);
     this.hud.setOffline(this.net.offline);
     this.refreshLobbyAvatars();
   }

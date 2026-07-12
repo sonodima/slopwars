@@ -151,12 +151,18 @@ export class Hud {
   }
 
   // ── lobby ──
-  lobby(code: string, players: PlayerInfo[], isHost: boolean, mode: ModeId, cfg: MatchConfig): void {
+  lobby(code: string, players: PlayerInfo[], isHost: boolean, mode: ModeId, cfg: MatchConfig, myId = ""): void {
     $("lobby-code").textContent = code;
     $("game-code").textContent = code;
     $("sb-code").textContent = "join code: " + code;
     $("lobby-players").innerHTML = players
-      .map((p) => `<div class="lp"><span class="dot" style="background:${hex(p.color)}"></span>${esc(p.name)}${p.id === "host" ? " <em>host</em>" : ""}</div>`)
+      .map((p) => {
+        const c = hex(p.color);
+        return `<div class="lp${p.id === myId ? " me" : ""}">` +
+          `<span class="dot" style="background:${c};color:${c}"></span>` +
+          `<span class="lp-name">${esc(p.name)}</span>` +
+          `${p.id === "host" ? `<em>host</em>` : ""}</div>`;
+      })
       .join("");
     $("btn-start").classList.toggle("hidden", !isHost);
     $("lobby-wait").classList.toggle("hidden", isHost);
@@ -267,26 +273,44 @@ export class Hud {
     window.setTimeout(() => el.classList.add("hidden"), 280);
   }
 
-  /** a model download has begun — reveal the toast in its loading state. */
+  /** a model download has begun — reveal the toast. Starts INDETERMINATE (an animated
+   *  bar, no %): the Prompt API's `downloadprogress` may not have fired yet — and when
+   *  attaching to a browser-level Gemini-Nano download already cached, it can skip the
+   *  byte-download phase entirely and go straight to (progress-less) loading. We show a
+   *  real percentage only while measured progress is climbing (setAiDownloadProgress). */
   showAiDownload(): void {
     this.aiDlDismissed = false; // a freshly-triggered download always shows
     this.aiDlStart = Date.now();
     window.clearTimeout(this.aiDlDoneTimer);
-    $("ai-dl").classList.remove("done", "ai-out");
+    const el = $("ai-dl");
+    el.classList.remove("done", "ai-out");
+    el.classList.add("indet"); // no measured progress yet → animated bar
     $("ai-dl-title").textContent = "Preparing NPC AI";
     $("ai-dl-msg").textContent = "Downloading the on-device model — you can keep playing.";
-    $("ai-dl-pct").textContent = "0%";
+    $("ai-dl-pct").textContent = "";
     $("ai-dl-eta").textContent = "";
     ($("ai-dl-fill") as HTMLElement).style.width = "0%";
-    $("ai-dl").classList.remove("hidden");
+    el.classList.remove("hidden");
   }
 
-  /** update the toast with the latest download fraction (0→1) + a rough ETA. */
+  /** update the toast from a `downloadprogress` fraction (0→1; `total` is always 1).
+   *  Determinate while bytes stream in; once they're all in (loaded=1) the browser
+   *  extracts + loads the model into memory with no further progress signal, so we
+   *  flip back to indeterminate — per Chrome's "inform users of model download" guide. */
   setAiDownloadProgress(loaded: number): void {
     if (this.aiDlDismissed) return;
     const el = $("ai-dl");
     if (el.classList.contains("hidden")) this.showAiDownload();
     const frac = Math.max(0, Math.min(1, loaded));
+    if (frac <= 0) return; // no signal yet — stay indeterminate
+    if (frac >= 1) {
+      // bytes are in → extraction / load-into-memory phase (no measurable progress)
+      el.classList.add("indet");
+      $("ai-dl-msg").textContent = "Almost ready — loading the model…";
+      return;
+    }
+    el.classList.remove("indet");
+    $("ai-dl-msg").textContent = "Downloading the on-device model — you can keep playing.";
     const pct = Math.round(frac * 100);
     ($("ai-dl-fill") as HTMLElement).style.width = `${pct}%`;
     $("ai-dl-pct").textContent = `${pct}%`;
@@ -298,7 +322,7 @@ export class Hud {
   aiDownloadDone(): void {
     if (this.aiDlDismissed) return;
     const el = $("ai-dl");
-    el.classList.remove("hidden");
+    el.classList.remove("hidden", "indet");
     el.classList.add("done");
     $("ai-dl-title").textContent = "NPC AI ready";
     $("ai-dl-msg").textContent = "The on-device model is ready — bots will now trash-talk.";
@@ -446,9 +470,9 @@ export class Hud {
     if (!visible) return;
     const rows = players
       .map((p) => ({ p, s: scores[p.id] ?? { k: 0, d: 0 } }))
-      .sort((a, b) => b.s.k - a.s.k);
+      .sort((a, b) => b.s.k - a.s.k || a.s.d - b.s.d);
     $("sb-rows").innerHTML = rows
-      .map(({ p, s }) => `<div class="row${p.id === myId ? " me" : ""}"><span>${esc(p.name)}</span><span>${s.k}</span><span>${s.d}</span></div>`)
+      .map(({ p, s }, i) => Hud.lbRow(p, s, i, myId))
       .join("");
   }
 
@@ -518,15 +542,47 @@ export class Hud {
   clickToPlay(on: boolean): void { $("click-to-play").classList.toggle("hidden", !on); }
 
   // ── end screen ──
-  end(players: PlayerInfo[], scores: GameSnapshot["scores"], isHost: boolean, title = "Match over"): void {
+  end(players: PlayerInfo[], scores: GameSnapshot["scores"], isHost: boolean, title = "Match over", myId = ""): void {
     $("end-title").textContent = title;
+    // rank by kills, then fewest deaths as the tie-breaker
     const rows = players
       .map((p) => ({ p, s: scores[p.id] ?? { k: 0, d: 0 } }))
-      .sort((a, b) => b.s.k - a.s.k);
+      .sort((a, b) => b.s.k - a.s.k || a.s.d - b.s.d);
+
+    // MVP spotlight = the top fragger
+    const mvp = rows[0];
+    $("end-mvp").innerHTML = mvp
+      ? `<div class="mvp-medal">🏆</div>` +
+        `<div class="mvp-info"><div class="mvp-label">MVP</div>` +
+        `<div class="mvp-name" style="color:${hex(mvp.p.color)}">${esc(mvp.p.name)}</div></div>` +
+        `<div class="mvp-kd"><span><b>${mvp.s.k}</b>kills</span><span><b>${mvp.s.d}</b>deaths</span></div>`
+      : "";
+
     $("end-rows").innerHTML = rows
-      .map(({ p, s }, i) => `<div class="row"><span>#${i + 1} ${esc(p.name)}</span><span>${s.k}</span><span>${s.d}</span></div>`)
+      .map(({ p, s }, i) => Hud.lbRow(p, s, i, myId, `animation-delay:${Math.min(i * 45, 400)}ms`))
       .join("");
     $("btn-again").classList.toggle("hidden", !isHost);
+  }
+
+  /** one medalled leaderboard row — shared by the end screen and the in-game
+   *  scoreboard so both read as the same UI. `i` is the 0-based rank. */
+  private static lbRow(
+    p: PlayerInfo,
+    s: { k: number; d: number },
+    i: number,
+    myId: string,
+    style = "",
+  ): string {
+    const rank = i + 1;
+    const ratio = (s.k / Math.max(1, s.d)).toFixed(1); // treat 0 deaths as 1 → no "Infinity"
+    const medal = rank <= 3
+      ? `<i class="medal m${rank}">${rank}</i>`
+      : `<span class="rnum">${rank}</span>`;
+    const c = hex(p.color);
+    return `<div class="lb-row${p.id === myId ? " me" : ""}"${style ? ` style="${style}"` : ""}>` +
+      `<span class="c-rank">${medal}</span>` +
+      `<span class="c-name"><span class="pdot" style="background:${c};color:${c}"></span>${esc(p.name)}</span>` +
+      `<span class="c-k">${s.k}</span><span class="c-d">${s.d}</span><span class="c-r">${ratio}</span></div>`;
   }
 
   update(dt: number): void {
