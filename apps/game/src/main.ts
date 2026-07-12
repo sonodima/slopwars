@@ -154,6 +154,7 @@ class Game {
   // pointer-lock behaviour, and the platform icon peers see next to this player.
   myPlatform: Platform = "keyboard";
   platforms: Record<string, Platform> = {}; // playerId → their current input device
+  private navFocusEl: HTMLElement | null = null; // gamepad menu-navigation focus ring
   settings = new Settings();
 
   // ── AI opponents (host-driven; may coexist with human guests) ──
@@ -1124,6 +1125,11 @@ class Game {
       if (this.voice.micOk) { this.voice.setMuted(!this.voice.muted); this.hud.voice(this.voice.muted ? "muted" : "on"); }
     };
     g.onPause = () => { if (this.settings.isOpen()) this.settings.close(); else this.openSettings(); };
+    // menu navigation (only fires while gamepad.mode === "menu"; see the tick loop)
+    g.onNavigate = (dir) => this.menuMove(dir);
+    g.onAdjust = (dir) => this.menuAdjust(dir);
+    g.onConfirm = () => this.menuConfirm();
+    g.onBack = () => this.menuBack();
 
     // a freshly plugged-in pad becomes the device on its first input (handled by poll);
     // if the active pad is unplugged mid-match, fall back to mouse/keyboard.
@@ -1144,6 +1150,85 @@ class Game {
     if (this.phase === "lobby") this.refreshLobby();
   }
 
+  // ─── gamepad menu navigation ──────────────────────────────────────────────────
+  // Drive the plain DOM menus (create/join, lobby, settings, map vote, end screen)
+  // with a controller: a focus ring moves between the interactive controls, A
+  // activates, B backs out, and left/right nudges sliders.
+
+  /** the top-most navigable menu/overlay currently on screen (null while just playing) */
+  private activeNavRoot(): HTMLElement | null {
+    const vis = (id: string): HTMLElement | null => {
+      const el = document.getElementById(id);
+      return el && !el.classList.contains("hidden") && el.offsetParent !== null ? el : null;
+    };
+    // priority: modal pop-ups first, then the settings overlay, then whole screens
+    return vis("ai-consent") ?? (this.settings.isOpen() ? document.getElementById("settings") : null)
+      ?? vis("vote") ?? vis("scr-end") ?? vis("scr-lobby") ?? vis("scr-menu");
+  }
+
+  /** interactive controls inside a menu root, in document (≈ visual) order */
+  private navItems(root: HTMLElement): HTMLElement[] {
+    const els = root.querySelectorAll<HTMLElement>("button, input, .mode-card, .vc");
+    return Array.from(els).filter((el) =>
+      !el.classList.contains("hidden") && !el.classList.contains("readonly")
+      && !(el as HTMLButtonElement).disabled && el.offsetParent !== null);
+  }
+
+  private setNavFocus(el: HTMLElement): void {
+    if (this.navFocusEl && this.navFocusEl !== el) this.navFocusEl.classList.remove("gp-focus");
+    this.navFocusEl = el;
+    el.classList.add("gp-focus");
+    el.scrollIntoView({ block: "nearest" });
+  }
+
+  private clearNav(): void {
+    this.navFocusEl?.classList.remove("gp-focus");
+    this.navFocusEl = null;
+  }
+
+  /** move the focus ring by `dir` (−1 up / +1 down), wrapping; first press just reveals it */
+  menuMove(dir: number): void {
+    const root = this.activeNavRoot();
+    if (!root) return;
+    const items = this.navItems(root);
+    if (!items.length) { this.clearNav(); return; }
+    const i = this.navFocusEl ? items.indexOf(this.navFocusEl) : -1;
+    if (i < 0) { this.setNavFocus(items[0]); return; }
+    this.setNavFocus(items[(i + dir + items.length) % items.length]);
+  }
+
+  /** left/right: nudge a focused slider, otherwise move the focus ring horizontally */
+  menuAdjust(dir: number): void {
+    const el = this.navFocusEl;
+    if (el instanceof HTMLInputElement && el.type === "range") {
+      const step = parseFloat(el.step) || 1;
+      const min = parseFloat(el.min), max = parseFloat(el.max);
+      const v = clamp(parseFloat(el.value) + dir * step, min, max);
+      el.value = String(v);
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      return;
+    }
+    this.menuMove(dir);
+  }
+
+  /** A button: activate the focused control (text inputs just take keyboard focus) */
+  menuConfirm(): void {
+    const root = this.activeNavRoot();
+    if (!root) return;
+    const items = this.navItems(root);
+    if (!items.length) return;
+    if (!this.navFocusEl || !items.includes(this.navFocusEl)) { this.setNavFocus(items[0]); return; }
+    const el = this.navFocusEl;
+    if (el instanceof HTMLInputElement && (el.type === "text" || el.type === "range")) { el.focus(); return; }
+    el.click();
+  }
+
+  /** B button: close the top-most overlay (settings / consent). No-op on base screens. */
+  menuBack(): void {
+    if (this.settings.isOpen()) { this.settings.close(); return; }
+    document.getElementById("ai-consent-no")?.click();
+  }
+
   // ─── loop ───────────────────────────────────────────────────────────────────
 
   tick(dt: number, now: number): void {
@@ -1153,7 +1238,11 @@ class Game {
       this.map.tickSounds({ x: cp.x, y: cp.y, z: cp.z });
     }
     // poll the gamepad every frame so a controller can take over at any time (its
-    // callbacks self-gate on match state); analog move/look are read below.
+    // callbacks self-gate on match state); analog move/look are read below. When a menu
+    // or overlay is up, the pad drives DOM focus navigation instead of the FPS.
+    const navRoot = this.activeNavRoot();
+    this.gamepad.mode = navRoot ? "menu" : "game";
+    if (!navRoot && this.navFocusEl) this.clearNav(); // left the menus → drop the focus ring
     this.gamepad.poll();
     if (this.inGame) {
       const kFwd = (this.keys.has("KeyW") ? 1 : 0) - (this.keys.has("KeyS") ? 1 : 0);
