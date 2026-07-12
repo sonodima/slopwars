@@ -486,6 +486,10 @@ export class Hud {
   scoreboard(visible: boolean, players: PlayerInfo[], scores: GameSnapshot["scores"], myId: string, platforms: Record<string, Platform> = {}): void {
     const sb = $("scoreboard");
     sb.classList.toggle("hidden", !visible);
+    // clear the on-screen touch controls (weapon strip + fire cluster) while the
+    // board is up — round-end interlude or a held scoreboard — so they don't float
+    // over it on phones
+    document.body.classList.toggle("sb-open", visible);
     if (!visible) return;
     const rows = players
       .map((p) => ({ p, s: scores[p.id] ?? { k: 0, d: 0 } }))

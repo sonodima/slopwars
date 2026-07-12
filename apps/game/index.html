@@ -206,6 +206,7 @@
 
   #scoreboard{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
     width:min(460px,92vw);
+    max-height:calc(100vh - 24px);max-height:calc(100dvh - 24px);overflow-y:auto;
     background:linear-gradient(180deg,rgba(22,18,12,.94),rgba(14,12,8,.94));
     border:1px solid var(--line);padding:18px 22px 20px;
     box-shadow:0 24px 64px rgba(0,0,0,.6),inset 0 1px 0 rgba(216,184,120,.24)}
@@ -428,6 +429,9 @@
     .panel input{font-size:15px;padding:9px 11px}
     button{padding:11px 16px;font-size:12px;margin-top:12px}
     #lobby-code{margin:4px 0 12px}
+    /* scoreboard + settings: shrink to match the main/lobby panels */
+    #scoreboard{width:min(420px,94vw);padding:14px 16px 16px}
+    .set-title{font-size:19px;letter-spacing:4px}
   }
   /* short landscape (phones held sideways): tighten vertical rhythm + allow scroll */
   @media (max-height:520px){
@@ -439,6 +443,17 @@
     button{padding:9px 16px;margin-top:9px}
     #scr-lobby,#scr-menu{--lm:clamp(10px,2.5vw,32px);--vm:max(8px,env(safe-area-inset-top));align-items:flex-start}
     #lobby-code{margin:4px 0 10px}
+    /* in-game scoreboard on short (landscape phone) screens: tighter + smaller rows */
+    #scoreboard{width:min(420px,90vw);padding:12px 16px 14px}
+    #scoreboard h3{letter-spacing:4px;margin-bottom:2px}
+    #scoreboard #sb-code{margin-bottom:8px}
+    #scoreboard .lb-row{font-size:12px;padding:6px 5px}
+    /* settings overlay: trim the vertical rhythm so the whole panel fits without a long scroll */
+    .set-title{font-size:18px;letter-spacing:4px;margin-bottom:2px}
+    .set-toggle{margin-top:12px}
+    #set-done{margin-top:14px}
+    #set-leave{margin-top:12px}
+    #set-aichat-note{margin-top:6px}
   }
   /* keyboard hints are desktop-only; show a touch primer instead */
   .touch-only{display:none}
@@ -625,6 +640,10 @@
   body.touch #buff{top:calc(max(10px,env(safe-area-inset-top)) + 66px);left:max(10px,env(safe-area-inset-left));font-size:11px;padding:4px 12px}
   /* round-start banner is far less bulky on phones */
   body.touch #banner{font-size:14px;letter-spacing:3px;padding:7px 18px;top:22%}
+
+  /* while the scoreboard is open (round-end interlude or held), clear the on-screen
+     weapon picker + fire cluster so they don't float on top of the board */
+  body.sb-open #tc-weapons,body.sb-open #tc-actions{display:none!important}
 
   /* Prop-Hunt hiders are unarmed props: hide all combat UI + weapon HUD */
   body.hider #scr-game .hud-br{display:none}
