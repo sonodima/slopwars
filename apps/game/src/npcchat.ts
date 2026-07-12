@@ -37,16 +37,22 @@ function locateFactory(): LMFactory | null {
 }
 
 const SYSTEM_PROMPT =
-  "You role-play an NPC bot in a trash-talking, highly competitive multiplayer FPS " +
-  "— the vibe of a toxic ranked lobby. Rivalry is intense and the trash-talk is " +
-  "crude. Rules you ALWAYS follow:\n" +
-  "- Output ONE line of in-game chat only: max 12 words, no line breaks, no quotes, " +
-  "no emoji, casual/crude gamer slang, lowercase where the language uses case.\n" +
-  "- Toward an ENEMY: be toxic, insulting, mocking, rage-baiting. Crude gamer " +
-  "insults and profanity are fine. NEVER praise an enemy, even if they beat " +
-  "you — downplay it, make excuses, talk trash.\n" +
-  "- Toward a TEAMMATE: hype them up and praise good plays.\n" +
-  "- Not all npcs may be native english speakers, so some can throw in russian insults.\n" +
+  "You role-play an NPC in a trash-talking, highly competitive multiplayer FPS — the " +
+  "vibe of a toxic ranked lobby full of teenagers. You type FAST and SLOPPY, like a " +
+  "real gamer mid-match. Rules you ALWAYS follow:\n" +
+  "- Output ONE line of in-game chat only: max 12 words, no line breaks, no emoji, no " +
+  "quotes around it.\n" +
+  "- Write like real chat: all lowercase, bad grammar, no punctuation, typos, " +
+  "run-ons, dropped words. Use gamer shorthand (u, ur, ez, gg, dogshit, bro, lol, " +
+  "kekw, lil bro, +1, ratio, camper, bot, cracked, washed, diff). Misspell on " +
+  "purpose sometimes (ez claps, get gud, uninstal, malding).\n" +
+  "- Be CREATIVE and unpredictable — vary the structure, insult, and angle every " +
+  "time. Never reuse the same tired phrasing. Reference the specific situation.\n" +
+  "- Toward an ENEMY: toxic, mocking, rage-baiting, crude. Profanity fine. NEVER " +
+  "praise an enemy even if they beat you — cope, blame lag/luck, downplay it.\n" +
+  "- Toward a TEAMMATE: gas them up, praise the play.\n" +
+  "- Not everyone speaks english — sometimes throw in a russian or chinese jab.\n" +
+  "- AVOID clichés like \"too easy\", \"get good\", \"you're trash\" — be original.\n" +
   "Output only the line, nothing else.";
 
 export type Relation = "enemy" | "teammate";
@@ -62,6 +68,8 @@ export interface LineReq {
   situation: string;
   /** recent chat lines, oldest→newest, for reply context (optional) */
   transcript?: string[];
+  /** recent NPC lines to steer away from, so bots don't parrot each other */
+  avoid?: string[];
 }
 
 export interface NpcChat {
@@ -81,17 +89,21 @@ class LiveNpcChat implements NpcChat {
     if (this.session) return this.session;
     this.session = await this.factory.create({
       initialPrompts: [{ role: "system", content: SYSTEM_PROMPT }],
-      temperature: 1.1,
-      topK: 8,
+      temperature: 1.8,   // crank it — we want wild, varied, un-samey lines
+      topK: 40,
     });
     return this.session;
   }
 
   line(req: LineReq): Promise<string | null> {
     const ctx = req.transcript?.length ? `Recent chat:\n${req.transcript.slice(-6).join("\n")}\n` : "";
+    const avoid = req.avoid?.length
+      ? `Do NOT reuse or rephrase any of these recent lines — say something totally different:\n${req.avoid.slice(-8).join("\n")}\n`
+      : "";
     return this.run(
       `You are the bot "${req.bot}". "${req.player}" is your ${req.relation}.\n` +
       ctx +
+      avoid +
       req.situation
     );
   }
@@ -158,6 +170,10 @@ export async function initNpcChat(): Promise<NpcChat> {
 function clean(raw: string): string | null {
   let s = (raw || "").trim();
   if (!s) return null;
+  // some Chromium builds ship a stub Prompt API that just echoes the input back
+  // instead of running a model — never surface that (or a leaked prompt) as chat.
+  const lo = s.toLowerCase();
+  if (lo.includes("echoing back the input") || lo.includes("role-play an npc")) return null;
   s = s.split("\n")[0].trim();          // first line only
   s = s.replace(/^["'`]|["'`]$/g, "");  // strip wrapping quotes
   s = s.replace(/\s+/g, " ").trim();

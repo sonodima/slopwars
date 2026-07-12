@@ -159,6 +159,7 @@ class Game {
   private npcBotCd: Record<string, number> = {};       // botId → wall-clock s before it may speak again
   private npcSpontaneousCd = 0;                         // global gate: min gap between unprompted NPC lines
   private npcLog: string[] = [];                        // recent chat lines, for reply context
+  private npcRecentLines: string[] = [];                // recent bot-said lines, to steer away from repeats
   private npcReplyCd = 0;                               // wall-clock s before bots may answer chat again
 
   // ── host match rules (mirrored to guests) ──
@@ -1465,6 +1466,8 @@ class Game {
     this.net.broadcast({ t: "chat", id: botId, txt: clean });
     this.npcLog.push(`${this.names.get(botId) ?? "bot"}: ${clean}`);
     if (this.npcLog.length > 20) this.npcLog.shift();
+    this.npcRecentLines.push(clean);
+    if (this.npcRecentLines.length > 10) this.npcRecentLines.shift();
   }
 
   /** a bot's tone toward a human: teammates (same side in a team mode) vs enemies.
@@ -1488,7 +1491,7 @@ class Game {
     this.npcSpontaneousCd = now + 4;
     const bot = this.names.get(botId) ?? "bot";
     const player = this.names.get(human) ?? "player";
-    void this.npc.line({ bot, player, relation, situation }).then((line) => {
+    void this.npc.line({ bot, player, relation, situation, avoid: this.npcRecentLines.slice() }).then((line) => {
       if (line && this.bots.has(botId)) this.botSay(botId, line);
     });
   }
@@ -1634,7 +1637,7 @@ class Game {
       window.setTimeout(() => {
         if (!this.bots.has(id)) return;
         void this.npc!.line({
-          bot, player: who, relation, transcript,
+          bot, player: who, relation, transcript, avoid: this.npcRecentLines.slice(),
           situation: `${lead} ${who} said: "${txt}". Reply in one line, in character as their ${relation}.`,
         }).then((line) => {
           if (line && this.bots.has(id)) this.botSay(id, line);
@@ -2569,6 +2572,7 @@ class Game {
     this.npcSpontaneousCd = 0;
     this.npcReplyCd = 0;
     this.npcLog = [];
+    this.npcRecentLines = [];
   }
 
   /** absolute position of any combatant (local player or bot) */
