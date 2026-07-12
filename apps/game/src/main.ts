@@ -247,7 +247,7 @@ class Game {
 
     // Kick off the on-device NPC-chat model (Chrome Prompt API) in the background.
     // Best-effort: resolves to a no-op stub on non-Chrome / unsupported devices.
-    void initNpcChat().then((n) => { this.npc = n; });
+    void initNpcChat().then((n) => { this.npc = n; this.hud.setAiSupported(n.ready); });
 
     const { engine, physx } = await createGameEngine("game-canvas");
     this.engine = engine;
@@ -1479,7 +1479,7 @@ class Game {
   /** gate + fire one unprompted NPC line: honours per-bot and global cooldowns and a
    *  probability roll so bots don't chatter on every single kill/death. */
   private npcTryLine(botId: string, human: string, relation: Relation, situation: string, prob: number): void {
-    if (!this.npc?.ready || !this.bots.has(botId)) return;
+    if (!this.cfg.aiChat || !this.npc?.ready || !this.bots.has(botId)) return;
     const now = performance.now() / 1000;
     if (now < (this.npcBotCd[botId] ?? 0)) return;   // this bot spoke too recently
     if (now < this.npcSpontaneousCd) return;         // global anti-spam across all bots
@@ -1506,11 +1506,11 @@ class Game {
       const human = aBot ? victim : attacker;
       this.npcRival[human] = aBot ? attacker : victim;
     }
-    // human kill-streak bookkeeping (drives teammate praise); a death resets it.
-    if (!aBot) this.npcStreakK[attacker] = (this.npcStreakK[attacker] ?? 0) + 1;
-    if (!vBot) this.npcStreakK[victim] = 0;
+    // kill-streak bookkeeping for everyone (humans + bots); a death resets it.
+    this.npcStreakK[attacker] = (this.npcStreakK[attacker] ?? 0) + 1;
+    this.npcStreakK[victim] = 0;
 
-    if (!this.npc?.ready) return;
+    if (!this.cfg.aiChat || !this.npc?.ready) return;
 
     // bot dropped a human enemy → cocky rage-bait (friendly fire is blocked upstream,
     // so a bot killing a human is always an enemy kill).
@@ -1543,6 +1543,30 @@ class Game {
         }
       }
     }
+
+    // a BOT on a rampage → a different bot pipes up ABOUT it (npc-to-npc banter):
+    // a teammate hypes, an enemy accuses it of hacking. Keeps bots talking to each
+    // other, not just the player. Rate-limited like every other unprompted line.
+    if (aBot) {
+      const s = this.npcStreakK[attacker];
+      if (s >= 3 && s % 2 === 1) {
+        const other = this.pickOtherBot(attacker);
+        if (other) {
+          const rel = this.botRelation(other, attacker);
+          const name = this.names.get(attacker) ?? "that bot";
+          const situation = rel === "teammate"
+            ? `Your teammate ${name} is on a ${s}-kill streak. Hype ${name} up by name in one line.`
+            : `Rival bot ${name} is on a ${s}-kill streak. Trash-talk ${name} by name in one line — call them a hacker or lucky.`;
+          this.npcTryLine(other, attacker, rel, situation, 0.5);
+        }
+      }
+    }
+  }
+
+  /** a random living bot other than `exclude` (for bot-to-bot banter), else null. */
+  private pickOtherBot(exclude: string): string | null {
+    const pool = [...this.bots.keys()].filter((id) => id !== exclude && (this.hpMap[id] ?? 0) > 0);
+    return pool.length ? shuffle(pool)[0] : null;
   }
 
   /** a random living bot on the same team as `human` (team modes only), else null. */
@@ -1562,41 +1586,56 @@ class Game {
     const who = this.names.get(fromId) ?? "player";
     this.npcLog.push(`${who}: ${txt}`);
     if (this.npcLog.length > 20) this.npcLog.shift();
-    if (!this.npc?.ready || this.bots.has(fromId)) return;    // ignore bot-authored lines
+    if (!this.cfg.aiChat || !this.npc?.ready || this.bots.has(fromId)) return; // off / not ready / bot line
     const now = performance.now() / 1000;
     if (now < this.npcReplyCd) return;
 
-    // 1) any bot named outright in the message → those bots answer.
     const lower = txt.toLowerCase();
-    const named = [...this.bots.keys()].filter((id) => {
+    const nameHit = (id: string): boolean => {
       const n = (this.names.get(id) ?? "").toLowerCase();
       return n.length >= 2 && new RegExp(`\\b${escapeRe(n)}\\b`).test(lower);
-    });
-    let targets = named;
-    // 2) nobody named → address the bot they've been trading kills with (context).
-    if (!targets.length) {
+    };
+    const namedBots = [...this.bots.keys()].filter(nameHit);
+    // other humans named in the message → the line is aimed at another player
+    const namedOtherHuman = this.net.players.some(
+      (p) => !this.bots.has(p.id) && p.id !== fromId && nameHit(p.id),
+    );
+
+    // Resolve who (if anyone) should answer. The golden rule: NEVER let a bot answer
+    // a message that was addressed to someone else.
+    let targets: string[];
+    let addressed: boolean;
+    if (namedBots.length) {
+      targets = namedBots;      // named a bot (or bots) → exactly those, nobody else
+      addressed = true;
+    } else if (namedOtherHuman) {
+      return;                   // aimed at another human → every bot stays quiet
+    } else {
+      // no name at all → the bot they're actively dueling may field it, else a random
+      // living bot chimes in on the open chatter. Only ever one bot here.
+      addressed = false;
       const rival = this.npcRival[fromId];
-      if (rival && this.bots.has(rival)) targets = [rival];
+      if (rival && this.bots.has(rival)) {
+        targets = [rival];
+      } else {
+        const live = [...this.bots.keys()].filter((id) => (this.hpMap[id] ?? 0) > 0);
+        const pool = live.length ? live : [...this.bots.keys()];
+        if (!pool.length) return;
+        targets = [shuffle(pool)[0]];
+      }
     }
-    // 3) still nobody → a random living bot fields it.
-    if (!targets.length) {
-      const live = [...this.bots.keys()].filter((id) => (this.hpMap[id] ?? 0) > 0);
-      const pool = live.length ? live : [...this.bots.keys()];
-      if (pool.length) targets = [shuffle(pool)[0]];
-    }
-    if (!targets.length) return;
 
     this.npcReplyCd = now + 5;
     const transcript = this.npcLog.slice();
     targets.slice(0, 2).forEach((id, i) => {
       const bot = this.names.get(id) ?? "bot";
       const relation = this.botRelation(id, fromId);
-      const addressed = named.includes(id) ? "They named you directly." : "They're likely talking to you.";
+      const lead = addressed ? "They named you directly." : "They're likely talking to you.";
       window.setTimeout(() => {
         if (!this.bots.has(id)) return;
         void this.npc!.line({
           bot, player: who, relation, transcript,
-          situation: `${addressed} ${who} said: "${txt}". Reply in one line, in character as their ${relation}.`,
+          situation: `${lead} ${who} said: "${txt}". Reply in one line, in character as their ${relation}.`,
         }).then((line) => {
           if (line && this.bots.has(id)) this.botSay(id, line);
         });
