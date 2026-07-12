@@ -927,16 +927,16 @@ class Game {
 
   /** once support is known, decide what (if anything) to do about the model download:
    *   • already cached / unsupported → nothing;
-   *   • a download is already running → attach the progress toast;
    *   • not yet asked → ASK FIRST with the consent pop-up (only reached when supported);
-   *   • already explicitly opted in (answered + on) → resume the download.
-   *  Consent is the primary gate: we never start a download at boot without the user
-   *  having said yes at some point. */
+   *   • already explicitly opted in (answered + on) → show / attach the download.
+   *  Consent is the primary gate: we NEVER surface the progress toast before the user
+   *  has said yes — even when `availability()` already reports "downloading". (Gemini
+   *  Nano is a browser-level component, so a fresh/incognito profile can see an
+   *  in-flight download it never triggered; we just don't reveal it until opt-in.) */
   private decideAiDownload(): void {
     const npc = this.npc;
     if (!npc || npc.status === "unavailable" || npc.status === "available") return;
-    if (npc.status === "downloading") { void this.startAiDownload(); return; }
-    // status === "downloadable": supported, but not on disk yet
+    // status is "downloadable" or "downloading" — model isn't usable yet either way
     if (!this.settings.state.aiPrompted) this.hud.showAiConsent();
     else if (this.settings.state.aiChat) void this.startAiDownload();
   }
