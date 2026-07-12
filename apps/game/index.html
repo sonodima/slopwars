@@ -317,6 +317,8 @@
   /* ═══ gamepad menu-navigation focus ring (square, no rounding) ═══ */
   .gp-focus{outline:2px solid var(--sand)!important;outline-offset:3px;border-radius:0!important;
     box-shadow:0 0 0 4px rgba(216,184,120,.25)!important}
+  /* muted qualifier on a settings label (e.g. which devices a control applies to) */
+  .set-sub{color:var(--sand-dim);font-size:9px;letter-spacing:1.5px;text-transform:uppercase;font-weight:400}
 
   @media (prefers-reduced-motion:reduce){
     #scr-end::before,#scr-end::after,.end-card,.end-kicker,#end-title,.end-rule,
@@ -850,6 +852,8 @@
     <input type="range" class="rng" id="set-sens" min="0.2" max="3" step="0.05">
     <label>Field of view · <b id="set-fov-val">75</b>°</label>
     <input type="range" class="rng" id="set-fov" min="60" max="100" step="1">
+    <label>Aim assist <span class="set-sub">controller · touch</span> · <b id="set-aim-val">100%</b></label>
+    <input type="range" class="rng" id="set-aim" min="0" max="1" step="0.05">
     <div class="set-toggle">
       <span>Performance stats</span>
       <button class="tgl" id="set-stats" role="switch" aria-pressed="true"><i></i></button>

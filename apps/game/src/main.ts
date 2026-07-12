@@ -107,6 +107,18 @@ const THROW_WINDUP_MS = 350;
 // gamepad look speed (rad/s) at full right-stick deflection, before the sensitivity
 // setting scales it — tuned so aim feels responsive but controllable on a controller.
 const GP_LOOK_RATE = 3.2;
+
+// ─── Aim assist (controller + touch only) ─────────────────────────────────────
+// Two classic console/mobile aids, both scaled by the Settings strength (0..1):
+//  • friction  — look input slows as the crosshair nears an enemy, so you don't overshoot
+//  • follow    — the aim tracks a fraction of a *moving* target's drift, so strafers stick
+// It never pulls a stationary target onto the crosshair (no soft-lock / auto-aim), only
+// helps you stay on one you've already found — "enough that it helps", not an aimbot.
+const AA_BUBBLE = 0.14;        // rad (~8°) angular radius around the crosshair where assist engages
+const AA_RANGE = 55;           // m — beyond this there's no assist
+const AA_FRICTION_MIN = 0.5;   // dead-centre on a target, look input slows to this (at full strength)
+const AA_FOLLOW = 0.62;        // fraction of a target's horizontal angular drift the aim follows
+const AA_FOLLOW_PITCH = 0.4;   // gentler tracking on the vertical axis
 // slow cinematic orbit (rad/s) of the death camera around the fallen body.
 const DEATH_CAM_ORBIT_SPEED = 0.4;
 // seconds the death orbit plays before a no-respawn player (Prop-Hunt hider) switches
@@ -155,6 +167,11 @@ class Game {
   myPlatform: Platform = "keyboard";
   platforms: Record<string, Platform> = {}; // playerId → their current input device
   private navFocusEl: HTMLElement | null = null; // gamepad menu-navigation focus ring
+  // aim assist (controller / touch): per-frame look-input scale (1 = none) + follow state
+  aimFriction = 1;
+  private aimTargetId: string | null = null;
+  private aimPrevTargetPos: Vec3 | null = null; // target aim-point last frame (for follow velocity)
+  private touchLookMs = 0;                       // perf-clock ms of the last touch look drag
   settings = new Settings();
 
   // ── AI opponents (host-driven; may coexist with human guests) ──
@@ -1040,7 +1057,8 @@ class Game {
     t.onLook = (dx, dy) => {
       if (!this.inGame || this.hud.chatOpen) return;
       if (!(this.alive && this.phase === "play")) return;
-      const sens = 0.005 * this.settings.state.sensitivity * (this.ws.scoped ? 0.35 : 1);
+      this.touchLookMs = performance.now(); // marks the player as actively aiming (follow gate)
+      const sens = 0.005 * this.settings.state.sensitivity * (this.ws.scoped ? 0.35 : 1) * this.aimFriction;
       this.body.look(dx, dy, sens);
     };
     t.onFire = (down) => {
@@ -1232,6 +1250,82 @@ class Game {
     document.getElementById("ai-consent-no")?.click();
   }
 
+  // ─── aim assist (controller / touch) ──────────────────────────────────────────
+
+  /** is `id` an enemy of the local player under the current mode's team rules? */
+  private localEnemy(id: string): boolean {
+    if (id === this.net.myId) return false;
+    if (!MODES[this.mode].teams) return true; // ffa / gungame — everyone is fair game
+    return this.teams[id] !== this.teams[this.net.myId];
+  }
+
+  /** the world point on a target the assist sticks to — upper chest (or crate centre) */
+  private aimPoint(r: RemotePlayer): Vec3 {
+    return r.disguised
+      ? { x: r.pos.x, y: r.pos.y + 0.43, z: r.pos.z }
+      : { x: r.pos.x, y: r.pos.y + 1.4, z: r.pos.z };
+  }
+
+  /** the player is actively aiming/moving — gates the follow so the camera never drifts
+   *  on its own while the player is completely idle. */
+  private aimEngaged(nowMs: number): boolean {
+    const lookMag = Math.hypot(this.gamepad.lookX, this.gamepad.lookY);
+    const moveMag = Math.hypot(this.touch.moveX + this.gamepad.moveX, this.touch.moveY + this.gamepad.moveY);
+    return lookMag > 0.02 || moveMag > 0.15 || nowMs - this.touchLookMs < 140;
+  }
+
+  /** Per-frame aim assist for controller + touch. Sets `aimFriction` (look-input slowdown
+   *  near a target) and nudges the view to follow a *moving* target. Disabled for mouse,
+   *  when the strength slider is 0, while dead / not playing, on throwables, and in menus. */
+  updateAimAssist(dt: number, nowMs: number): void {
+    this.aimFriction = 1;
+    const strength = this.settings.state.aimAssist;
+    const eligible = (this.myPlatform === "gamepad" || this.myPlatform === "touch")
+      && strength > 0 && this.alive && this.phase === "play" && !this.isHider()
+      && !this.settings.isOpen() && !this.hud.chatOpen && !this.ws.def().throwable;
+    if (!eligible) { this.aimTargetId = null; this.aimPrevTargetPos = null; return; }
+
+    const eye: Vec3 = { x: this.body.pos.x, y: this.body.eyeY, z: this.body.pos.z };
+    const aim = this.body.aimDir();
+    const maxDist = Math.min(this.ws.def().range, AA_RANGE);
+
+    // pick the enemy nearest the crosshair, within the bubble + range, with a clear line
+    let best: RemotePlayer | null = null, bestAng = AA_BUBBLE, bestP: Vec3 | null = null;
+    for (const r of this.remotes.values()) {
+      if (!r.alive || !this.localEnemy(r.id)) continue;
+      const P = this.aimPoint(r);
+      const tx = P.x - eye.x, ty = P.y - eye.y, tz = P.z - eye.z;
+      const dist = Math.hypot(tx, ty, tz);
+      if (dist < 0.5 || dist > maxDist) continue;
+      const ux = tx / dist, uy = ty / dist, uz = tz / dist;
+      const ang = Math.acos(clamp(aim.x * ux + aim.y * uy + aim.z * uz, -1, 1));
+      if (ang >= bestAng) continue;
+      if (this.map.raycast(eye, { x: ux, y: uy, z: uz }, dist - 0.3)) continue; // wall in the way
+      best = r; bestAng = ang; bestP = P;
+    }
+    if (!best || !bestP) { this.aimTargetId = null; this.aimPrevTargetPos = null; return; }
+
+    const proximity = 1 - bestAng / AA_BUBBLE; // 1 dead-centre → 0 at the bubble edge
+    // (1) friction: slow the look input the closer the crosshair sits to the target
+    this.aimFriction = 1 - (1 - AA_FRICTION_MIN) * proximity * strength;
+
+    // (2) follow: track the target's own angular drift (measured with the eye held fixed, so
+    //     it's the target's motion — not the player's — that's compensated). No pull while
+    //     sniping, and only while the player is actively engaging.
+    if (!this.ws.scoped && this.aimEngaged(nowMs) && this.aimTargetId === best.id
+        && this.aimPrevTargetPos && dt > 1e-4 && dt < 0.1) {
+      const prev = this.aimPrevTargetPos;
+      let dYaw = bearingYaw(eye, bestP) - bearingYaw(eye, prev);
+      if (dYaw > Math.PI) dYaw -= 2 * Math.PI; else if (dYaw < -Math.PI) dYaw += 2 * Math.PI;
+      const dPitch = bearingPitch(eye, bestP) - bearingPitch(eye, prev);
+      const k = proximity * strength;
+      this.body.yaw += dYaw * AA_FOLLOW * k;
+      this.body.pitch = clamp(this.body.pitch + dPitch * AA_FOLLOW_PITCH * k, -1.55, 1.55);
+    }
+    this.aimTargetId = best.id;
+    this.aimPrevTargetPos = { ...bestP };
+  }
+
   // ─── loop ───────────────────────────────────────────────────────────────────
 
   tick(dt: number, now: number): void {
@@ -1256,11 +1350,15 @@ class Game {
         jump: this.keys.has("Space"),
         sprint: this.keys.has("ShiftLeft") || this.keys.has("ShiftRight") || this.touch.sprint || this.gamepad.sprint,
       };
+      // aim assist (controller / touch): compute friction + apply target-follow. Must run
+      // before the gamepad look below so the friction scale is fresh this frame.
+      this.updateAimAssist(dt, performance.now());
       // gamepad look: analog right stick applied per-frame, like mouse-look (scaled by
-      // the sensitivity setting; halved while scoped, matching mouse ADS).
+      // the sensitivity setting; halved while scoped, matching mouse ADS; and slowed by
+      // aim-assist friction when the crosshair is near a target).
       if (this.myPlatform === "gamepad" && this.alive && this.phase === "play" && !this.hud.chatOpen
           && (this.gamepad.lookX || this.gamepad.lookY)) {
-        const sens = GP_LOOK_RATE * dt * this.settings.state.sensitivity * (this.ws.scoped ? 0.35 : 1);
+        const sens = GP_LOOK_RATE * dt * this.settings.state.sensitivity * (this.ws.scoped ? 0.35 : 1) * this.aimFriction;
         this.body.look(this.gamepad.lookX, this.gamepad.lookY, sens);
       }
       // prop hunt: seekers are frozen during the hide window; hiders are unarmed props
@@ -3366,6 +3464,18 @@ class Game {
     this.touch.setWeapon(this.ws.current);
     this.touch.setAvailable(LOADOUT.map((id) => this.ws.available(id))); // drop spent throwables from the strip
   }
+}
+
+/** yaw (rad) of the horizontal bearing from `eye` to `p`, in the game's yaw convention
+ *  (forward = (−sin yaw, −cos yaw)) — so it composes directly with body.yaw. */
+function bearingYaw(eye: Vec3, p: Vec3): number {
+  return Math.atan2(-(p.x - eye.x), -(p.z - eye.z));
+}
+/** pitch (rad) of the bearing from `eye` to `p` — matches body.pitch (aimDir.y = sin pitch). */
+function bearingPitch(eye: Vec3, p: Vec3): number {
+  const dx = p.x - eye.x, dy = p.y - eye.y, dz = p.z - eye.z;
+  const len = Math.hypot(dx, dy, dz) || 1;
+  return Math.asin(clamp(dy / len, -1, 1));
 }
 
 function falloff(def: WeaponDef, dist: number): number {
