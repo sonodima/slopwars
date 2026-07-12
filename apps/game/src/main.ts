@@ -64,8 +64,7 @@ interface BotAI {
   avoidSign: number;     // which way (+1/-1) the bot is currently steering around an obstacle
   wanderYaw: number;     // heading used while it has nothing to chase
   lastHp: number;        // hp last frame — a drop means it took fire → juke-hop
-  dodgeCd: number;       // brief window after being hit during which it hops to dodge
-  dodgeLockCd: number;   // refractory period so juking is occasional, not a permanent bunny-hop
+  dodgeLockCd: number;   // refractory period so the on-hit sideways juke is occasional, not a twitch
 }
 
 // ─── bot aim math: turn toward a heading at a capped rate instead of snapping ──
@@ -1475,7 +1474,7 @@ class Game {
       bot.body.teleport(sp.p, sp.yaw);
       bot.targetId = null; bot.fireCd = 0.4; bot.burstCd = 0;
       bot.seen = false; bot.reactCd = 0; bot.memoryCd = 0; bot.lastKnown = null;
-      bot.wanderYaw = bot.body.yaw; bot.lastHp = MAX_HP; bot.dodgeCd = 0; bot.dodgeLockCd = 0;
+      bot.wanderYaw = bot.body.yaw; bot.lastHp = MAX_HP; bot.dodgeLockCd = 0;
       if (this.mode !== "gungame") bot.weapon = pickBotWeapon(); // fresh loadout each life
     }
     const m: Msg = { t: "spawn", id, p: [sp.p.x, sp.p.y, sp.p.z], yaw: sp.yaw };
@@ -2306,7 +2305,7 @@ class Game {
         fireCd: 0, burstCd: 0, retargetCd: 0, targetId: null, strafe: 1, strafeCd: 0,
         seen: false, reactCd: 0, memoryCd: 0, lastKnown: null,
         aimErrX: 0, aimErrY: 0, aimErrCd: 0, avoidCd: 0, avoidSign: 1, wanderYaw: body.yaw,
-        lastHp: MAX_HP, dodgeCd: 0, dodgeLockCd: 0,
+        lastHp: MAX_HP, dodgeLockCd: 0,
       });
       this.net.broadcast({ t: "pjoin", p: info }); // let guests see the bot
     }
@@ -2387,16 +2386,16 @@ class Game {
   /** whisker obstacle-avoidance: given a desired world move dir, steer it around walls so
    *  bots peel past corners instead of grinding into them. Commits to a side briefly to
    *  avoid jitter. Returns a world-space move vector (aim is handled separately). */
-  botSteer(bot: BotAI, wx: number, wz: number): { x: number; z: number; blocked: boolean } {
+  botSteer(bot: BotAI, wx: number, wz: number): { x: number; z: number; blocked: boolean; open: boolean } {
     const len = Math.hypot(wx, wz);
-    if (len < 1e-3) return { x: 0, z: 0, blocked: false };
+    if (len < 1e-3) return { x: 0, z: 0, blocked: false, open: false };
     const nx = wx / len, nz = wz / len;
     const o: Vec3 = { x: bot.body.pos.x, y: bot.body.pos.y + 0.9, z: bot.body.pos.z };
     const R = 2.8; // look-ahead: start bending early so it's a gentle curve, not a last-moment jerk
     const clear = (ax: number, az: number): number =>
       this.map.raycast(o, { x: ax, y: 0, z: az }, R)?.dist ?? R;
     const ahead = clear(nx, nz);
-    if (ahead >= R - 0.05) return { x: wx, z: wz, blocked: false }; // open road
+    if (ahead >= R - 0.05) return { x: wx, z: wz, blocked: false, open: true }; // open road
     const rot = (a: number): { x: number; z: number } => {
       const cs = Math.cos(a), sn = Math.sin(a);
       return { x: nx * cs - nz * sn, z: nx * sn + nz * cs };
@@ -2409,7 +2408,7 @@ class Game {
     // bend proportional to how close the wall is: barely at range R, hard up close
     const near = 1 - ahead / R; // 0..1
     const s = rot((0.2 + 1.0 * near) * bot.avoidSign);
-    return { x: s.x * len, z: s.z * len, blocked: ahead < 1.1 };
+    return { x: s.x * len, z: s.z * len, blocked: ahead < 1.1, open: false };
   }
 
   /** drive every bot: perceive, aim (capped slew), move (obstacle-aware), shoot. Host only. */
@@ -2462,15 +2461,15 @@ class Game {
         bot.aimErrCd = 0.18 + Math.random() * 0.35;
       }
 
-      // took damage since last frame? → occasional juke (one hop + flip strafe), never random.
-      // dodgeLockCd keeps it a periodic dodge under sustained fire, not a permanent bunny-hop.
+      // took damage since last frame? → juke *sideways* (flip strafe), never a hop. Throttled so
+      // it's an occasional direction change under fire, not a twitch every tick.
       const hp = this.hpMap[bot.id] ?? 0;
       if (hp < bot.lastHp && hp > 0 && bot.dodgeLockCd <= 0) {
-        bot.dodgeCd = 0.3; bot.dodgeLockCd = 1.1 + Math.random() * 0.7;
-        if (Math.random() < 0.6) bot.strafe = -bot.strafe;
+        bot.dodgeLockCd = 0.9 + Math.random() * 0.6;
+        bot.strafe = -bot.strafe;
       }
       bot.lastHp = hp;
-      bot.dodgeCd -= dt; bot.dodgeLockCd -= dt;
+      bot.dodgeLockCd -= dt;
 
       // ── build the desired world-space move, and (when fighting) the true aim heading ──
       let wishX = 0, wishZ = 0, rushing = false, sprint = false;
@@ -2524,15 +2523,13 @@ class Game {
         if (Math.abs(normAngle(bot.body.yaw - trueYaw)) < 0.13) this.botTryShoot(bot, tgt, dist, eye);
       }
 
-      // ── purposeful jumps only (a random hop screams "bot") ──
+      // ── jump ONLY to bunny-hop a long, clear sprint — never in a fight, never near a wall ──
+      // Long trek toward the target + fully open lane ahead + already at running speed. Everything
+      // else (close combat, holding, standing, dodging) stays grounded so hops read as intentional.
       const spd = Math.hypot(bot.body.vel.x, bot.body.vel.z);
       const maxSpd = MOVE.groundSpeed * this.cfg.speed;
-      let jump = false;
-      if (playing && bot.body.onGround) {
-        if (bot.dodgeCd > 0) jump = true;                                    // juke a hop when shot
-        else if (rushing && !steer.blocked && spd > maxSpd * 0.72) jump = true; // bhop while sprinting a clear lane
-        else if (steer.blocked && aimAt && spd > 2.5) jump = true;           // vault a low obstacle mid-pursuit
-      }
+      const jump = playing && bot.body.onGround && rushing && sprint
+        && dist > 22 && steer.open && spd > maxSpd * 0.8;
 
       // map the (steered) world move into the body's yaw frame — aim and travel stay independent
       const s = Math.sin(bot.body.yaw), c = Math.cos(bot.body.yaw);
