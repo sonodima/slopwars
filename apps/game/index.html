@@ -314,9 +314,9 @@
   .lp .plat{margin-left:2px}
   .plat-bot{opacity:.55} /* AI bots read a touch quieter than human devices */
 
-  /* ═══ gamepad menu-navigation focus ring ═══ */
-  .gp-focus{outline:2px solid var(--sand)!important;outline-offset:3px;
-    box-shadow:0 0 0 4px rgba(216,184,120,.25)!important;border-radius:8px}
+  /* ═══ gamepad menu-navigation focus ring (square, no rounding) ═══ */
+  .gp-focus{outline:2px solid var(--sand)!important;outline-offset:3px;border-radius:0!important;
+    box-shadow:0 0 0 4px rgba(216,184,120,.25)!important}
 
   @media (prefers-reduced-motion:reduce){
     #scr-end::before,#scr-end::after,.end-card,.end-kicker,#end-title,.end-rule,
