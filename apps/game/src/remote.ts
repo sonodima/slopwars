@@ -16,7 +16,7 @@ import { GameModels, buildProp, instantiate, modelMetaOf } from "./models";
 import type { MaterialLibrary } from "./materials";
 import { INTERP_DELAY, PlayerState, Vec3, WeaponId, clamp } from "./types";
 
-interface Sample { time: number; p: [number, number, number]; yaw: number; pitch: number }
+interface Sample { time: number; p: [number, number, number]; yaw: number; pitch: number; g?: boolean }
 
 /** asset-catalog folder name of the rigged character used for every remote avatar */
 const CHARACTER_MODEL = "operator";
@@ -94,6 +94,7 @@ export class RemotePlayer {
   yaw = 0;
   alive = true;
   disguised = false; // prop-hunt: rendered as a crate
+  netGround = true;  // latest onGround from the driver (network push / setPose) — re-broadcast by the host
 
   private buf: Sample[] = [];
   private engine: Engine;
@@ -130,12 +131,6 @@ export class RemotePlayer {
   private airT = 0;              // seconds spent airborne (drives takeoff → fall phasing)
   private landTimer = 0;         // seconds left of the landing recover clip
   private upperTimer = 0;        // seconds left of a one-shot upper-body clip (reload/throw)
-  private prevUpdateNow = 0;     // wall-clock of the last update (dt for the dead-body fall)
-  private fallVelY = 0;          // downward velocity of a dead body settling to the ground
-  private fallSeeded = false;    // seeded fallVelY from the last live vy on the first dead frame
-  private lastVy = 0;            // last live vertical velocity (m/s) — carried into the death fall
-  /** ground height sampler (map.floorY), set by the game so a dead body can fall. */
-  groundYAt: ((x: number, z: number) => number) | null = null;
 
   constructor(engine: Engine, parent: Entity, public id: string, public name: string, _color: number, models: GameModels) {
     this.engine = engine;
@@ -336,26 +331,19 @@ export class RemotePlayer {
   push(s: PlayerState, time: number): void {
     this.hp = s.hp;
     this.weapon = s.w;
-    this.buf.push({ time, p: s.p, yaw: s.yaw, pitch: s.pitch });
+    if (s.g !== undefined) this.netGround = s.g;
+    this.buf.push({ time, p: s.p, yaw: s.yaw, pitch: s.pitch, g: s.g });
     if (this.buf.length > 30) this.buf.shift();
   }
 
   update(now: number): void {
-    const dt = this.prevUpdateNow ? Math.min(now - this.prevUpdateNow, 0.05) : 0;
-    this.prevUpdateNow = now;
-    this.groundHint = null; // network remotes carry no ground flag — infer from motion
+    this.groundHint = null; // default: infer from motion (used when a sample carries no flag)
 
-    // Dead: the network stops sending updates, so a body killed mid-air would freeze
-    // floating. Ignore the (frozen) buffer and fall under gravity to the ground.
-    if (!this.alive) {
-      this.deadFall(dt);
-      this.syncDeath();
-      this.applyTransform();
-      this.syncWeapon();
-      this.driveAnimation();
-      return;
-    }
-
+    // Interpolate the transmitted position whether alive OR dead. A dead player keeps
+    // stepping its real body physics and broadcasting it every tick, so a body killed
+    // mid-air follows its true fall to the ground here — the same physics the local
+    // player sees in third person — instead of a synthetic gravity approximation. The
+    // Death clip is latched in syncDeath; driveAnimation skips locomotion while dead.
     const t = now - INTERP_DELAY;
     const b = this.buf;
     if (b.length === 0) return;
@@ -371,27 +359,14 @@ export class RemotePlayer {
     let dy = c.yaw - a.yaw;
     if (dy > Math.PI) dy -= 2 * Math.PI; else if (dy < -Math.PI) dy += 2 * Math.PI;
     this.yaw = a.yaw + dy * k;
-    this.fallVelY = 0; this.fallSeeded = false; // reset; next death re-seeds from live vy
+    // drive the jump/fall animation from the real onGround flag (like the local player /
+    // bots) rather than inferring it from noisy interpolated vertical motion.
+    this.groundHint = a.g ?? null;
 
     this.syncDeath();
     this.applyTransform();
     this.syncWeapon();
     this.driveAnimation();
-  }
-
-  /** apply gravity to a dead body until it reaches the ground (via groundYAt). A body killed
-   *  mid-air carries the vertical velocity it had when alive, so its arc continues smoothly
-   *  (MOVE.gravity = 19) instead of hanging then accelerating from rest — which read as a
-   *  too-slow, laggy drop. Matches the local player's own physics-driven fall. */
-  private deadFall(dt: number): void {
-    if (!this.groundYAt || dt <= 0) return;
-    if (!this.fallSeeded) { this.fallVelY = this.lastVy; this.fallSeeded = true; }
-    const gy = this.groundYAt(this.pos.x, this.pos.z);
-    if (this.pos.y > gy + 0.01) {
-      this.fallVelY -= 19 * dt;
-      this.pos.y += this.fallVelY * dt;
-      if (this.pos.y < gy) { this.pos.y = gy; this.fallVelY = 0; }
-    }
   }
 
   /** directly drive the avatar (local player's own operator / offline bots — no
@@ -402,6 +377,7 @@ export class RemotePlayer {
     this.yaw = yaw;
     this.alive = alive;
     this.groundHint = groundHint;
+    if (groundHint !== null) this.netGround = groundHint; // host re-broadcasts bot ground state
     this.syncDeath();
     this.applyTransform();
     this.syncWeapon();
@@ -475,7 +451,6 @@ export class RemotePlayer {
       vy = (this.pos.y - this.prevY) / dt;
     }
     this.prevX = this.pos.x; this.prevZ = this.pos.z; this.prevY = this.pos.y;
-    if (this.alive) this.lastVy = vy; // remember live vertical speed to seed the death fall
 
     if (!this.alive) return; // death handled in syncDeath (before the transform toggle)
 
