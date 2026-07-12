@@ -16,7 +16,7 @@ import { GameModels, buildProp, instantiate, modelMetaOf } from "./models";
 import type { MaterialLibrary } from "./materials";
 import { INTERP_DELAY, PlayerState, Vec3, WeaponId, clamp } from "./types";
 
-interface Sample { time: number; p: [number, number, number]; yaw: number; pitch: number; cr: number }
+interface Sample { time: number; p: [number, number, number]; yaw: number; pitch: number }
 
 /** asset-catalog folder name of the rigged character used for every remote avatar */
 const CHARACTER_MODEL = "operator";
@@ -43,6 +43,10 @@ const TP_HAND_OFFSET: [number, number, number] = [0, 0, 0];
 // third-person held weapons read too small at the operator's real (1.8 m) size — the
 // authored meta.scale suits the first-person viewmodel. Bump them up in the hand.
 const TP_WEAPON_SCALE = 1.5;
+// grenades/molotov are chunky compared to a gun; the gun bump (1.5×) makes them read as
+// oversized boulders in the fist. Hold throwables closer to their real size instead.
+const TP_THROWABLE_SCALE = 0.95;
+const THROWABLES: WeaponId[] = ["he", "mol"];
 
 const LOCO_RUN = 4.5;  // m/s above which the avatar plays Run
 const LOCO_WALK = 0.7; // m/s above which the avatar plays Walk
@@ -88,7 +92,6 @@ export class RemotePlayer {
   weapon: WeaponId = "ak47";
   pos: Vec3 = { x: 0, y: -100, z: 0 };
   yaw = 0;
-  crouched = false;
   alive = true;
   disguised = false; // prop-hunt: rendered as a crate
 
@@ -121,6 +124,11 @@ export class RemotePlayer {
   private deathClip = "";        // chosen death variant (markDead); empty → random on death
   private smFwd = 0;             // smoothed local forward/strafe velocity (anti-jitter)
   private smStrafe = 0;
+  private renderVisible = true;  // avatar renderers on/off (hides without resetting the animator)
+  private groundHint: boolean | null = null; // real onGround from the driver (null = infer from vy)
+  private airborne = false;      // latched airborne state for the jump state machine
+  private airT = 0;              // seconds spent airborne (drives takeoff → fall phasing)
+  private landTimer = 0;         // seconds left of the landing recover clip
   private upperTimer = 0;        // seconds left of a one-shot upper-body clip (reload/throw)
   private prevUpdateNow = 0;     // wall-clock of the last update (dt for the dead-body fall)
   private fallVelY = 0;          // downward velocity of a dead body settling to the ground
@@ -174,6 +182,7 @@ export class RemotePlayer {
         const st = this.animator.findAnimatorState(clip);
         if (st) st.wrapMode = WrapMode.Once;
       }
+      this.buildJumpStates();
     }
     // the actual Idle play is forced on first activation (driveAnimation), since
     // the avatar is built inactive and re-enabling resets the animator's pose.
@@ -181,6 +190,50 @@ export class RemotePlayer {
     // the right-hand bone drives the held weapon so it tracks the arm every frame.
     // (glTF tooling may strip the "mixamorig:" prefix's colon, so match by suffix.)
     this.handBone = char.findByName("mixamorig:RightHand") ?? findBoneBySuffix(char, "RightHand");
+  }
+
+  /** Split the shipped single Jump clip into takeoff / airborne / landing phases so the
+   *  avatar plays a proper jump (start jump → flying → stop jump) instead of playing the
+   *  whole crouch-leap-land cycle once and freezing its final (landed) frame mid-air —
+   *  which read as a crooked jump. Each phase is a state over a normalized sub-range of
+   *  the same clip. Skipped cleanly if the glTF ever ships dedicated Jump* clips. */
+  private buildJumpStates(): void {
+    const a = this.animator;
+    if (!a) return;
+    const clip = a.findAnimatorState("Jump")?.clip;
+    const sm = a.animatorController?.layers?.[0]?.stateMachine;
+    if (!clip || !sm) return;
+    const mk = (name: string, start: number, end: number, wrap: WrapMode): void => {
+      if (a.findAnimatorState(name)) return; // a real clip by this name wins
+      const st = sm.addState(name);
+      st.clip = clip;
+      st.clipStartTime = start;
+      st.clipEndTime = end;
+      st.wrapMode = wrap;
+    };
+    mk("JumpStart", 0.0, 0.32, WrapMode.Once);  // crouch + push off
+    mk("Falling", 0.42, 0.6, WrapMode.Loop);    // airborne, looped
+    mk("Landing", 0.68, 1.0, WrapMode.Once);    // touchdown + recover
+  }
+
+  /** show/hide the avatar's renderers WITHOUT toggling the entity or animator active
+   *  state — re-activating an entity resets its animator to the bind (T-)pose, so the
+   *  local player's own operator is kept active + warm even in first person and merely
+   *  hidden, so its death clip plays instead of a frozen T-pose when you're killed. */
+  setVisible(v: boolean): void {
+    if (this.renderVisible === v) return;
+    this.renderVisible = v;
+    if (this.charRoot) {
+      for (const r of this.charRoot.getComponentsIncludeChildren(SkinnedMeshRenderer, [])) r.enabled = v;
+      for (const r of this.charRoot.getComponentsIncludeChildren(MeshRenderer, [])) r.enabled = v;
+    }
+    this.applyWeaponVisible();
+  }
+
+  /** keep a (re)built held weapon in step with the avatar's current visibility */
+  private applyWeaponVisible(): void {
+    if (!this.heldEntity) return;
+    for (const r of this.heldEntity.getComponentsIncludeChildren(MeshRenderer, [])) r.enabled = this.renderVisible;
   }
 
   // ── held weapon ─────────────────────────────────────────────────────────────
@@ -219,7 +272,8 @@ export class RemotePlayer {
     mount.transform.setPosition(TP_HAND_OFFSET[0], TP_HAND_OFFSET[1], TP_HAND_OFFSET[2]);
     const ws = this.handBone ? this.handBone.transform.lossyWorldScale.x : 1;
     const inv = Math.abs(ws) > 1e-6 ? 1 / ws : 1;
-    const s = (meta.scale ?? 1) * inv * TP_WEAPON_SCALE;
+    const bump = THROWABLES.includes(this.weapon) ? TP_THROWABLE_SCALE : TP_WEAPON_SCALE;
+    const s = (meta.scale ?? 1) * inv * bump;
     m.transform.setScale(s, s, s);
     // Seat by the grip anchor: orient the model by the grip's rotation, then offset it
     // so the grip point lands at the mount origin (the hand) — P = −R·S·gripPos. With
@@ -233,6 +287,7 @@ export class RemotePlayer {
     }
     mount.addChild(m);
     this.heldEntity = mount; // destroying the mount drops the weapon with it
+    this.applyWeaponVisible(); // a freshly-built weapon inherits the avatar's visibility
   }
 
   // ── disguise (prop hunt) ─────────────────────────────────────────────────────
@@ -279,13 +334,14 @@ export class RemotePlayer {
   push(s: PlayerState, time: number): void {
     this.hp = s.hp;
     this.weapon = s.w;
-    this.buf.push({ time, p: s.p, yaw: s.yaw, pitch: s.pitch, cr: s.cr });
+    this.buf.push({ time, p: s.p, yaw: s.yaw, pitch: s.pitch });
     if (this.buf.length > 30) this.buf.shift();
   }
 
   update(now: number): void {
     const dt = this.prevUpdateNow ? Math.min(now - this.prevUpdateNow, 0.05) : 0;
     this.prevUpdateNow = now;
+    this.groundHint = null; // network remotes carry no ground flag — infer from motion
 
     // Dead: the network stops sending updates, so a body killed mid-air would freeze
     // floating. Ignore the (frozen) buffer and fall under gravity to the ground.
@@ -313,7 +369,6 @@ export class RemotePlayer {
     let dy = c.yaw - a.yaw;
     if (dy > Math.PI) dy -= 2 * Math.PI; else if (dy < -Math.PI) dy += 2 * Math.PI;
     this.yaw = a.yaw + dy * k;
-    this.crouched = c.cr === 1;
     this.fallVelY = 0; // reset so the next death starts from rest
 
     this.syncDeath();
@@ -333,12 +388,14 @@ export class RemotePlayer {
     }
   }
 
-  /** directly drive the avatar (offline bots — no interpolation buffer) */
-  setPose(pos: Vec3, yaw: number, crouched: boolean, alive: boolean): void {
+  /** directly drive the avatar (local player's own operator / offline bots — no
+   *  interpolation buffer). `groundHint` is the driver's real onGround state, used for
+   *  crisp jump takeoff/landing (null → infer from vertical motion). */
+  setPose(pos: Vec3, yaw: number, alive: boolean, groundHint: boolean | null = null): void {
     this.pos.x = pos.x; this.pos.y = pos.y; this.pos.z = pos.z;
     this.yaw = yaw;
-    this.crouched = crouched;
     this.alive = alive;
+    this.groundHint = groundHint;
     this.syncDeath();
     this.applyTransform();
     this.syncWeapon();
@@ -396,9 +453,7 @@ export class RemotePlayer {
     // the operator rig is authored facing +Z, but the player's forward (body.yaw) points
     // −Z, so add 180° to turn the avatar to look where it's actually aiming/moving.
     this.entity.transform.setRotation(0, (this.yaw * 180) / Math.PI + 180, 0);
-    // crouch: settle the whole avatar down a touch (the crate never crouches)
-    const s = this.disguised ? 1 : this.crouched ? 0.82 : 1;
-    this.entity.transform.setScale(1, s, 1);
+    this.entity.transform.setScale(1, 1, 1);
   }
 
   /** pick Death / Jump / directional Run·Walk / Idle from the interpolated motion */
@@ -440,14 +495,38 @@ export class RemotePlayer {
     this.smStrafe += (strafe - this.smStrafe) * a;
     const sp = Math.hypot(this.smFwd, this.smStrafe);
 
-    const airborne = vy > 1.8 || vy < -5.5;
-    const want = airborne ? (this.smFwd < -0.2 ? "JumpBack" : "Jump")
-      : sp > LOCO_WALK ? locoClip(this.smFwd, this.smStrafe, sp > LOCO_RUN)
-      : "Idle";
+    // ── airborne state machine: takeoff → flying (loop) → landing ───────────────
+    // Prefer the driver's real ground state when it supplies one (local player / bots);
+    // network remotes have only interpolated position, so infer airborne from vertical
+    // speed with a little hysteresis so the apex (where vy≈0) doesn't flicker to ground.
+    let air: boolean;
+    if (this.groundHint !== null) air = !this.groundHint;
+    else if (this.airborne) air = vy < -0.6 || this.airT < 0.5; // stay up while descending / just after takeoff
+    else air = vy > 2.0;                                        // a clear upward burst = a jump
+    this.airT = air ? this.airT + dt : 0;
+    if (air && !this.airborne) this.landTimer = 0;              // takeoff edge
+    else if (!air && this.airborne) this.landTimer = 0.24;      // landing edge → play the recover
+    this.airborne = air;
+
+    let want: string;
+    if (air) {
+      want = this.airT < 0.3 ? "JumpStart" : "Falling"; // brief takeoff pose, then the looping flying pose
+    } else if (this.landTimer > 0) {
+      this.landTimer -= dt;
+      // a fast landing rolls straight into a run; otherwise play the touchdown recover
+      want = sp > LOCO_RUN ? locoClip(this.smFwd, this.smStrafe, true) : "Landing";
+      if (want !== "Landing") this.landTimer = 0;
+    } else {
+      want = sp > LOCO_WALK ? locoClip(this.smFwd, this.smStrafe, sp > LOCO_RUN) : "Idle";
+    }
+    // fall back to the shipped one-shot Jump clip if the phased states aren't present
+    if ((want === "JumpStart" || want === "Falling" || want === "Landing") && !this.animator.findAnimatorState(want)) {
+      want = "Jump";
+    }
     if ((want !== this.locoState || justActivated) && this.animator.findAnimatorState(want)) {
       this.locoState = want;
       if (justActivated) this.animator.play(want);
-      else this.animator.crossFade(want, 0.15);
+      else this.animator.crossFade(want, want === "JumpStart" ? 0.06 : 0.15);
     }
     // rate-match locomotion playback to the real speed so the animation slows/speeds
     // with the player (and the feet stop sliding). Idle/Jump/etc. run at normal speed.
@@ -467,14 +546,13 @@ export class RemotePlayer {
       const cHit = rayAABB(o, d, crate, maxDist);
       return cHit ? { dist: cHit.dist, head: false } : null;
     }
-    const sy = this.crouched ? 0.82 : 1;
     // body AABB (world, yaw-agnostic approximation)
     const body: AABB = {
       min: { x: this.pos.x - 0.36, y: this.pos.y, z: this.pos.z - 0.36 },
-      max: { x: this.pos.x + 0.36, y: this.pos.y + 1.58 * sy, z: this.pos.z + 0.36 },
+      max: { x: this.pos.x + 0.36, y: this.pos.y + 1.58, z: this.pos.z + 0.36 },
     };
     // head sphere
-    const hc = { x: this.pos.x, y: this.pos.y + 1.72 * sy, z: this.pos.z };
+    const hc = { x: this.pos.x, y: this.pos.y + 1.72, z: this.pos.z };
     const hHit = raySphere(o, d, hc, 0.21, maxDist);
     const bHit = rayAABB(o, d, body, maxDist);
     if (hHit !== null && (bHit === null || hHit <= bHit.dist)) return { dist: hHit, head: true };

@@ -498,7 +498,7 @@ class Game {
       if (this.selfAvatar) this.selfAvatar.isActive = false;
       if (!this.isHider()) {
         const op = this.ensureSelfOperator();
-        if (op) { op.weapon = this.ws.current; op.setPose(this.body.pos, this.body.yaw, this.body.crouched, false); }
+        if (op) { op.setVisible(true); op.weapon = this.ws.current; op.setPose(this.body.pos, this.body.yaw, false, this.body.onGround); }
       }
       this.updateDeathCam();
       return;
@@ -512,7 +512,17 @@ class Game {
       // first person: camera at the eye, avatar hidden
       this.camEntity.transform.setPosition(this.body.pos.x, eye, this.body.pos.z);
       if (this.selfAvatar) this.selfAvatar.isActive = false;
-      if (this.selfOperator) this.selfOperator.entity.isActive = false;
+      // Keep the operator alive-but-hidden and warm (its animator kept running at the
+      // body's pose) rather than deactivating it. Re-activating a dormant avatar resets
+      // its animator to the bind/T-pose — which is why dying in a first-person match used
+      // to show a frozen T-pose instead of the death animation. Kept active and warm, the
+      // death clip plays straight away when you're killed.
+      if (!this.isHider()) {
+        const op = this.ensureSelfOperator();
+        if (op) { op.setVisible(false); op.weapon = this.ws.current; op.setPose(this.body.pos, this.body.yaw, this.alive, this.body.onGround); }
+      } else if (this.selfOperator) {
+        this.selfOperator.entity.isActive = false;
+      }
       return;
     }
 
@@ -548,8 +558,9 @@ class Game {
     if (this.selfAvatar) this.selfAvatar.isActive = false;
     const op = this.ensureSelfOperator();
     if (op) {
+      op.setVisible(true);
       op.weapon = this.ws.current;
-      op.setPose(this.body.pos, this.body.yaw, this.body.crouched, this.alive);
+      op.setPose(this.body.pos, this.body.yaw, this.alive, this.body.onGround);
     }
   }
 
@@ -835,7 +846,6 @@ class Game {
       if (down) this.triedFireQueued = true;
     };
     t.onJump = (down) => { if (down) this.keys.add("Space"); else this.keys.delete("Space"); };
-    t.onCrouch = (down) => { if (down) this.keys.add("ControlLeft"); else this.keys.delete("ControlLeft"); };
     t.onScore = (down) => { this.sbOpen = down; };
     t.onScope = () => {
       if (this.ws.def().scope && this.alive) { this.ws.setScope(!this.ws.scoped); this.applyScopeFov(); }
@@ -883,7 +893,6 @@ class Game {
         fwd: clamp(kFwd + this.touch.moveY, -1, 1),
         right: clamp(kRight + this.touch.moveX, -1, 1),
         jump: this.keys.has("Space"),
-        crouch: this.keys.has("ControlLeft") || this.keys.has("KeyC"),
         sprint: this.keys.has("ShiftLeft") || this.keys.has("ShiftRight") || this.touch.sprint,
       };
       // prop hunt: seekers are frozen during the hide window; hiders are unarmed props
@@ -895,7 +904,7 @@ class Game {
       // slower than running forward. Only the dominant wish direction matters.
       const back = inp.fwd < -0.01, sideDom = Math.abs(inp.right) > Math.abs(inp.fwd) + 0.01;
       const dirFactor = sideDom ? MOVE_STRAFE_FACTOR : back ? MOVE_BACK_FACTOR : 1;
-      this.body.update(dt, canPlay ? inp : { fwd: 0, right: 0, jump: false, crouch: false, sprint: false }, this.ws.def().moveFactor * speedBuff * this.cfg.speed * dirFactor);
+      this.body.update(dt, canPlay ? inp : { fwd: 0, right: 0, jump: false, sprint: false }, this.ws.def().moveFactor * speedBuff * this.cfg.speed * dirFactor);
 
       if (this.body.jumped) sfx.jump();
       if (this.body.landed) sfx.land();
@@ -1037,7 +1046,6 @@ class Game {
       p: [this.body.pos.x, this.body.pos.y, this.body.pos.z],
       yaw: this.body.yaw,
       pitch: this.body.pitch,
-      cr: this.body.crouched ? 1 : 0,
       w: this.ws.current,
       hp: this.alive ? this.myHp : 0,
     };
@@ -1047,7 +1055,7 @@ class Game {
     if (this.net.isHost) {
       const ps: PlayerState[] = [this.myState()];
       for (const r of this.remotes.values()) {
-        ps.push({ id: r.id, p: [r.pos.x, r.pos.y, r.pos.z], yaw: r.yaw, pitch: 0, cr: r.crouched ? 1 : 0, w: r.weapon, hp: this.hpMap[r.id] ?? 0 });
+        ps.push({ id: r.id, p: [r.pos.x, r.pos.y, r.pos.z], yaw: r.yaw, pitch: 0, w: r.weapon, hp: this.hpMap[r.id] ?? 0 });
       }
       this.net.broadcast({ t: "snap", ps, time: now });
     } else {
@@ -2241,7 +2249,7 @@ class Game {
     for (const bot of this.bots.values()) {
       const r = this.remotes.get(bot.id);
       if (!r) continue;
-      if ((this.hpMap[bot.id] ?? 0) <= 0) { r.setPose(bot.body.pos, bot.body.yaw, false, false); continue; }
+      if ((this.hpMap[bot.id] ?? 0) <= 0) { r.setPose(bot.body.pos, bot.body.yaw, false); continue; }
 
       const role = this.teams[bot.id];
       const isHider = this.mode === "prophunt" && role === ROLE_HIDE;
@@ -2280,10 +2288,10 @@ class Game {
       }
 
       const input: Input = playing
-        ? { fwd, right, jump, crouch: false, sprint }
-        : { fwd: 0, right: 0, jump: false, crouch: false, sprint: false };
+        ? { fwd, right, jump, sprint }
+        : { fwd: 0, right: 0, jump: false, sprint: false };
       bot.body.update(dt, input, this.cfg.speed);
-      r.setPose(bot.body.pos, bot.body.yaw, false, true);
+      r.setPose(bot.body.pos, bot.body.yaw, true, bot.body.onGround);
     }
   }
 
