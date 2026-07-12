@@ -1989,7 +1989,7 @@ class Game {
     this.spectateId = null;
     this.hud.spectate(null);
     this.hud.respawnOverlay(null);
-    this.hud.end(this.net.players, this.scores, this.net.isHost, this.resultTitle());
+    this.hud.end(this.net.players, this.scores, this.net.isHost, this.resultTitle(), this.net.myId);
     this.hud.show("end");
     sfx.muffle(false); // clear any death-cam muffle carried into the end screen
     sfx.death();

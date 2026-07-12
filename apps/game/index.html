@@ -204,8 +204,99 @@
   .row span:nth-child(2),.row span:nth-child(3),.sb-head span:nth-child(2),.sb-head span:nth-child(3){text-align:right;font-family:var(--mono)}
   .row.me span:first-child{color:var(--sand)}
 
-  #scr-end .panel{min-width:460px}
-  #scr-end h2{font-size:26px;letter-spacing:8px;color:var(--sand);text-transform:uppercase;text-align:center;margin-bottom:16px}
+  /* ═══ end-of-match screen ═══
+     A dramatic results card — victory backdrop, winner headline, MVP spotlight and a
+     medalled leaderboard — styled to match the game, not the plain menu panels. */
+  #scr-end{overflow:hidden;
+    background:radial-gradient(ellipse at 50% 22%,#241d10 0%,#130f09 52%,#070603 100%)}
+  /* drifting sand/red glow + dot field behind the card (same language as loading) */
+  #scr-end::before,#scr-end::after{content:"";position:absolute;pointer-events:none;z-index:0}
+  #scr-end::before{inset:-30%;
+    background:
+      radial-gradient(42% 40% at 50% 8%,rgba(216,184,120,.22),transparent 70%),
+      radial-gradient(36% 44% at 24% 62%,rgba(224,72,58,.12),transparent 72%),
+      radial-gradient(32% 40% at 78% 58%,rgba(216,184,120,.10),transparent 70%);
+    filter:blur(6px);animation:load-drift 20s ease-in-out infinite alternate}
+  #scr-end::after{inset:-40%;opacity:.4;
+    background-image:radial-gradient(rgba(216,184,120,.16) 1.4px,transparent 1.5px);
+    background-size:32px 32px;
+    -webkit-mask-image:radial-gradient(ellipse at center,#000 38%,transparent 76%);
+    mask-image:radial-gradient(ellipse at center,#000 38%,transparent 76%);
+    animation:load-dots 30s linear infinite}
+
+  .end-card{position:relative;z-index:1;width:min(500px,94vw);
+    background:linear-gradient(180deg,rgba(22,18,12,.94),rgba(14,12,8,.94));
+    border:1px solid var(--line);padding:0 30px 26px;
+    box-shadow:0 30px 80px rgba(0,0,0,.66),0 0 0 1px rgba(0,0,0,.4),inset 0 1px 0 rgba(216,184,120,.28);
+    animation:end-card-in .5s cubic-bezier(.16,1,.3,1) both}
+  /* bright top accent bar, like the main-menu panel */
+  .end-card::before{content:"";position:absolute;top:-1px;left:-1px;right:-1px;height:2px;
+    background:linear-gradient(90deg,transparent,var(--sand),transparent)}
+  @keyframes end-card-in{from{opacity:0;transform:translateY(16px) scale(.97)}to{opacity:1;transform:none}}
+
+  .end-banner{text-align:center;padding:26px 0 18px}
+  .end-kicker{font-size:10px;letter-spacing:6px;text-transform:uppercase;color:var(--sand-dim);
+    margin-bottom:8px;animation:end-fade .5s .1s ease both}
+  #end-title{font-size:clamp(26px,6vw,40px);letter-spacing:5px;color:var(--sand);font-weight:700;
+    text-transform:uppercase;line-height:1.05;text-shadow:0 0 34px rgba(216,184,120,.4);
+    animation:end-fade .55s .16s ease both}
+  .end-rule{width:64px;height:2px;margin:14px auto 0;
+    background:linear-gradient(90deg,transparent,var(--sand),transparent);
+    animation:end-grow .6s .3s cubic-bezier(.16,1,.3,1) both}
+  @keyframes end-grow{from{transform:scaleX(0);opacity:0}to{transform:scaleX(1);opacity:1}}
+  @keyframes end-fade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
+  /* MVP spotlight — the top fragger, trophy-styled */
+  .end-mvp{display:flex;align-items:center;gap:14px;padding:13px 16px;margin-bottom:20px;
+    background:linear-gradient(90deg,rgba(216,184,120,.14),rgba(216,184,120,.04));
+    border:1px solid rgba(216,184,120,.34);
+    box-shadow:inset 0 0 24px rgba(216,184,120,.06);
+    animation:end-fade .5s .34s ease both}
+  .end-mvp .mvp-medal{font-size:24px;line-height:1;color:var(--sand);
+    filter:drop-shadow(0 0 10px rgba(216,184,120,.6))}
+  .end-mvp .mvp-info{flex:1;min-width:0}
+  .end-mvp .mvp-label{font-size:9px;letter-spacing:4px;text-transform:uppercase;color:var(--sand-dim)}
+  .end-mvp .mvp-name{font-size:20px;font-weight:700;letter-spacing:1px;margin-top:2px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:0 0 16px currentColor}
+  .end-mvp .mvp-kd{display:flex;flex-direction:column;align-items:flex-end;gap:2px;
+    font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--sand-dim);white-space:nowrap}
+  .end-mvp .mvp-kd b{font-family:var(--mono);font-size:15px;color:#f0e8d5;margin-right:3px}
+
+  /* leaderboard */
+  .end-board{margin-bottom:22px}
+  .end-brow{display:grid;grid-template-columns:34px 1fr 42px 42px 52px;align-items:center;
+    gap:4px;padding:8px 6px;font-size:14px;letter-spacing:.5px}
+  .end-bhead{font-size:9px;letter-spacing:3px;color:var(--sand-dim);text-transform:uppercase;
+    border-bottom:1px solid var(--line);padding-bottom:9px}
+  #end-rows .end-brow{border-bottom:1px solid rgba(216,184,120,.09);
+    animation:end-row-in .45s cubic-bezier(.16,1,.3,1) both}
+  @keyframes end-row-in{from{opacity:0;transform:translateX(-10px)}to{opacity:1;transform:none}}
+  .end-brow .c-k,.end-brow .c-d,.end-brow .c-r{text-align:right;font-family:var(--mono)}
+  .end-bhead .c-k,.end-bhead .c-d,.end-bhead .c-r{font-family:var(--font)}
+  .end-brow .c-r{color:var(--sand-dim)}
+  .end-brow .c-name{display:flex;align-items:center;gap:9px;min-width:0;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .end-brow .pdot{width:9px;height:9px;border-radius:50%;flex:none;box-shadow:0 0 7px currentColor}
+  .end-brow .c-name .pdot{box-shadow:0 0 6px rgba(0,0,0,.4)}
+  /* rank medals for the podium, dim number for the rest */
+  .end-brow .medal{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;
+    justify-content:center;font-style:normal;font-size:11px;font-weight:700;color:#1a1509;
+    font-family:var(--mono)}
+  .end-brow .medal.m1{background:linear-gradient(160deg,#f3d68a,#c99a3e);box-shadow:0 0 12px rgba(216,184,120,.55)}
+  .end-brow .medal.m2{background:linear-gradient(160deg,#e6ebef,#a8b0b8)}
+  .end-brow .medal.m3{background:linear-gradient(160deg,#e0a367,#a5622f);color:#241206}
+  .end-brow .rnum{color:var(--sand-dim);font-family:var(--mono);font-size:13px;padding-left:6px}
+  .end-brow.me{background:linear-gradient(90deg,rgba(216,184,120,.13),transparent);
+    box-shadow:inset 2px 0 0 var(--sand)}
+  .end-brow.me .c-name{color:var(--sand);font-weight:700}
+
+  .end-actions{display:flex;gap:12px;animation:end-fade .5s .42s ease both}
+  .end-actions button{margin-top:0;flex:1}
+
+  @media (prefers-reduced-motion:reduce){
+    #scr-end::before,#scr-end::after,.end-card,.end-kicker,#end-title,.end-rule,
+    .end-mvp,#end-rows .end-brow,.end-actions{animation:none}
+  }
 
   /* ── powerup buff indicator ── */
   /* anchored to the top-left column (under stats / mic) rather than floating in the
@@ -691,12 +782,21 @@
 
 <!-- ═══ END ═══ -->
 <div id="scr-end" class="screen hidden">
-  <div class="panel">
-    <h2 id="end-title">Match over</h2>
-    <div class="sb-head"><span>operator</span><span>K</span><span>D</span></div>
-    <div id="end-rows"></div>
-    <button id="btn-again">Play again</button>
-    <button id="btn-home" class="ghost">Home</button>
+  <div class="end-card">
+    <div class="end-banner">
+      <div class="end-kicker">Match over</div>
+      <h2 id="end-title">Match over</h2>
+      <div class="end-rule"></div>
+    </div>
+    <div id="end-mvp" class="end-mvp"></div>
+    <div class="end-board">
+      <div class="end-brow end-bhead"><span class="c-rank">#</span><span class="c-name">Operator</span><span class="c-k">K</span><span class="c-d">D</span><span class="c-r">K/D</span></div>
+      <div id="end-rows"></div>
+    </div>
+    <div class="end-actions">
+      <button id="btn-again">Play again</button>
+      <button id="btn-home" class="ghost">Home</button>
+    </div>
   </div>
 </div>
 

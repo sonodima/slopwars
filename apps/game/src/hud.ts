@@ -518,13 +518,34 @@ export class Hud {
   clickToPlay(on: boolean): void { $("click-to-play").classList.toggle("hidden", !on); }
 
   // ── end screen ──
-  end(players: PlayerInfo[], scores: GameSnapshot["scores"], isHost: boolean, title = "Match over"): void {
+  end(players: PlayerInfo[], scores: GameSnapshot["scores"], isHost: boolean, title = "Match over", myId = ""): void {
     $("end-title").textContent = title;
+    // rank by kills, then fewest deaths as the tie-breaker
     const rows = players
       .map((p) => ({ p, s: scores[p.id] ?? { k: 0, d: 0 } }))
-      .sort((a, b) => b.s.k - a.s.k);
+      .sort((a, b) => b.s.k - a.s.k || a.s.d - b.s.d);
+
+    // MVP spotlight = the top fragger
+    const mvp = rows[0];
+    $("end-mvp").innerHTML = mvp
+      ? `<div class="mvp-medal">🏆</div>` +
+        `<div class="mvp-info"><div class="mvp-label">MVP</div>` +
+        `<div class="mvp-name" style="color:${hex(mvp.p.color)}">${esc(mvp.p.name)}</div></div>` +
+        `<div class="mvp-kd"><span><b>${mvp.s.k}</b>kills</span><span><b>${mvp.s.d}</b>deaths</span></div>`
+      : "";
+
     $("end-rows").innerHTML = rows
-      .map(({ p, s }, i) => `<div class="row"><span>#${i + 1} ${esc(p.name)}</span><span>${s.k}</span><span>${s.d}</span></div>`)
+      .map(({ p, s }, i) => {
+        const rank = i + 1;
+        const ratio = (s.k / Math.max(1, s.d)).toFixed(1); // treat 0 deaths as 1 → no "Infinity"
+        const medal = rank <= 3
+          ? `<i class="medal m${rank}">${rank}</i>`
+          : `<span class="rnum">${rank}</span>`;
+        return `<div class="end-brow${p.id === myId ? " me" : ""}" style="animation-delay:${Math.min(i * 45, 400)}ms">` +
+          `<span class="c-rank">${medal}</span>` +
+          `<span class="c-name"><span class="pdot" style="background:${hex(p.color)}"></span>${esc(p.name)}</span>` +
+          `<span class="c-k">${s.k}</span><span class="c-d">${s.d}</span><span class="c-r">${ratio}</span></div>`;
+      })
       .join("");
     $("btn-again").classList.toggle("hidden", !isHost);
   }
