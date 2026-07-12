@@ -34,12 +34,40 @@ export const CFG_BOUNDS = {
   speed: [0.6, 1.8] as const,
 };
 export const BOT_LEVELS: BotLevel[] = ["easy", "normal", "hard"];
-/** per-difficulty bot tuning: hit chance base, fire-cadence scale, damage scale */
-export const BOT_TUNING: Record<BotLevel, { aim: number; rate: number; dmg: number }> = {
-  easy:   { aim: 0.5,  rate: 1.4, dmg: 0.7 },
-  normal: { aim: 0.72, rate: 1.0, dmg: 1.0 },
-  hard:   { aim: 0.9,  rate: 0.7, dmg: 1.3 },
+/** per-difficulty bot tuning. Beyond raw hit/damage, these shape *how human* the bot
+ *  feels: how fast it can swing its aim (turn), how long before it reacts to a target it
+ *  just spotted (react), how wide it can see (fov, half-angle rad), how long it remembers a
+ *  target it lost sight of (memory), and how much its aim wobbles (err, rad). Low turn +
+ *  real reaction + wobble is what stops a bot from reading as an aimbot. */
+export const BOT_TUNING: Record<BotLevel, {
+  aim: number;    // base hit probability at point-blank (falls off with range)
+  rate: number;   // fire-cadence scale (higher = slower between shots)
+  dmg: number;    // damage scale
+  turn: number;   // max aim slew speed (rad/s) — caps the instant snap
+  react: number;  // reaction delay after (re)spotting a target before it can fire (s)
+  fov: number;    // vision half-angle (rad); target outside the cone is unseen unless point-blank
+  memory: number; // seconds a lost target's last-known position is remembered / hunted
+  err: number;    // aim wobble magnitude (rad) — bigger = shakier, more human tracking
+}> = {
+  easy:   { aim: 0.42, rate: 1.5,  dmg: 0.7,  turn: 3.4,  react: 0.55, fov: 1.05, memory: 1.0, err: 0.115 },
+  normal: { aim: 0.66, rate: 1.0,  dmg: 1.0,  turn: 6.5,  react: 0.32, fov: 1.30, memory: 2.2, err: 0.055 },
+  hard:   { aim: 0.86, rate: 0.72, dmg: 1.25, turn: 11.5, react: 0.17, fov: 1.55, memory: 3.6, err: 0.024 },
 };
+
+/** weapons a bot may spawn carrying (non-gungame modes), rifle-weighted. AWP/USP/knife
+ *  give bots distinct engagement ranges + cadences so not every fight is the same AK duel. */
+export const BOT_WEAPONS: { w: WeaponId; weight: number }[] = [
+  { w: "ak47",  weight: 56 },
+  { w: "usp",   weight: 24 },
+  { w: "awp",   weight: 14 },
+  { w: "knife", weight: 6 },
+];
+export function pickBotWeapon(): WeaponId {
+  const total = BOT_WEAPONS.reduce((s, e) => s + e.weight, 0);
+  let r = Math.random() * total;
+  for (const e of BOT_WEAPONS) { if ((r -= e.weight) <= 0) return e.w; }
+  return "ak47";
+}
 
 // movement (quake/krunker style)
 export const MOVE = {

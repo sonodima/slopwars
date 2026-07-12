@@ -27,7 +27,7 @@ import { Input, PlayerBody } from "./player";
 import { RemotePlayer } from "./remote";
 import { MODEL_LOAD_COUNT, buildProp, instantiate, loadModels, propHuntPool } from "./models";
 import {
-  BOT_TUNING, DEFAULT_CONFIG, GamePhase, GameSnapshot, INTERMISSION, MatchConfig, MAX_HP, ModeId,
+  BOT_TUNING, DEFAULT_CONFIG, GamePhase, GameSnapshot, INTERMISSION, MatchConfig, MAX_HP, ModeId, pickBotWeapon,
   MOVE_BACK_FACTOR, MOVE_STRAFE_FACTOR, Msg,
   PICKUP_HEAL, PICKUP_RADIUS, PICKUP_RESPAWN, PlayerState, POWERUPS, POWERUP_INTERVAL,
   POWERUP_RADIUS, PowerupKind, QUAD_MULT, RAPID_MULT, SPEED_MULT, TICK_RATE,
@@ -45,12 +45,38 @@ import { TracerPool, WeaponSystem } from "./weapons";
 interface BotAI {
   id: string;
   body: PlayerBody;
+  weapon: WeaponId;      // what this bot spawned carrying (non-gungame)
   fireCd: number;
+  burstCd: number;       // short pause between bursts so autos don't hose one endless stream
   retargetCd: number;
   targetId: string | null;
   strafe: number;
   strafeCd: number;
   jumpCd: number;
+  // ─ perception + human-like aim ─
+  seen: boolean;         // clear line of sight to the current target *this* frame
+  reactCd: number;       // reaction delay counting down after freshly spotting a target
+  memoryCd: number;      // remaining memory of a target that broke line of sight
+  lastKnown: Vec3 | null;// last position the target was actually seen at (hunted when lost)
+  aimErrX: number;       // slow-drifting aim wobble, yaw / pitch (rad)
+  aimErrY: number;
+  aimErrCd: number;      // time until the wobble picks a new drift target
+  avoidCd: number;       // hold time on the current wall-avoidance peel direction
+  avoidSign: number;     // which way (+1/-1) the bot is currently steering around an obstacle
+  wanderYaw: number;     // heading used while it has nothing to chase
+}
+
+// ─── bot aim math: turn toward a heading at a capped rate instead of snapping ──
+function normAngle(a: number): number {
+  while (a > Math.PI) a -= 2 * Math.PI;
+  while (a < -Math.PI) a += 2 * Math.PI;
+  return a;
+}
+/** step `cur` toward `tgt` by at most `maxStep` radians (shortest way round). */
+function approachAngle(cur: number, tgt: number, maxStep: number): number {
+  const d = normAngle(tgt - cur);
+  if (Math.abs(d) <= maxStep) return tgt;
+  return normAngle(cur + Math.sign(d) * maxStep);
 }
 
 // delay from pressing throw to the grenade leaving the hand — matches the toss
@@ -1443,7 +1469,13 @@ class Game {
     const sp = this.pickSpawn();
     this.hpMap[id] = MAX_HP;
     const bot = this.bots.get(id);
-    if (bot) { bot.body.teleport(sp.p, sp.yaw); bot.targetId = null; bot.fireCd = 0.4; }
+    if (bot) {
+      bot.body.teleport(sp.p, sp.yaw);
+      bot.targetId = null; bot.fireCd = 0.4; bot.burstCd = 0;
+      bot.seen = false; bot.reactCd = 0; bot.memoryCd = 0; bot.lastKnown = null;
+      bot.wanderYaw = bot.body.yaw;
+      if (this.mode !== "gungame") bot.weapon = pickBotWeapon(); // fresh loadout each life
+    }
     const m: Msg = { t: "spawn", id, p: [sp.p.x, sp.p.y, sp.p.z], yaw: sp.yaw };
     this.net.broadcast(m);
     // deliver the mode loadout directly (unreliable channel → don't rely on snapshot order)
@@ -2267,7 +2299,12 @@ class Game {
       const body = new PlayerBody(this.map);
       body.gravityScale = this.cfg.gravity;
       body.teleport({ x: rand(-6, 6), y: 4, z: rand(-6, 6) }, rand(0, 360));
-      this.bots.set(id, { id, body, fireCd: 0, retargetCd: 0, targetId: null, strafe: 1, strafeCd: 0, jumpCd: 0 });
+      this.bots.set(id, {
+        id, body, weapon: pickBotWeapon(),
+        fireCd: 0, burstCd: 0, retargetCd: 0, targetId: null, strafe: 1, strafeCd: 0, jumpCd: 0,
+        seen: false, reactCd: 0, memoryCd: 0, lastKnown: null,
+        aimErrX: 0, aimErrY: 0, aimErrCd: 0, avoidCd: 0, avoidSign: 1, wanderYaw: body.yaw,
+      });
       this.net.broadcast({ t: "pjoin", p: info }); // let guests see the bot
     }
   }
@@ -2323,8 +2360,54 @@ class Game {
     return best;
   }
 
-  /** drive every bot: target, move, aim, shoot (host authority, all local) */
+  /** the weapon a bot is currently fighting with (gungame ladder, else its spawn loadout). */
+  botWeapon(bot: BotAI): WeaponId {
+    return this.mode === "gungame" ? tierWeapon(this.tiers[bot.id] ?? 0) : bot.weapon;
+  }
+
+  /** does the bot actually perceive `pos` right now? Frontal vision cone (fov) + line of
+   *  sight — the two things that stop a bot from tracking you through a wall or from behind.
+   *  Point-blank (≤6m) it's aware regardless of facing (footsteps / peripheral). */
+  botCanSee(bot: BotAI, pos: Vec3, eye: Vec3): boolean {
+    const tune = BOT_TUNING[this.cfg.difficulty];
+    const dx = pos.x - eye.x, dy = (pos.y + 1.0) - eye.y, dz = pos.z - eye.z;
+    const flat = Math.hypot(dx, dz) || 1e-3;
+    const dist = Math.hypot(dx, dy, dz) || 1;
+    if (flat > 6) {
+      const fx = -Math.sin(bot.body.yaw), fz = -Math.cos(bot.body.yaw);
+      if ((dx * fx + dz * fz) / flat < Math.cos(tune.fov)) return false; // outside FOV cone
+    }
+    // clear LOS if nothing solid sits between the eye and (just short of) the target
+    return !this.map.raycast(eye, { x: dx / dist, y: dy / dist, z: dz / dist }, dist - 0.5);
+  }
+
+  /** whisker obstacle-avoidance: given a desired world move dir, steer it around walls so
+   *  bots peel past corners instead of grinding into them. Commits to a side briefly to
+   *  avoid jitter. Returns a world-space move vector (aim is handled separately). */
+  botSteer(bot: BotAI, wx: number, wz: number): { x: number; z: number } {
+    const len = Math.hypot(wx, wz);
+    if (len < 1e-3) return { x: 0, z: 0 };
+    const nx = wx / len, nz = wz / len;
+    const o: Vec3 = { x: bot.body.pos.x, y: bot.body.pos.y + 0.9, z: bot.body.pos.z };
+    const clear = (ax: number, az: number): number =>
+      this.map.raycast(o, { x: ax, y: 0, z: az }, 2.4)?.dist ?? 2.4;
+    if (clear(nx, nz) > 1.7) return { x: wx, z: wz }; // road ahead is open
+    const rot = (a: number): { x: number; z: number } => {
+      const cs = Math.cos(a), sn = Math.sin(a);
+      return { x: nx * cs - nz * sn, z: nx * sn + nz * cs };
+    };
+    if (bot.avoidCd <= 0) { // pick the side with more room, then hold it
+      const l = rot(0.9), rr = rot(-0.9);
+      bot.avoidSign = clear(l.x, l.z) >= clear(rr.x, rr.z) ? 1 : -1;
+      bot.avoidCd = 0.5;
+    }
+    const s = rot(0.9 * bot.avoidSign);
+    return { x: s.x * len, z: s.z * len };
+  }
+
+  /** drive every bot: perceive, aim (capped slew), move (obstacle-aware), shoot. Host only. */
   updateBots(dt: number, _now: number): void {
+    const tune = BOT_TUNING[this.cfg.difficulty];
     for (const bot of this.bots.values()) {
       const r = this.remotes.get(bot.id);
       if (!r) continue;
@@ -2341,6 +2424,8 @@ class Game {
       const frozen = this.mode === "prophunt" && role === ROLE_SEEK && this.inPrepPhase();
       const playing = this.phase === "play" && !frozen;
 
+      bot.avoidCd -= dt; bot.reactCd -= dt; bot.burstCd -= dt; bot.fireCd -= dt;
+
       bot.retargetCd -= dt;
       if (bot.retargetCd <= 0 || !this.botTargetAlive(bot.targetId)) {
         bot.targetId = isHider ? null : this.botPickTarget(bot);
@@ -2349,28 +2434,74 @@ class Game {
       const tgt = bot.targetId ? this.entityPos(bot.targetId) : null;
       const eye: Vec3 = { x: bot.body.pos.x, y: bot.body.eyeY, z: bot.body.pos.z };
 
-      let fwd = 0, right = 0, jump = false, sprint = false;
-      if (tgt && !isHider) {
-        const dx = tgt.x - bot.body.pos.x, dz = tgt.z - bot.body.pos.z;
-        const dist = Math.hypot(dx, dz);
-        bot.body.yaw = Math.atan2(-dx, -dz);
-        bot.body.pitch = clamp(Math.atan2((tgt.y + 1.0) - eye.y, Math.max(0.5, dist)), -1.2, 1.2);
-        fwd = dist > 10 ? 1 : dist < 5 ? -0.5 : 0.25;
-        sprint = dist > 16;
+      // ── perception: real sight → refresh memory; lost sight → hunt last-known, then forget ──
+      const canSee = !!tgt && !isHider && this.botCanSee(bot, tgt, eye);
+      if (canSee && tgt) {
+        if (!bot.seen) bot.reactCd = tune.react * (0.7 + Math.random() * 0.6); // just spotted → react before firing
+        bot.seen = true;
+        bot.lastKnown = { x: tgt.x, y: tgt.y, z: tgt.z };
+        bot.memoryCd = tune.memory;
+      } else {
+        bot.seen = false;
+        if (bot.memoryCd > 0) bot.memoryCd -= dt; else bot.lastKnown = null;
+      }
+      const aimAt = bot.seen ? tgt : bot.lastKnown; // what the bot *believes* — not omniscient
+
+      // aim wobble drifts on its own timer so tracking never locks pixel-perfect
+      bot.aimErrCd -= dt;
+      if (bot.aimErrCd <= 0) {
+        bot.aimErrX = (Math.random() * 2 - 1) * tune.err;
+        bot.aimErrY = (Math.random() * 2 - 1) * tune.err * 0.6;
+        bot.aimErrCd = 0.18 + Math.random() * 0.35;
+      }
+
+      let wishX = 0, wishZ = 0, jump = false, sprint = false;
+
+      if (aimAt) {
+        const dx = aimAt.x - bot.body.pos.x, dz = aimAt.z - bot.body.pos.z;
+        const dist = Math.hypot(dx, dz) || 1e-3;
+        // desired aim (belief + wobble), reached at a capped slew — this is what kills the snap
+        const desYaw = Math.atan2(-dx, -dz) + bot.aimErrX;
+        const desPitch = clamp(Math.atan2((aimAt.y + 1.0) - eye.y, Math.max(0.5, dist)) + bot.aimErrY, -1.2, 1.2);
+        const slew = tune.turn * (bot.reactCd > 0 ? 0.35 : 1) * dt; // sluggish during reaction window
+        bot.body.yaw = approachAngle(bot.body.yaw, desYaw, slew);
+        bot.body.pitch = clamp(bot.body.pitch + clamp(desPitch - bot.body.pitch, -slew, slew), -1.2, 1.2);
+
+        // footwork keyed to the weapon's ideal range: AWP keeps distance, knife rushes, etc.
+        const def = WEAPONS[this.botWeapon(bot)];
+        const near = def.melee ? 0 : def.scope ? 16 : def.auto ? 6 : 4;
+        const far = def.melee ? 99 : def.scope ? 30 : def.auto ? 16 : 11;
+        const along = def.melee ? 1 : dist > far ? 1 : dist < near ? -0.7 : 0.12;
+        const nfx = dx / dist, nfz = dz / dist; // unit dir bot→enemy (world)
         bot.strafeCd -= dt;
         if (bot.strafeCd <= 0) { bot.strafe = Math.random() < 0.5 ? -1 : 1; bot.strafeCd = 0.5 + Math.random(); }
-        right = bot.strafe * 0.7;
+        const strafe = (bot.seen ? 0.85 : 0.25) * bot.strafe; // only juke hard when actually in a fight
+        wishX = nfx * along + -nfz * strafe;  // forward + perpendicular strafe
+        wishZ = nfz * along + nfx * strafe;
+        sprint = along > 0.6 && !def.scope;
         bot.jumpCd -= dt;
-        if (bot.jumpCd <= 0) { jump = Math.random() < 0.25; bot.jumpCd = 1 + Math.random() * 2.5; }
-        bot.fireCd -= dt;
-        if (playing && bot.fireCd <= 0) this.botTryShoot(bot, tgt, dist, eye);
+        if (bot.jumpCd <= 0) { jump = bot.seen && Math.random() < 0.2; bot.jumpCd = 1 + Math.random() * 2.5; }
+
+        // fire only with real sight, after the reaction delay, and once aim has settled on target
+        if (playing && bot.seen && tgt && bot.reactCd <= 0 && bot.burstCd <= 0 && bot.fireCd <= 0) {
+          const trueYaw = Math.atan2(-dx, -dz);
+          if (Math.abs(normAngle(bot.body.yaw - trueYaw)) < 0.13) this.botTryShoot(bot, tgt, dist, eye);
+        }
       } else {
-        // wander (hiders, or nobody to shoot)
+        // nothing believed in view → wander a slowly-turning heading, relax the aim
         bot.strafeCd -= dt;
-        if (bot.strafeCd <= 0) { bot.body.yaw += (Math.random() - 0.5) * 1.6; bot.strafeCd = 1 + Math.random() * 2; }
-        fwd = 0.6;
+        if (bot.strafeCd <= 0) { bot.wanderYaw += (Math.random() - 0.5) * 1.4; bot.strafeCd = 1 + Math.random() * 2; }
+        bot.body.yaw = approachAngle(bot.body.yaw, bot.wanderYaw, tune.turn * 0.5 * dt);
         bot.body.pitch *= 0.9;
+        wishX = -Math.sin(bot.body.yaw);
+        wishZ = -Math.cos(bot.body.yaw);
       }
+
+      // steer the *movement* around walls (aim untouched), then map world move → yaw-frame input
+      const steer = this.botSteer(bot, wishX, wishZ);
+      const s = Math.sin(bot.body.yaw), c = Math.cos(bot.body.yaw);
+      const fwd = -s * steer.x - c * steer.z;
+      const right = c * steer.x - s * steer.z;
 
       const input: Input = playing
         ? { fwd, right, jump, sprint }
@@ -2382,32 +2513,39 @@ class Game {
 
   botTryShoot(bot: BotAI, tgt: Vec3, dist: number, eye: Vec3): void {
     const tune = BOT_TUNING[this.cfg.difficulty];
-    const wid: WeaponId = this.mode === "gungame" ? tierWeapon(this.tiers[bot.id] ?? 0) : "ak47";
+    const wid = this.botWeapon(bot);
     const def = WEAPONS[wid];
     if (def.melee) { // knife — only up close
       if (dist < 2.2) this.botDealDamage(bot, def, wid, false);
-      bot.fireCd = 0.8 * tune.rate;
+      bot.fireCd = 0.85 * tune.rate;
       return;
     }
-    const tx = tgt.x - eye.x, ty = (tgt.y + 1.0) - eye.y, tz = tgt.z - eye.z;
-    const len = Math.hypot(tx, ty, tz) || 1;
-    const dir: Vec3 = { x: tx / len, y: ty / len, z: tz / len };
-    const wall = this.map.raycast(eye, dir, len);
-    if (wall && wall.dist < len - 0.5) { bot.fireCd = 0.25; return; } // no line of sight
-    // let guests render the bot's shot (tracer + spatial audio)
+    // fire along where the bot is *actually* looking — with wobble, tracers can miss like a human
+    const dir = bot.body.aimDir();
+    const wall = this.map.raycast(eye, dir, def.range);
+    const reach = Math.min(wall?.dist ?? def.range, def.range);
     this.net.broadcast({ t: "shot", id: bot.id, o: [eye.x, eye.y, eye.z], d: [dir.x, dir.y, dir.z], w: wid });
-    // muzzle flash feedback: tracer + spatial shot
-    const reach = Math.min(len, def.range);
     this.tracers.spawn(
       { x: eye.x + dir.x * 0.6, y: eye.y - 0.1, z: eye.z + dir.z * 0.6 },
       { x: eye.x + dir.x * reach, y: eye.y + dir.y * reach, z: eye.z + dir.z * reach },
     );
     const rel = this.relAudio(eye);
     sfx.shot(wid, rel.pan, rel.dist);
-    // accuracy that falls off with range, scaled by bot difficulty
-    const pHit = clamp(tune.aim - dist / 60, 0.08, tune.aim);
-    if (Math.random() < pHit) this.botDealDamage(bot, def, wid, Math.random() < 0.12 * tune.aim / 0.72);
-    bot.fireCd = (def.auto ? 0.5 : 0.95) * tune.rate * (0.8 + Math.random() * 0.7);
+    // hit resolution: needs a clear line to the target, then a difficulty/range/weapon roll
+    const tx = tgt.x - eye.x, ty = (tgt.y + 1.0) - eye.y, tz = tgt.z - eye.z;
+    const len = Math.hypot(tx, ty, tz) || 1;
+    const blocked = this.map.raycast(eye, { x: tx / len, y: ty / len, z: tz / len }, len - 0.5);
+    const moving = Math.hypot(bot.body.vel.x, bot.body.vel.z) > 3;
+    const wf = (def.scope ? 0.72 : def.auto ? 1 : 0.9) * (moving ? 0.7 : 1); // scoped/moving is harder
+    const pHit = clamp((tune.aim - dist / 70) * wf, 0.05, tune.aim);
+    if (!blocked && Math.random() < pHit) this.botDealDamage(bot, def, wid, Math.random() < 0.12 * tune.aim / 0.72);
+    // cadence from the real weapon; autos spray in bursts with a breather between
+    if (def.auto) {
+      bot.fireCd = (60 / def.rpm) * tune.rate * (0.9 + Math.random() * 0.4);
+      if (Math.random() < 0.16) bot.burstCd = 0.35 + Math.random() * 0.5;
+    } else {
+      bot.fireCd = Math.max(0.5, 60 / def.rpm) * tune.rate * (0.85 + Math.random() * 0.5);
+    }
   }
 
   botDealDamage(bot: BotAI, def: WeaponDef, wid: WeaponId, hs: boolean): void {
