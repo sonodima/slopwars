@@ -45,7 +45,11 @@ import { TracerPool, WeaponSystem } from "./weapons";
 interface BotAI {
   id: string;
   body: PlayerBody;
-  weapon: WeaponId;      // what this bot spawned carrying (non-gungame)
+  weapon: WeaponId;      // the weapon it's holding right now (non-gungame; switches with context)
+  arsenal: WeaponId[];   // the weapons it owns and can switch between by range / when dry
+  mag: number;           // rounds left in the current magazine (-1 = melee, no mag)
+  reloadCd: number;      // >0 while reloading — can't fire until it finishes
+  switchCd: number;      // debounce so range-based weapon swaps don't flip-flop every frame
   fireCd: number;
   burstCd: number;       // short pause between bursts so autos don't hose one endless stream
   retargetCd: number;
@@ -1478,7 +1482,12 @@ class Game {
       bot.targetId = null; bot.fireCd = 0.4; bot.burstCd = 0;
       bot.seen = false; bot.reactCd = 0; bot.memoryCd = 0; bot.lastKnown = null;
       bot.wanderYaw = bot.body.yaw; bot.lastHp = MAX_HP; bot.dodgeLockCd = 0;
-      if (this.mode !== "gungame") bot.weapon = pickBotWeapon(); // fresh loadout each life
+      bot.reloadCd = 0; bot.switchCd = 0;
+      if (this.mode !== "gungame") { // fresh loadout each life
+        const primary = pickBotWeapon();
+        bot.arsenal = [...new Set<WeaponId>([primary, "usp", "knife"])];
+        bot.weapon = primary; bot.mag = WEAPONS[primary].mag;
+      }
     }
     const m: Msg = { t: "spawn", id, p: [sp.p.x, sp.p.y, sp.p.z], yaw: sp.yaw };
     this.net.broadcast(m);
@@ -2304,8 +2313,10 @@ class Game {
       const body = new PlayerBody(this.map);
       body.gravityScale = this.cfg.gravity;
       body.teleport({ x: rand(-6, 6), y: 4, z: rand(-6, 6) }, rand(0, 360));
+      const primary = pickBotWeapon();
+      const arsenal = [...new Set<WeaponId>([primary, "usp", "knife"])]; // everyone keeps a sidearm + knife
       this.bots.set(id, {
-        id, body, weapon: pickBotWeapon(),
+        id, body, weapon: primary, arsenal, mag: WEAPONS[primary].mag, reloadCd: 0, switchCd: 0,
         fireCd: 0, burstCd: 0, retargetCd: 0, targetId: null, strafe: 1, strafeCd: 0,
         seen: false, reactCd: 0, memoryCd: 0, lastKnown: null,
         aimErrX: 0, aimErrY: 0, aimErrCd: 0, avoidCd: 0, avoidSign: 1, wanderYaw: body.yaw,
@@ -2366,9 +2377,35 @@ class Game {
     return best;
   }
 
-  /** the weapon a bot is currently fighting with (gungame ladder, else its spawn loadout). */
+  /** the weapon a bot is currently fighting with (gungame ladder, else its live loadout). */
   botWeapon(bot: BotAI): WeaponId {
     return this.mode === "gungame" ? tierWeapon(this.tiers[bot.id] ?? 0) : bot.weapon;
+  }
+
+  /** swap a bot to a weapon from its arsenal: loads a fresh mag and adds a short draw delay. */
+  botEquip(bot: BotAI, w: WeaponId): void {
+    if (bot.weapon === w) return;
+    bot.weapon = w;
+    bot.mag = WEAPONS[w].melee ? -1 : WEAPONS[w].mag;
+    bot.reloadCd = 0;
+    bot.fireCd = Math.max(bot.fireCd, 0.35); // can't fire the instant it's drawn
+  }
+
+  /** which owned weapon best fits the current range — the AWP holds long, the pistol/knife
+   *  take over when a fight collapses to close quarters, the rifle covers the middle. The
+   *  held weapon gets a bonus so bots don't flip-flop at band edges. */
+  botIdealWeapon(bot: BotAI, dist: number): WeaponId {
+    let best = bot.weapon, bestScore = -Infinity;
+    for (const w of bot.arsenal) {
+      const d = WEAPONS[w];
+      let sc = d.melee ? (dist < 2.5 ? 3.5 : -1)
+        : d.scope ? (dist > 22 ? 5 : dist < 10 ? 0.4 : 2)   // AWP: lethal far, clumsy close
+        : d.auto ? (dist < 40 ? 4 : 2.5)                    // rifle: strong all-round
+        : (dist < 18 ? 3.4 : 1.6);                          // pistol: fine close/mid
+      if (w === bot.weapon) sc += 0.8;                      // hysteresis
+      if (sc > bestScore) { bestScore = sc; best = w; }
+    }
+    return best;
   }
 
   /** does the bot actually perceive `pos` right now? Frontal vision cone (fov) + line of
@@ -2421,6 +2458,7 @@ class Game {
     for (const bot of this.bots.values()) {
       const r = this.remotes.get(bot.id);
       if (!r) continue;
+      r.weapon = this.botWeapon(bot); // keep the visible held gun in sync with contextual swaps
       if ((this.hpMap[bot.id] ?? 0) <= 0) {
         // dead bot: keep stepping gravity (no input) so a body killed mid-air falls to the
         // ground and plays its death prone, instead of freezing where it was hit.
@@ -2435,6 +2473,9 @@ class Game {
       const playing = this.phase === "play" && !frozen;
 
       bot.avoidCd -= dt; bot.reactCd -= dt; bot.burstCd -= dt; bot.fireCd -= dt;
+      bot.reloadCd -= dt; bot.switchCd -= dt;
+      // finished reloading → top the mag back up
+      if (bot.reloadCd < 0 && bot.mag <= 0 && !WEAPONS[bot.weapon].melee) bot.mag = WEAPONS[bot.weapon].mag;
 
       bot.retargetCd -= dt;
       if (bot.retargetCd <= 0 || !this.botTargetAlive(bot.targetId)) {
@@ -2483,6 +2524,12 @@ class Game {
         const dx = aimAt.x - bot.body.pos.x, dz = aimAt.z - bot.body.pos.z;
         dist = Math.hypot(dx, dz) || 1e-3;
         trueYaw = Math.atan2(-dx, -dz);
+        // context switch: pick the right tool for this range (AWP → pistol/knife when a fight
+        // collapses close, rifle for the mid, AWP when far). Not in gungame, not mid-reload.
+        if (this.mode !== "gungame" && bot.switchCd <= 0 && bot.reloadCd <= 0) {
+          const ideal = this.botIdealWeapon(bot, dist);
+          if (ideal !== bot.weapon) { this.botEquip(bot, ideal); bot.switchCd = 1.6; }
+        }
         // footwork keyed to the weapon's ideal range: AWP keeps distance, knife rushes, etc.
         const def = WEAPONS[this.botWeapon(bot)];
         const near = def.melee ? 0 : def.scope ? 16 : def.auto ? 6 : 4;
@@ -2522,8 +2569,8 @@ class Game {
       bot.body.yaw = approachAngle(bot.body.yaw, desYaw, slew);
       bot.body.pitch = clamp(bot.body.pitch + clamp(desPitch - bot.body.pitch, -slew, slew), -1.2, 1.2);
 
-      // fire only with real sight, after the reaction delay, once the aim has settled on target
-      if (playing && bot.seen && tgt && bot.reactCd <= 0 && bot.burstCd <= 0 && bot.fireCd <= 0) {
+      // fire only with real sight, after the reaction delay, not while reloading, aim settled
+      if (playing && bot.seen && tgt && bot.reactCd <= 0 && bot.reloadCd <= 0 && bot.burstCd <= 0 && bot.fireCd <= 0) {
         if (Math.abs(normAngle(bot.body.yaw - trueYaw)) < 0.13) this.botTryShoot(bot, tgt, dist, eye);
       }
 
@@ -2549,6 +2596,7 @@ class Game {
   }
 
   botTryShoot(bot: BotAI, tgt: Vec3, dist: number, eye: Vec3): void {
+    if (bot.reloadCd > 0) return; // mid-reload — can't shoot
     const tune = BOT_TUNING[this.cfg.difficulty];
     const wid = this.botWeapon(bot);
     const def = WEAPONS[wid];
@@ -2582,6 +2630,18 @@ class Game {
       if (Math.random() < 0.16) bot.burstCd = 0.35 + Math.random() * 0.5;
     } else {
       bot.fireCd = Math.max(0.5, 60 / def.rpm) * tune.rate * (0.85 + Math.random() * 0.5);
+    }
+    // ammo bookkeeping (non-gungame): spend a round, then reload — or, if the enemy is close,
+    // swap to a loaded sidearm instead of eating the reload time.
+    if (this.mode !== "gungame") {
+      bot.mag--;
+      if (bot.mag <= 0) {
+        if (dist < 12) {
+          const alt = bot.arsenal.find((w) => w !== wid && !WEAPONS[w].melee && !WEAPONS[w].scope);
+          if (alt) { this.botEquip(bot, alt); return; }
+        }
+        bot.reloadCd = def.reloadTime;
+      }
     }
   }
 
