@@ -5,6 +5,7 @@
 // synchronously (mapById) exactly as before. No map data lives in TS source.
 import mapCatalog from "virtual:map-catalog";
 import { MapDef, MapMeta, emptyMap } from "@slopwars/shared";
+import { logAsset } from "../assets";
 
 const BASE = import.meta.env.BASE_URL;
 
@@ -21,6 +22,7 @@ export async function loadMapPool(): Promise<void> {
   const defs = await Promise.all(
     mapCatalog.map(async (e): Promise<MapDef | null> => {
       try {
+        logAsset("map", e.file);
         const res = await fetch(`${BASE}${e.file}`);
         if (!res.ok) throw new Error(`${res.status}`);
         return (await res.json()) as MapDef;

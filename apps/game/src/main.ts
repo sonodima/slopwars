@@ -6,7 +6,7 @@ import {
   TextureCube, TonemappingEffect, TonemappingMode, UnlitMaterial, Vector3,
 } from "@galacean/engine";
 import { sfx } from "./audio";
-import { loadHDRCube } from "./assets";
+import { loadHDRCube, setAssetLog } from "./assets";
 import { Hud } from "./hud";
 import { GameMap } from "./map";
 import catalog from "virtual:asset-catalog";
@@ -280,12 +280,12 @@ class Game {
 
     // ── load models with progress (textures + HDRI load lazily, per map) ──
     this.hud.show("loading");
+    // pedantic boot log: every asset fetch (mesh/tex/hdri/map) reports its own
+    // path to the loading screen — no grouping
+    setAssetLog((line) => this.hud.loadingLabel(line));
     const total = MODEL_LOAD_COUNT + 1; // models + first map's texture/sky bundle
     let loaded = 0;
-    const bump = (name?: string): void => {
-      this.hud.loadingProgress(++loaded / total);
-      if (name) this.hud.loadingLabel(name);
-    };
+    const bump = (): void => { this.hud.loadingProgress(++loaded / total); };
     this.models = await loadModels(engine, bump);
 
     // ── HDRI skybox material shell (its texture is set per-map by loadMap) ──
@@ -297,10 +297,10 @@ class Game {
     this.skyMat = skyMat;
 
     // ── map (resolves textures + sky, builds geometry/env/pickups) ──
-    this.hud.loadingLabel("map & textures");
     await loadMapPool();                 // fetch maps/*.json into the registry
     await this.loadMap(DEFAULT_MAP);
-    bump("ready");
+    bump();
+    setAssetLog(null);                   // stop logging once the boot screen is done
 
     // ── player + weapons + fx ──
     this.body = new PlayerBody(this.map);
