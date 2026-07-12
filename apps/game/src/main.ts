@@ -928,13 +928,17 @@ class Game {
   /** once support is known, decide what (if anything) to do about the model download:
    *   • already cached / unsupported → nothing;
    *   • a download is already running → attach the progress toast;
-   *   • the user already opted in earlier → resume the download silently-consented;
-   *   • otherwise, first launch → show the one-time consent pop-up (unless already asked). */
+   *   • not yet asked → ASK FIRST with the consent pop-up (only reached when supported);
+   *   • already explicitly opted in (answered + on) → resume the download.
+   *  Consent is the primary gate: we never start a download at boot without the user
+   *  having said yes at some point. */
   private decideAiDownload(): void {
     const npc = this.npc;
     if (!npc || npc.status === "unavailable" || npc.status === "available") return;
-    if (npc.status === "downloading" || this.settings.state.aiChat) void this.startAiDownload();
-    else if (!this.settings.state.aiPrompted) this.hud.showAiConsent();
+    if (npc.status === "downloading") { void this.startAiDownload(); return; }
+    // status === "downloadable": supported, but not on disk yet
+    if (!this.settings.state.aiPrompted) this.hud.showAiConsent();
+    else if (this.settings.state.aiChat) void this.startAiDownload();
   }
 
   /** download + warm the model (once), driving the progress toast. Guarded so it never
