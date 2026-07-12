@@ -1280,9 +1280,8 @@ class Game {
    *  when the strength slider is 0, while dead / not playing, on throwables, and in menus. */
   updateAimAssist(dt: number, nowMs: number): void {
     this.aimFriction = 1;
-    const strength = this.settings.state.aimAssist;
     const eligible = (this.myPlatform === "gamepad" || this.myPlatform === "touch")
-      && strength > 0 && this.alive && this.phase === "play" && !this.isHider()
+      && this.settings.state.aimAssist && this.alive && this.phase === "play" && !this.isHider()
       && !this.settings.isOpen() && !this.hud.chatOpen && !this.ws.def().throwable;
     if (!eligible) { this.aimTargetId = null; this.aimPrevTargetPos = null; return; }
 
@@ -1311,7 +1310,7 @@ class Game {
     // curve (<1) makes the slowdown build early rather than only dead-centre, so the aim
     // gets "heavy" as you arrive on a player — easier to settle the reticle and flick precisely.
     const fricProx = Math.pow(proximity, AA_FRICTION_CURVE);
-    this.aimFriction = 1 - (1 - AA_FRICTION_MIN) * fricProx * strength;
+    this.aimFriction = 1 - (1 - AA_FRICTION_MIN) * fricProx;
 
     // (2) follow: track the target's own angular drift (measured with the eye held fixed, so
     //     it's the target's motion — not the player's — that's compensated). No pull while
@@ -1322,7 +1321,7 @@ class Game {
       let dYaw = bearingYaw(eye, bestP) - bearingYaw(eye, prev);
       if (dYaw > Math.PI) dYaw -= 2 * Math.PI; else if (dYaw < -Math.PI) dYaw += 2 * Math.PI;
       const dPitch = bearingPitch(eye, bestP) - bearingPitch(eye, prev);
-      const k = proximity * strength;
+      const k = proximity;
       this.body.yaw += dYaw * AA_FOLLOW * k;
       this.body.pitch = clamp(this.body.pitch + dPitch * AA_FOLLOW_PITCH * k, -1.55, 1.55);
     }

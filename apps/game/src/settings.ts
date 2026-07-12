@@ -9,7 +9,7 @@ export interface SettingsState {
   quality: Quality;
   sensitivity: number; // look-speed multiplier (mouse + touch)
   fov: number; // vertical FOV in degrees (hip-fire)
-  aimAssist: number; // 0..1 aim-assist strength (controller + touch only; ignored for mouse)
+  aimAssist: boolean; // controller + touch aim assist on/off (ignored for mouse+keyboard)
   showStats: boolean; // perf overlay
   aiChat: boolean; // host-only: run the on-device LLM for NPC trash-talk (Chrome built-in AI)
   aiPrompted: boolean; // whether we've already asked to download the model (gates the boot consent)
@@ -20,9 +20,9 @@ const KEY = "slopwars.settings";
 
 // aiChat defaults OFF: the model is a heavy one-time download, so it stays opt-in —
 // armed either from the first-run consent prompt or the Settings toggle.
-// aimAssist defaults to max (1): it's a comfort feature for controller/touch players and
-// does nothing on mouse+keyboard, so there's no downside to shipping it fully on.
-const DEFAULTS: SettingsState = { quality: "high", sensitivity: 1, fov: 75, aimAssist: 1, showStats: true, aiChat: false, aiPrompted: false, name: "" };
+// aimAssist defaults ON: it's a comfort feature for controller/touch players and does
+// nothing on mouse+keyboard, so there's no downside to shipping it enabled.
+const DEFAULTS: SettingsState = { quality: "high", sensitivity: 1, fov: 75, aimAssist: true, showStats: true, aiChat: false, aiPrompted: false, name: "" };
 
 function load(): SettingsState {
   let s: SettingsState = { ...DEFAULTS };
@@ -31,6 +31,7 @@ function load(): SettingsState {
     if (raw) s = { ...DEFAULTS, ...JSON.parse(raw) };
   } catch { /* ignore corrupt / unavailable storage */ }
   if (!s.name) s.name = "player" + ((Math.random() * 900 + 100) | 0);
+  s.aimAssist = !!s.aimAssist; // migrate the old 0..1 slider value → on/off
   return s;
 }
 
@@ -55,8 +56,7 @@ export class Settings {
     sens.addEventListener("input", () => this.set({ sensitivity: parseFloat(sens.value) }));
     const fov = $("set-fov") as HTMLInputElement;
     fov.addEventListener("input", () => this.set({ fov: parseInt(fov.value, 10) }));
-    const aim = $("set-aim") as HTMLInputElement;
-    aim.addEventListener("input", () => this.set({ aimAssist: parseFloat(aim.value) }));
+    $("set-aim").addEventListener("click", () => this.set({ aimAssist: !this.state.aimAssist }));
     $("set-stats").addEventListener("click", () => this.set({ showStats: !this.state.showStats }));
     $("set-aichat").addEventListener("click", () => {
       if (!this.aiSupported) return; // the model can't run on this browser — toggle is inert
@@ -104,10 +104,11 @@ export class Settings {
     }
     ($("set-sens") as HTMLInputElement).value = String(s.sensitivity);
     ($("set-fov") as HTMLInputElement).value = String(s.fov);
-    ($("set-aim") as HTMLInputElement).value = String(s.aimAssist);
     $("set-sens-val").textContent = s.sensitivity.toFixed(2);
     $("set-fov-val").textContent = String(s.fov);
-    $("set-aim-val").textContent = s.aimAssist <= 0 ? "off" : `${Math.round(s.aimAssist * 100)}%`;
+    const aimTgl = $("set-aim");
+    aimTgl.classList.toggle("on", s.aimAssist);
+    aimTgl.setAttribute("aria-pressed", String(s.aimAssist));
     const tgl = $("set-stats");
     tgl.classList.toggle("on", s.showStats);
     tgl.setAttribute("aria-pressed", String(s.showStats));
