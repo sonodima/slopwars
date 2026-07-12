@@ -363,6 +363,14 @@ export class Hud {
     if (t !== null) $("respawn-t").textContent = Math.ceil(t).toString();
   }
 
+  /** spectator banner for a no-respawn player (Prop-Hunt hider). `name` = who's being
+   *  watched, or null to hide. */
+  spectate(name: string | null): void {
+    const e = $("spectate");
+    e.classList.toggle("hidden", name === null);
+    if (name !== null) $("spectate-n").textContent = name;
+  }
+
   buff(name: string | null, color: number, secs: number): void {
     const e = $("buff");
     if (!name) { e.classList.add("hidden"); return; }

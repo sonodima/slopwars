@@ -58,6 +58,9 @@ interface BotAI {
 const THROW_WINDUP_MS = 350;
 // slow cinematic orbit (rad/s) of the death camera around the fallen body.
 const DEATH_CAM_ORBIT_SPEED = 0.4;
+// seconds the death orbit plays before a no-respawn player (Prop-Hunt hider) switches
+// to spectating a living seeker instead of staring at their own corpse forever.
+const SPECTATE_AFTER = 1.8;
 
 class Game {
   engine!: Engine;
@@ -141,6 +144,7 @@ class Game {
   private deathTime = 0;                // wall-clock seconds at death (orbit phase)
   private deathYaw = 0;                 // facing at death (orbit start angle)
   private deathLookTarget = new Vector3();
+  private spectateId: string | null = null; // seeker being spectated (no-respawn hider)
   inGame = false;
   locked = false;
   sbOpen = false;
@@ -500,6 +504,11 @@ class Game {
         const op = this.ensureSelfOperator();
         if (op) { op.setVisible(true); op.weapon = this.ws.current; op.setPose(this.body.pos, this.body.yaw, false, this.body.onGround); }
       }
+      // no-respawn hider: brief death orbit, then spectate a living seeker
+      if (this.selfNoRespawn() && performance.now() / 1000 - this.deathTime > SPECTATE_AFTER) {
+        const tgt = this.spectateTarget();
+        if (tgt) { document.body.classList.remove("dead"); this.updateSpectateCam(tgt); return; }
+      }
       this.updateDeathCam();
       return;
     }
@@ -609,6 +618,54 @@ class Game {
     if (hit) { const d = Math.max(0.8, hit.dist - 0.3); cx = o.x + nd.x * d; cy = o.y + nd.y * d; cz = o.z + nd.z * d; }
     this.camEntity.transform.setPosition(cx, cy, cz);
     this.deathLookTarget.set(c.x, c.y + 0.5, c.z);
+    this.camEntity.transform.lookAt(this.deathLookTarget, this.worldUp);
+  }
+
+  /** the local player is dead for the rest of the round (no respawn) — currently only a
+   *  Prop-Hunt hider, who becomes a spectator instead of waiting on a respawn timer. */
+  selfNoRespawn(): boolean { return this.isHider(); }
+
+  /** pick a living seeker to spectate: keep the current one if still valid, else the
+   *  nearest. Positions come from remotes (guest view / other humans) or bots (host). */
+  private spectateTarget(): { pos: Vec3; yaw: number; id: string } | null {
+    const posOf = (id: string): { pos: Vec3; yaw: number } | null => {
+      const r = this.remotes.get(id);
+      if (r && r.alive) return { pos: r.pos, yaw: r.yaw };
+      const b = this.bots.get(id);
+      if (b) return { pos: b.body.pos, yaw: b.body.yaw };
+      return null;
+    };
+    // keep spectating the same seeker while it's still around
+    if (this.spectateId && this.teams[this.spectateId] === ROLE_SEEK) {
+      const cur = posOf(this.spectateId);
+      if (cur) return { ...cur, id: this.spectateId };
+    }
+    let best: { pos: Vec3; yaw: number; id: string } | null = null;
+    let bestD = Infinity;
+    for (const id of Object.keys(this.teams)) {
+      if (id === this.net.myId || this.teams[id] !== ROLE_SEEK) continue;
+      const p = posOf(id);
+      if (!p) continue;
+      const d = (p.pos.x - this.body.pos.x) ** 2 + (p.pos.z - this.body.pos.z) ** 2;
+      if (d < bestD) { bestD = d; best = { ...p, id }; }
+    }
+    this.spectateId = best?.id ?? null;
+    return best;
+  }
+
+  /** third-person chase cam behind the spectated seeker (Prop-Hunt hider spectator). */
+  updateSpectateCam(t: { pos: Vec3; yaw: number }): void {
+    const p = t.pos, yaw = t.yaw;
+    let back = 3.2;
+    const o: Vec3 = { x: p.x, y: p.y + 1.5, z: p.z };
+    // behind = opposite the player's forward (-sin,-cos); pull in on walls
+    const nd: Vec3 = { x: Math.sin(yaw), y: 0.18, z: Math.cos(yaw) };
+    const nl = Math.hypot(nd.x, nd.y, nd.z) || 1;
+    nd.x /= nl; nd.y /= nl; nd.z /= nl;
+    const hit = this.map.raycast(o, nd, back + 0.4);
+    if (hit) back = Math.max(0.8, hit.dist - 0.4);
+    this.camEntity.transform.setPosition(o.x + nd.x * back, o.y + nd.y * back, o.z + nd.z * back);
+    this.deathLookTarget.set(p.x, p.y + 1.3, p.z);
     this.camEntity.transform.lookAt(this.deathLookTarget, this.worldUp);
   }
 
@@ -992,10 +1049,16 @@ class Game {
         if (!this.net.isHost) this.net.send({ t: "ping", ts: performance.now() });
       }
 
-      // respawn overlay
+      // respawn overlay (or spectator label for a no-respawn hider)
       if (!this.alive) {
-        const t = this.respawnAt - now;
-        this.hud.respawnOverlay(t > 0 ? t : null);
+        if (this.selfNoRespawn()) {
+          this.hud.respawnOverlay(null);
+          const spectating = this.spectateId ? this.names.get(this.spectateId) ?? null : null;
+          this.hud.spectate(performance.now() / 1000 - this.deathTime > SPECTATE_AFTER ? spectating : null);
+        } else {
+          const t = this.respawnAt - now;
+          this.hud.respawnOverlay(t > 0 ? t : null);
+        }
       }
 
       // net send
@@ -1531,6 +1594,9 @@ class Game {
     if (this.selfOperator) this.selfOperator.entity.isActive = false;
     document.body.classList.remove("hider");
     document.exitPointerLock();
+    this.spectateId = null;
+    this.hud.spectate(null);
+    this.hud.respawnOverlay(null);
     this.hud.end(this.net.players, this.scores, this.net.isHost, this.resultTitle());
     this.hud.show("end");
     sfx.muffle(false); // clear any death-cam muffle carried into the end screen
@@ -2093,6 +2159,8 @@ class Game {
         this.applyLoadout(); // mode-aware weapon (gungame tier / prophunt disguise)
         this.applyScopeFov();
         this.endDeathCam();
+        this.spectateId = null;
+        this.hud.spectate(null);
         this.hud.hp(this.myHp);
         this.hud.respawnOverlay(null);
         this.hud.crosshair(true);
