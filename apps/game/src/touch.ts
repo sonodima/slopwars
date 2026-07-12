@@ -73,6 +73,11 @@ export class TouchControls {
     for (const el of this.wepEls) el.classList.toggle("on", el.dataset.wep === id);
   }
 
+  /** hide loadout slots that aren't currently available (spent throwables drop out of the strip) */
+  setAvailable(avail: boolean[]): void {
+    this.wepEls.forEach((el, i) => { el.style.display = avail[i] ? "" : "none"; });
+  }
+
   private buildWeapons(): void {
     const strip = $("tc-weapons");
     strip.innerHTML = "";
