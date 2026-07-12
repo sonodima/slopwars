@@ -148,8 +148,10 @@ class Game {
   remotes = new Map<string, RemotePlayer>();
   names = new Map<string, string>();
 
-  // 3D lobby scene
+  // 3D lobby scene (shared with the main menu — same swaying showcase camera + stage)
   lobbyView = false;
+  menuView = false;            // main menu shows the same 3D backdrop as the lobby
+  private menuAvatar: Entity | null = null; // single showcase operator on the menu stage
   lobbyStageRoot!: Entity;
   lobbyAvatars = new Map<string, Entity>();
   private lobbyAvatarSig = ""; // roster signature the current lobby avatars were built for
@@ -280,6 +282,7 @@ class Game {
 
     // ── load models with progress (textures + HDRI load lazily, per map) ──
     this.hud.show("loading");
+    this.syncTitle();   // tab reads "SlopWars · Loading…" before the tick loop starts
     // pedantic boot log: every asset fetch (mesh/tex/hdri/map) reports its own
     // path to the loading screen — no grouping
     setAssetLog((line) => this.hud.loadingLabel(line));
@@ -357,6 +360,7 @@ class Game {
     this.nades.prewarm();
 
     this.hud.show("menu");
+    this.enterMenu();   // 3D showcase backdrop behind the create/join menu
     // theme music starts on first user gesture (autoplay policy)
     window.addEventListener("pointerdown", () => {
       sfx.unlock();
@@ -1121,9 +1125,10 @@ class Game {
       this.hud.scoreboard(this.sbOpen || this.phase === "inter", this.net.players, this.scores, this.net.myId);
       this.updateModeVisuals();
       this.updateModeHud();
-    } else if (this.lobbyView) {
+    } else if (this.lobbyView || this.menuView) {
       this.updateLobbyCamera(now);
     }
+    this.syncTitle();
     this.hud.update(dt);
 
     // stats overlay
@@ -2684,7 +2689,50 @@ class Game {
 
   // ─── 3D lobby ─────────────────────────────────────────────────────────────────
 
+  /** main menu: same 3D showcase as the lobby (swaying camera + one idling operator
+   *  on the stage) so create/join sits over the same scene, not a flat gradient. */
+  enterMenu(): void {
+    this.exitLobby();
+    this.menuView = true;
+    this.ws.showViewmodel(false);
+    if (this.selfAvatar) this.selfAvatar.isActive = false;
+    if (this.selfOperator) this.selfOperator.entity.isActive = false;
+    if (!this.menuAvatar && this.lobbyStageRoot) {
+      // stand the operator off-centre-right so the menu panel (left) doesn't cover it
+      const x = 1.8, z = -6;
+      const e = this.buildAvatar(this.lobbyStageRoot, 0);
+      e.transform.setPosition(x, this.map.floorY(x, z) + 0.05, z);
+      e.transform.setRotation(0, 0, 0);
+      this.menuAvatar = e;
+    }
+  }
+
+  exitMenu(): void {
+    this.menuView = false;
+    if (this.menuAvatar) { this.menuAvatar.destroy(); this.menuAvatar = null; }
+  }
+
+  /** keep the browser tab title in sync with the current context — always prefixed
+   *  "SlopWars", with a pretty subtitle for the screen / gamemode + round. Called each
+   *  frame; only writes document.title when it actually changed. */
+  private lastTitle = "";
+  private syncTitle(): void {
+    let sub: string;
+    if (this.inGame) {
+      sub = `${MODES[this.mode].name} [${this.round}/${this.cfg.rounds}]`;
+    } else {
+      switch (document.body.dataset.screen) {
+        case "loading": sub = "Loading…"; break;
+        case "lobby":   sub = `Lobby [${this.net.players.length}]`; break;
+        default:        sub = "Menu"; break; // main menu / end screen
+      }
+    }
+    const title = `SlopWars · ${sub}`;
+    if (title !== this.lastTitle) { this.lastTitle = title; document.title = title; }
+  }
+
   enterLobby(): void {
+    this.exitMenu();
     this.lobbyView = true;
     this.ws.showViewmodel(false);
     if (this.selfAvatar) this.selfAvatar.isActive = false;
@@ -2764,6 +2812,7 @@ class Game {
     this.inGame = true;
     this.alive = true;
     this.myHp = MAX_HP;
+    this.exitMenu();
     this.exitLobby();
     this.ws.showViewmodel(true);
     sfx.stopTheme();
