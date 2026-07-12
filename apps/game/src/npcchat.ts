@@ -77,11 +77,32 @@ export interface NpcChat {
   line(req: LineReq): Promise<string | null>;
 }
 
+// ── inference throttle ───────────────────────────────────────────────────────
+// On-device inference is GPU/CPU heavy. The Prompt API exposes no way to *slow*
+// the model, so we cap its footprint two ways instead: run at most one prompt at a
+// time (the chain), and never start two closer together than MIN_GAP_MS. Combined
+// with the caller-side cooldowns, sustained load stays low. Bump MIN_GAP_MS to
+// throttle harder (fewer, more-spaced generations) at the cost of chattiness.
+const MIN_GAP_MS = 3000;
+
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+/** resolve when the main thread is idle (or after `timeout`), so kicking off an
+ *  inference never lands in the middle of a busy render frame. */
+function whenIdle(timeout = 1500): Promise<void> {
+  const ric = (globalThis as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => void })
+    .requestIdleCallback;
+  return ric
+    ? new Promise((r) => ric(() => r(), { timeout }))
+    : sleep(0);
+}
+
 /** the live implementation, created only once the model is confirmed usable. */
 class LiveNpcChat implements NpcChat {
   ready = true;
   private session: LMSession | null = null;
   private chain: Promise<unknown> = Promise.resolve(); // serialize prompts (one model)
+  private lastRun = 0;                                  // wall-clock ms of the last inference
 
   constructor(private factory: LMFactory) {}
 
@@ -112,6 +133,12 @@ class LiveNpcChat implements NpcChat {
   private run(input: string): Promise<string | null> {
     const task = this.chain.then(async () => {
       try {
+        // hard-space consecutive inferences, then wait for an idle slot so we don't
+        // spike load or hitch a frame at kickoff.
+        const gap = MIN_GAP_MS - (Date.now() - this.lastRun);
+        if (gap > 0) await sleep(gap);
+        await whenIdle();
+        this.lastRun = Date.now();
         const s = await this.ensureSession();
         const ctl = new AbortController();
         const timer = setTimeout(() => ctl.abort(), 8000);
