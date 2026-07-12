@@ -404,6 +404,14 @@
     transition:transform .12s,background .12s}
   .tgl.on{background:rgba(143,191,77,.3);border-color:var(--green)}
   .tgl.on i{transform:translateX(20px);background:var(--green)}
+  .tgl.disabled{opacity:.4;pointer-events:none}
+  /* helper note under a setting (NPC AI chat requirement + support link) */
+  .set-note{margin-top:9px;font-size:10px;line-height:1.6;letter-spacing:.3px;
+    color:var(--sand-dim);opacity:.9;text-transform:none}
+  .set-note a{color:var(--sand);text-decoration:none;border-bottom:1px solid var(--line);white-space:nowrap}
+  .set-note a:hover{border-color:var(--sand)}
+  #set-aichat-status{color:var(--red);font-weight:700}
+  #set-aichat-status:not(:empty){margin-right:5px}
   #set-done{margin-top:22px}
   #set-leave{margin-top:18px;background:transparent;border:1px solid var(--red);color:var(--red)}
   #set-leave:hover{background:rgba(224,72,58,.14);filter:none}
@@ -705,6 +713,11 @@
       <span>Performance stats</span>
       <button class="tgl" id="set-stats" role="switch" aria-pressed="true"><i></i></button>
     </div>
+    <div class="set-toggle">
+      <span>NPC AI chat</span>
+      <button class="tgl" id="set-aichat" role="switch" aria-pressed="false"><i></i></button>
+    </div>
+    <p class="set-note" id="set-aichat-note"><span id="set-aichat-status"></span>On-device AI trash-talk for bots — only the host runs it, and it needs a Chromium browser with built-in AI (the Prompt API). <a href="https://developer.chrome.com/docs/ai/get-started" target="_blank" rel="noopener">Check browser support ↗</a></p>
     <button id="set-leave" class="danger hidden">Leave match</button>
     <button id="set-done">Done</button>
   </div>

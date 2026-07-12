@@ -19,10 +19,6 @@ export class Hud {
   onCfg: ((patch: Partial<MatchConfig>) => void) | null = null;
   onHome: (() => void) | null = null;
 
-  /** whether the host's browser can run the on-device NPC-chat model (Chrome Prompt
-   *  API). Drives the lobby toggle's "not supported" state. Set once init resolves. */
-  aiChatSupported = false;
-
   private hitTtl = 0;
   private dmgTtl = 0;
 
@@ -212,8 +208,8 @@ export class Hud {
     const cam = `<div class="rule rule-wide"><label>Camera</label><div class="seg" id="rule-cam">` +
       `<button data-v="first">first-person</button><button data-v="third">third-person</button>` +
       `</div></div>`;
-    const ai = `<div class="rule rule-wide"><label>NPC AI chat <span id="rule-ai-note" class="rule-note"></span></label>` +
-      `<div class="seg" id="rule-ai"><button data-v="on">on</button><button data-v="off">off</button></div></div>`;
+    // NPC AI chat is no longer a per-match rule — it's a per-host client preference
+    // (Settings ▸ NPC AI chat), so it doesn't appear in this lobby grid.
     el.innerHTML =
       `<div class="rules-grid">` +
       cell("bots", "Bots", bMin, bMax, 1) +
@@ -223,7 +219,6 @@ export class Hud {
       cell("speed", "Speed", sMin, sMax, 0.1) +
       diff +
       cam +
-      ai +
       `</div>`;
 
     const bind = (key: string, fn: (v: number) => Partial<MatchConfig>, disp: (v: number) => string): void => {
@@ -247,35 +242,6 @@ export class Hud {
     for (const c of Array.from($("rule-cam").children)) {
       c.addEventListener("click", () => this.onCfg?.({ thirdPerson: (c as HTMLElement).dataset.v === "third" }));
     }
-    for (const c of Array.from($("rule-ai").children)) {
-      c.addEventListener("click", () => {
-        if (!this.aiChatSupported) return; // can't turn it on where the model can't run
-        this.onCfg?.({ aiChat: (c as HTMLElement).dataset.v === "on" });
-      });
-    }
-    this.syncAiRow();
-  }
-
-  /** reflect model support + the on/off state on the AI-chat row (host grid). Called
-   *  from syncRules and again if support resolves after the grid was built. */
-  private syncAiRow(cfg?: MatchConfig): void {
-    const seg = document.getElementById("rule-ai");
-    const note = document.getElementById("rule-ai-note");
-    const ok = this.aiChatSupported;
-    if (note) note.textContent = ok ? "" : "· not supported on this browser";
-    if (!seg) return;
-    seg.classList.toggle("disabled", !ok);
-    const enabled = ok && (cfg?.aiChat ?? false);
-    for (const c of Array.from(seg.children)) {
-      const isOn = (c as HTMLElement).dataset.v === "on";
-      c.classList.toggle("on", ok && isOn === enabled);
-    }
-  }
-
-  /** host: called once the NPC-chat model finishes probing. Updates the lobby row. */
-  setAiSupported(supported: boolean): void {
-    this.aiChatSupported = supported;
-    this.syncAiRow();
   }
 
   // ─── NPC-AI on-device model download toast ─────────────────────────────────
@@ -317,7 +283,7 @@ export class Hud {
     el.classList.remove("hidden");
     el.classList.add("done");
     $("ai-dl-title").textContent = "NPC AI ready";
-    $("ai-dl-msg").textContent = "The on-device model is ready — enable NPC AI chat in the lobby.";
+    $("ai-dl-msg").textContent = "The on-device model is ready — enable NPC AI chat in Settings.";
     window.clearTimeout(this.aiDlDoneTimer);
     this.aiDlDoneTimer = window.setTimeout(() => this.hideAiDownload(), 6500);
   }
@@ -367,7 +333,6 @@ export class Hud {
       const isThird = (c as HTMLElement).dataset.v === "third";
       c.classList.toggle("on", isThird === cfg.thirdPerson);
     }
-    this.syncAiRow(cfg);
   }
 
   /** host: clickable mode cards · guest: read-only current mode */
