@@ -3026,7 +3026,7 @@ class Game {
   }
 
   refreshLobby(): void {
-    this.hud.lobby(this.net.lobbyCode, this.net.players, this.net.isHost, this.mode, this.cfg);
+    this.hud.lobby(this.net.lobbyCode, this.net.players, this.net.isHost, this.mode, this.cfg, this.net.myId);
     this.hud.setOffline(this.net.offline);
     this.refreshLobbyAvatars();
   }
