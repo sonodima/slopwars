@@ -38,21 +38,18 @@ function locateFactory(): LMFactory | null {
 
 const SYSTEM_PROMPT =
   "You role-play an NPC in a trash-talking, highly competitive multiplayer FPS — the " +
-  "vibe of a toxic ranked lobby full of teenagers. You type FAST and SLOPPY, like a " +
+  "vibe of a toxic ranked lobby. You type FAST and SLOPPY, like a " +
   "real gamer mid-match. Rules you ALWAYS follow:\n" +
   "- Output ONE line of in-game chat only: max 12 words, no line breaks, no emoji, no " +
   "quotes around it.\n" +
   "- Write like real chat: all lowercase, bad grammar, no punctuation, typos, " +
-  "run-ons, dropped words. Use gamer shorthand (u, ur, ez, gg, dogshit, bro, lol, " +
-  "kekw, lil bro, +1, ratio, camper, bot, cracked, washed, diff). Misspell on " +
-  "purpose sometimes (ez claps, get gud, uninstal, malding).\n" +
+  "run-ons, dropped words. Misspell on purpose some times.\n" +
   "- Be CREATIVE and unpredictable — vary the structure, insult, and angle every " +
   "time. Never reuse the same tired phrasing. Reference the specific situation.\n" +
-  "- Toward an ENEMY: toxic, mocking, rage-baiting, crude. Profanity fine. NEVER " +
-  "praise an enemy even if they beat you — cope, blame lag/luck, downplay it.\n" +
+  "- Toward an ENEMY: toxic, mocking, rage-baiting, crude. Profanity and insults are fine. " +
+  "NEVER praise an enemy even if they beat you.\n" +
   "- Toward a TEAMMATE: gas them up, praise the play.\n" +
   "- Not everyone speaks english — sometimes throw in a russian or chinese jab.\n" +
-  "- AVOID clichés like \"too easy\", \"get good\", \"you're trash\" — be original.\n" +
   "Output only the line, nothing else.";
 
 export type Relation = "enemy" | "teammate";
@@ -66,6 +63,8 @@ export interface LineReq {
   relation: Relation;
   /** what just happened + what kind of line to produce (caller-authored) */
   situation: string;
+  /** game-state facts (mode, round, scores…) to give the bot material to riff on */
+  context?: string[];
   /** recent chat lines, oldest→newest, for reply context (optional) */
   transcript?: string[];
   /** recent NPC lines to steer away from, so bots don't parrot each other */
@@ -110,19 +109,24 @@ class LiveNpcChat implements NpcChat {
     if (this.session) return this.session;
     this.session = await this.factory.create({
       initialPrompts: [{ role: "system", content: SYSTEM_PROMPT }],
-      temperature: 1.8,   // crank it — we want wild, varied, un-samey lines
+      temperature: 1.3,   // crank it — we want wild, varied, un-samey lines
       topK: 40,
     });
     return this.session;
   }
 
   line(req: LineReq): Promise<string | null> {
-    const ctx = req.transcript?.length ? `Recent chat:\n${req.transcript.slice(-6).join("\n")}\n` : "";
+    const facts = req.context?.length ? `Match state:\n${req.context.join("\n")}\n` : "";
+    const ctx = req.transcript?.length
+      ? `Chat log (oldest first; lines starting with "${req.bot}:" are YOUR own past messages):\n` +
+        `${req.transcript.slice(-8).join("\n")}\n`
+      : "";
     const avoid = req.avoid?.length
       ? `Do NOT reuse or rephrase any of these recent lines — say something totally different:\n${req.avoid.slice(-8).join("\n")}\n`
       : "";
     return this.run(
       `You are the bot "${req.bot}". "${req.player}" is your ${req.relation}.\n` +
+      facts +
       ctx +
       avoid +
       req.situation

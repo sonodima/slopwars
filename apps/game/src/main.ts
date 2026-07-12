@@ -1479,6 +1479,41 @@ class Game {
     return "enemy";
   }
 
+  /** compact match-state facts fed to the model so bots have real stuff to riff on:
+   *  the mode, where the match is at, and the two combatants' scoreboards. */
+  private npcFacts(aId: string, bId: string): string[] {
+    const facts: string[] = [];
+    const m = MODES[this.mode];
+    facts.push(`mode: ${m.name}, round ${Math.max(1, this.round)}/${this.cfg.rounds}, ${this.timeLeftLabel()} left`);
+    if (m.teams) {
+      const label = this.mode === "prophunt" ? ["seekers", "hiders"] : [TEAM_NAMES[0], TEAM_NAMES[1]];
+      facts.push(`team score: ${label[0]} ${this.teamScore[0]} — ${label[1]} ${this.teamScore[1]}`);
+    }
+    const kd = (id: string): string => {
+      const s = this.scores[id] ?? { k: 0, d: 0 };
+      const tag = MODES[this.mode].teams && this.teams[id] !== undefined && this.teams[id] === this.teams[aId]
+        ? " (same team as you)" : "";
+      return `${this.names.get(id) ?? id}${tag}: ${s.k} kills ${s.d} deaths`;
+    };
+    facts.push(`scores — ${kd(aId)}; ${kd(bId)}`);
+    return facts;
+  }
+
+  /** rough "M:SS" of the time left in the round (for match-state facts). */
+  private timeLeftLabel(): string {
+    const t = Math.max(0, Math.floor(this.timeLeft));
+    return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`;
+  }
+
+  /** the bot's own most recent chat line (from the log), for anchoring a reply thread. */
+  private npcLastLineBy(botId: string): string | null {
+    const tag = `${this.names.get(botId) ?? "bot"}: `;
+    for (let i = this.npcLog.length - 1; i >= 0; i--) {
+      if (this.npcLog[i].startsWith(tag)) return this.npcLog[i].slice(tag.length);
+    }
+    return null;
+  }
+
   /** gate + fire one unprompted NPC line: honours per-bot and global cooldowns and a
    *  probability roll so bots don't chatter on every single kill/death. */
   private npcTryLine(botId: string, human: string, relation: Relation, situation: string, prob: number): void {
@@ -1491,7 +1526,11 @@ class Game {
     this.npcSpontaneousCd = now + 4;
     const bot = this.names.get(botId) ?? "bot";
     const player = this.names.get(human) ?? "player";
-    void this.npc.line({ bot, player, relation, situation, avoid: this.npcRecentLines.slice() }).then((line) => {
+    void this.npc.line({
+      bot, player, relation, situation,
+      context: this.npcFacts(botId, human),
+      avoid: this.npcRecentLines.slice(),
+    }).then((line) => {
       if (line && this.bots.has(botId)) this.botSay(botId, line);
     });
   }
@@ -1633,12 +1672,21 @@ class Game {
     targets.slice(0, 2).forEach((id, i) => {
       const bot = this.names.get(id) ?? "bot";
       const relation = this.botRelation(id, fromId);
-      const lead = addressed ? "They named you directly." : "They're likely talking to you.";
+      // anchor the thread: spell out that THIS bot is the addressee, and remind it
+      // what it last said so a back-and-forth actually tracks.
+      const mine = this.npcLastLineBy(id);
+      const priorLine = mine ? ` Earlier you said "${mine}", and they are responding to that.` : "";
+      const lead = addressed
+        ? `${who} is talking directly TO YOU (${bot}) by name.`
+        : `${who} is talking TO YOU (${bot}) — they've been dueling you.`;
       window.setTimeout(() => {
         if (!this.bots.has(id)) return;
         void this.npc!.line({
-          bot, player: who, relation, transcript, avoid: this.npcRecentLines.slice(),
-          situation: `${lead} ${who} said: "${txt}". Reply in one line, in character as their ${relation}.`,
+          bot, player: who, relation, transcript,
+          context: this.npcFacts(id, fromId),
+          avoid: this.npcRecentLines.slice(),
+          situation: `${lead}${priorLine} They just said: "${txt}". Reply directly to ${who} in one line, ` +
+            `in character as their ${relation}. Do not answer anyone else.`,
         }).then((line) => {
           if (line && this.bots.has(id)) this.botSay(id, line);
         });
