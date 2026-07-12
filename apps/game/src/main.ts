@@ -31,7 +31,7 @@ import {
   MOVE_BACK_FACTOR, MOVE_STRAFE_FACTOR, Msg,
   PICKUP_HEAL, PICKUP_RADIUS, PICKUP_RESPAWN, PlayerState, POWERUPS, POWERUP_INTERVAL,
   POWERUP_RADIUS, PowerupKind, QUAD_MULT, RAPID_MULT, SPEED_MULT, TICK_RATE,
-  MOVE, Vec3, WEAPONS, WeaponDef, WeaponId, DeathCause, LOADOUT, clamp, rand, randomPowerup,
+  MOVE, Vec3, WEAPONS, WeaponDef, WeaponId, DeathCause, deathCauseLabel, LOADOUT, clamp, rand, randomPowerup,
 } from "./types";
 import {
   DEFAULT_MODE, GUNGAME_FINAL, MODES, PROPHUNT_PREP, ROLE_HIDE, ROLE_SEEK,
@@ -156,6 +156,7 @@ class Game {
   private npcDeaths: Record<string, Record<string, number>> = {}; // victimBot → killer → times killed
   private npcStreakK: Record<string, number> = {};     // humanId → current kill streak (reset on death)
   private npcRival: Record<string, string> = {};       // humanId → botId last traded kills with (chat context)
+  private npcWeapon: Record<string, string> = {};       // id → readable weapon it last got a kill with
   private npcBotCd: Record<string, number> = {};       // botId → wall-clock s before it may speak again
   private npcSpontaneousCd = 0;                         // global gate: min gap between unprompted NPC lines
   private npcLog: string[] = [];                        // recent chat lines, for reply context
@@ -1447,7 +1448,7 @@ class Game {
       this.net.broadcast(killMsg);
       this.applyLocal(killMsg);
       this.hostModeOnKill(attacker, victim, w);
-      this.npcOnKill(attacker, victim);
+      this.npcOnKill(attacker, victim, w, hs);
       this.pushGame();
       const respawn = MODES[this.mode].respawn;
       // prop hunt: dead hiders don't respawn (they stay out for the round)
@@ -1490,7 +1491,8 @@ class Game {
       const s = this.scores[id] ?? { k: 0, d: 0 };
       const tag = MODES[this.mode].teams && this.teams[id] !== undefined && this.teams[id] === this.teams[aId]
         ? " (same team as you)" : "";
-      return `${this.names.get(id) ?? id}${tag}: ${s.k} kills ${s.d} deaths`;
+      const wep = this.npcWeapon[id] ? `, running a ${this.npcWeapon[id]}` : "";
+      return `${this.names.get(id) ?? id}${tag}: ${s.k} kills ${s.d} deaths${wep}`;
     };
     facts.push(`scores — ${kd(aId)}; ${kd(bId)}`);
     return facts;
@@ -1534,7 +1536,7 @@ class Game {
   /** host-only: react to a kill. Bots rage-bait enemies they drop, get salty when a
    *  human keeps farming them, and a teammate bot may hype a human on a streak. Only
    *  *sometimes* — see npcTryLine — so it fires when it makes sense, not every frag. */
-  private npcOnKill(attacker: string, victim: string): void {
+  private npcOnKill(attacker: string, victim: string, w: DeathCause, hs: boolean): void {
     if (!this.net.isHost || attacker === victim) return;
     const aBot = this.bots.has(attacker), vBot = this.bots.has(victim);
 
@@ -1544,17 +1546,23 @@ class Game {
       const human = aBot ? victim : attacker;
       this.npcRival[human] = aBot ? attacker : victim;
     }
+    // remember the weapon each killer is using — fuels weapon-specific jabs later.
+    this.npcWeapon[attacker] = deathCauseLabel(w);
     // kill-streak bookkeeping for everyone (humans + bots); a death resets it.
     this.npcStreakK[attacker] = (this.npcStreakK[attacker] ?? 0) + 1;
     this.npcStreakK[victim] = 0;
 
     if (!this.cfg.aiChat || !this.npc?.ready) return;
 
+    const weapon = deathCauseLabel(w);
+    const hsTag = hs ? " with a headshot" : "";
+
     // bot dropped a human enemy → cocky rage-bait (friendly fire is blocked upstream,
     // so a bot killing a human is always an enemy kill).
     if (aBot && !vBot) {
       this.npcTryLine(attacker, victim, "enemy",
-        `You just fragged ${this.names.get(victim) ?? "them"}. Rage-bait them in one line — act like it was free.`,
+        `You just fragged ${this.names.get(victim) ?? "them"} with your ${weapon}${hsTag}. ` +
+        `Rage-bait them in one line — act like it was free, mention how you did it.`,
         0.45);
     }
 
@@ -1564,7 +1572,8 @@ class Game {
       const deaths = (tally[attacker] = (tally[attacker] ?? 0) + 1);
       if (deaths >= 2) {
         this.npcTryLine(victim, attacker, "enemy",
-          `${this.names.get(attacker) ?? "they"} has killed you ${deaths} times. Fire back one salty line naming them — never admit they're good, make an excuse.`,
+          `${this.names.get(attacker) ?? "they"} has killed you ${deaths} times, this time with a ${weapon}${hsTag}. ` +
+          `Fire back one salty line naming them — never admit they're good, mock their ${weapon} or make an excuse.`,
           0.6);
       }
     }
@@ -2611,6 +2620,7 @@ class Game {
     this.npcDeaths = {};
     this.npcStreakK = {};
     this.npcRival = {};
+    this.npcWeapon = {};
     this.npcBotCd = {};
     this.npcSpontaneousCd = 0;
     this.npcReplyCd = 0;
