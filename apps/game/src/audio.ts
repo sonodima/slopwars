@@ -10,6 +10,8 @@ const SAMPLES = {
   step1: "walking_rock_1.wav", step2: "walking_rock_2.wav", water: "water_loop.mp3",
   theme: "slopwars_theme_song_loop.mp3", interlude: "round_interlude.mp3",
   roundStart: "round_starts.mp3", roundEnd: "round_end.mp3",
+  hit: "hitmarker.mp3", headshot: "headshot.mp3",
+  jumpStart: "jump_start.mp3", jumpEnd: "jump_end.mp3", deathScreen: "death_screen.mp3",
 } as const;
 type SampleName = keyof typeof SAMPLES;
 
@@ -17,9 +19,13 @@ interface Loop { src: AudioBufferSourceNode; gain: GainNode; pan?: StereoPannerN
 
 function clamp(v: number, a: number, b: number): number { return v < a ? a : v > b ? b : v; }
 
+const MUFFLE_OPEN = 20000; // lowpass fully open (no audible filtering)
+const MUFFLE_ON = 500;     // muffled "underwater" cutoff during death cam
+
 class Sfx {
   private ctx: AudioContext | null = null;
   private master!: GainNode;
+  private lowpass!: BiquadFilterNode; // master-bus lowpass for the muffle effect
   private buffers = new Map<SampleName, AudioBuffer>();
   private loading = new Map<SampleName, Promise<AudioBuffer>>();
 
@@ -32,10 +38,23 @@ class Sfx {
       this.ctx = new AudioContext();
       this.master = this.ctx.createGain();
       this.master.gain.value = 0.6;
-      this.master.connect(this.ctx.destination);
+      this.lowpass = this.ctx.createBiquadFilter();
+      this.lowpass.type = "lowpass";
+      this.lowpass.frequency.value = MUFFLE_OPEN;
+      this.master.connect(this.lowpass).connect(this.ctx.destination);
     }
     if (this.ctx.state === "suspended") void this.ctx.resume();
     return this.ctx;
+  }
+
+  /** muffle everything (death cam) or restore. Smooth ramp so it feels like a filter sweep. */
+  muffle(on: boolean): void {
+    const ctx = this.ac();
+    const f = this.lowpass.frequency;
+    const now = ctx.currentTime;
+    f.cancelScheduledValues(now);
+    f.setValueAtTime(f.value, now);
+    f.exponentialRampToValueAtTime(on ? MUFFLE_ON : MUFFLE_OPEN, now + 0.25);
   }
 
   unlock(): void { this.ac(); }
@@ -153,15 +172,11 @@ class Sfx {
     for (const t of seq) this.burst(0.04, 2800 + Math.random() * 800, 4, 0.3, dest, t);
     this.burst(0.06, 900, 3, 0.25, dest, seq[seq.length - 1] + 0.15);
   }
-  jump(): void { this.burst(0.07, 800, 2, 0.12, this.out()); }
-  land(): void { this.thump(0.08, 180, 60, 0.25, this.out()); }
-  hitmarker(hs: boolean): void {
-    const dest = this.out();
-    this.burst(0.04, hs ? 4200 : 3000, 8, 0.4, dest);
-    if (hs) this.thump(0.08, 1500, 900, 0.2, dest, 0.02);
-  }
+  jump(): void { this.play("jumpStart", { gain: 0.5, rate: 0.97 + Math.random() * 0.06 }); }
+  land(): void { this.play("jumpEnd", { gain: 0.55, rate: 0.97 + Math.random() * 0.06 }); }
+  hitmarker(hs: boolean): void { this.play(hs ? "headshot" : "hit", { gain: hs ? 0.75 : 0.6 }); }
   hurt(pan: number): void { this.thump(0.12, 300, 90, 0.5, this.out(pan)); }
-  death(): void { const d = this.out(); this.thump(0.4, 300, 50, 0.6, d); this.burst(0.3, 600, 1, 0.3, d); }
+  death(): void { this.play("deathScreen", { gain: 0.75 }); }
   impact(pan: number, dist: number): void { this.burst(0.05, 2200, 3, 0.25, this.out(pan, dist)); }
   nadeThrow(): void { this.burst(0.09, 1400, 1.2, 0.2, this.out()); }
   nadeBounce(pan: number, dist: number): void { this.burst(0.04, 1800, 3, 0.25, this.out(pan, dist)); }

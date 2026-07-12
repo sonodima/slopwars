@@ -581,11 +581,13 @@ class Game {
     this.deathTime = performance.now() / 1000;
     this.deathYaw = this.body.yaw;
     document.body.classList.add("dead");
+    sfx.muffle(true); // muffle all fx while dead / in respawn screen
   }
 
   /** leave the death cinematic on respawn. */
   endDeathCam(): void {
     document.body.classList.remove("dead");
+    sfx.muffle(false);
   }
 
   /** slowly orbit the camera around the fallen body (which keeps falling under gravity
@@ -1531,6 +1533,7 @@ class Game {
     document.exitPointerLock();
     this.hud.end(this.net.players, this.scores, this.net.isHost, this.resultTitle());
     this.hud.show("end");
+    sfx.muffle(false); // clear any death-cam muffle carried into the end screen
     sfx.death();
     sfx.stopInterlude();
     sfx.startTheme();
@@ -2067,12 +2070,12 @@ class Game {
         this.alive = false;
         this.selfOperator?.markDead(m.hs === 1); // pick the death variant before syncDeath
         this.respawnAt = performance.now() / 1000 + MODES[this.mode].respawn;
+        sfx.death(); // clear cue, before the death cam muffles the bus
         this.startDeathCam();
         this.hud.crosshair(false);
         this.ws.setScope(false);
         this.applyScopeFov();
         this.clearBuff();
-        sfx.death();
       } else {
         const r = this.remotes.get(m.v);
         if (r) { r.markDead(m.hs === 1); r.alive = false; }
