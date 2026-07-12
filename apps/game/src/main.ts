@@ -1147,7 +1147,10 @@ class Game {
     this.platforms[this.net.myId] = this.myPlatform;
     if (this.net.isHost) this.net.broadcast({ t: "plat", id: this.net.myId, plat: this.myPlatform });
     else this.net.send({ t: "plat", id: this.net.myId, plat: this.myPlatform });
-    if (this.phase === "lobby") this.refreshLobby();
+    // only touch the lobby DOM/avatars while actually in the lobby — never once the match
+    // has started (phase can still read "lobby" for a beat during enterGame, and a refresh
+    // there would rebuild the 3D lobby avatars into the live map).
+    if (this.phase === "lobby" && !this.inGame) this.refreshLobby();
   }
 
   // ─── gamepad menu navigation ──────────────────────────────────────────────────
@@ -2668,7 +2671,7 @@ class Game {
         // the host, relay to the other guests so everyone's list icons stay in sync.
         this.platforms[m.id] = m.plat;
         if (this.net.isHost) this.net.broadcast(m, fromId);
-        if (this.phase === "lobby") this.refreshLobby();
+        if (this.phase === "lobby" && !this.inGame) this.refreshLobby();
         break;
       }
       case "ping": {
