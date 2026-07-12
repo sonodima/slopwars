@@ -31,7 +31,6 @@ function load(): SettingsState {
     if (raw) s = { ...DEFAULTS, ...JSON.parse(raw) };
   } catch { /* ignore corrupt / unavailable storage */ }
   if (!s.name) s.name = "player" + ((Math.random() * 900 + 100) | 0);
-  s.aimAssist = !!s.aimAssist; // migrate the old 0..1 slider value → on/off
   return s;
 }
 
