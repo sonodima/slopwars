@@ -1,11 +1,29 @@
 // ─── DOM HUD & screens ───────────────────────────────────────────────────────
-import { BOT_LEVELS, BotLevel, CFG_BOUNDS, DeathCause, deathCauseLabel, GameSnapshot, MatchConfig, ModeId, PlayerInfo, WEAPONS, WeaponId } from "./types";
+import { BOT_LEVELS, BotLevel, CFG_BOUNDS, DeathCause, deathCauseLabel, GameSnapshot, MatchConfig, ModeId, Platform, PlayerInfo, WEAPONS, WeaponId } from "./types";
 import { MapMeta } from "./maps/schema";
 import { MODES, MODE_LIST } from "./modes";
 
 const $ = (id: string): HTMLElement => document.getElementById(id)!;
 
 const hex = (c: number): string => `#${c.toString(16).padStart(6, "0")}`;
+
+// ── input-device icons (shown next to players in lists / leaderboards) ──
+// Inline SVGs so they inherit currentColor + need no extra asset fetch.
+const PLATFORM_ICON: Record<Platform, string> = {
+  keyboard: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M6 10h.01M9.5 10h.01M13 10h.01M16.5 10h.01M7 14h10" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>`,
+  gamepad: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 8.5h11a3.5 3.5 0 0 1 3.45 2.9l.8 4.6A2.3 2.3 0 0 1 17.4 17L15 14.5H9L6.6 17a2.3 2.3 0 0 1-4.15-1l.8-4.6A3.5 3.5 0 0 1 6.5 8.5Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M7 11.3v2.4M5.8 12.5h2.4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><circle cx="16" cy="11.6" r="1.05" fill="currentColor"/><circle cx="17.8" cy="13.6" r="1.05" fill="currentColor"/></svg>`,
+  touch: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 11V5.2a1.6 1.6 0 0 1 3.2 0V11l3.2.9a2.1 2.1 0 0 1 1.5 2.4l-.6 3.4A3.6 3.6 0 0 1 14.7 21H12a3.6 3.6 0 0 1-2.55-1.05L6 16.5a1.55 1.55 0 0 1 2.2-2.2l1.8 1.8Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>`,
+  bot: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="8" width="16" height="11.5" rx="3" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M12 4.2v3.8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><circle cx="12" cy="3.6" r="1.3" fill="currentColor"/><circle cx="9.3" cy="13" r="1.35" fill="currentColor"/><circle cx="14.7" cy="13" r="1.35" fill="currentColor"/><path d="M9.5 16.6h5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>`,
+};
+const PLATFORM_LABEL: Record<Platform, string> = {
+  keyboard: "Keyboard & mouse", gamepad: "Gamepad", touch: "Touch", bot: "AI bot",
+};
+
+/** small input-device icon markup for a player, or "" when their device is unknown */
+function platIcon(p?: Platform): string {
+  if (!p || !PLATFORM_ICON[p]) return "";
+  return `<span class="plat plat-${p}" title="${PLATFORM_LABEL[p]}" aria-label="${PLATFORM_LABEL[p]}">${PLATFORM_ICON[p]}</span>`;
+}
 
 export class Hud {
   onCreate: ((name: string) => void) | null = null;
@@ -151,7 +169,7 @@ export class Hud {
   }
 
   // ── lobby ──
-  lobby(code: string, players: PlayerInfo[], isHost: boolean, mode: ModeId, cfg: MatchConfig, myId = ""): void {
+  lobby(code: string, players: PlayerInfo[], isHost: boolean, mode: ModeId, cfg: MatchConfig, myId = "", platforms: Record<string, Platform> = {}): void {
     $("lobby-code").textContent = code;
     $("game-code").textContent = code;
     $("sb-code").textContent = "join code: " + code;
@@ -161,6 +179,7 @@ export class Hud {
         return `<div class="lp${p.id === myId ? " me" : ""}">` +
           `<span class="dot" style="background:${c};color:${c}"></span>` +
           `<span class="lp-name">${esc(p.name)}</span>` +
+          `${platIcon(platforms[p.id])}` +
           `${p.id === "host" ? `<em>host</em>` : ""}</div>`;
       })
       .join("");
@@ -464,7 +483,7 @@ export class Hud {
     this.dmgTtl = 0.25;
   }
 
-  scoreboard(visible: boolean, players: PlayerInfo[], scores: GameSnapshot["scores"], myId: string): void {
+  scoreboard(visible: boolean, players: PlayerInfo[], scores: GameSnapshot["scores"], myId: string, platforms: Record<string, Platform> = {}): void {
     const sb = $("scoreboard");
     sb.classList.toggle("hidden", !visible);
     if (!visible) return;
@@ -472,7 +491,7 @@ export class Hud {
       .map((p) => ({ p, s: scores[p.id] ?? { k: 0, d: 0 } }))
       .sort((a, b) => b.s.k - a.s.k || a.s.d - b.s.d);
     $("sb-rows").innerHTML = rows
-      .map(({ p, s }, i) => Hud.lbRow(p, s, i, myId))
+      .map(({ p, s }, i) => Hud.lbRow(p, s, i, myId, platforms[p.id]))
       .join("");
   }
 
@@ -542,7 +561,7 @@ export class Hud {
   clickToPlay(on: boolean): void { $("click-to-play").classList.toggle("hidden", !on); }
 
   // ── end screen ──
-  end(players: PlayerInfo[], scores: GameSnapshot["scores"], isHost: boolean, title = "Match over", myId = ""): void {
+  end(players: PlayerInfo[], scores: GameSnapshot["scores"], isHost: boolean, title = "Match over", myId = "", platforms: Record<string, Platform> = {}): void {
     $("end-title").textContent = title;
     // rank by kills, then fewest deaths as the tie-breaker
     const rows = players
@@ -559,7 +578,7 @@ export class Hud {
       : "";
 
     $("end-rows").innerHTML = rows
-      .map(({ p, s }, i) => Hud.lbRow(p, s, i, myId, `animation-delay:${Math.min(i * 45, 400)}ms`))
+      .map(({ p, s }, i) => Hud.lbRow(p, s, i, myId, platforms[p.id], `animation-delay:${Math.min(i * 45, 400)}ms`))
       .join("");
     $("btn-again").classList.toggle("hidden", !isHost);
   }
@@ -571,6 +590,7 @@ export class Hud {
     s: { k: number; d: number },
     i: number,
     myId: string,
+    plat?: Platform,
     style = "",
   ): string {
     const rank = i + 1;
@@ -581,7 +601,7 @@ export class Hud {
     const c = hex(p.color);
     return `<div class="lb-row${p.id === myId ? " me" : ""}"${style ? ` style="${style}"` : ""}>` +
       `<span class="c-rank">${medal}</span>` +
-      `<span class="c-name"><span class="pdot" style="background:${c};color:${c}"></span>${esc(p.name)}</span>` +
+      `<span class="c-name"><span class="pdot" style="background:${c};color:${c}"></span>${esc(p.name)}${platIcon(plat)}</span>` +
       `<span class="c-k">${s.k}</span><span class="c-d">${s.d}</span><span class="c-r">${ratio}</span></div>`;
   }
 

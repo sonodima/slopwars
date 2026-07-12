@@ -28,8 +28,11 @@
     overscroll-behavior:none;touch-action:none}
   .hidden{display:none!important}
   #game-canvas{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:crosshair;touch-action:none}
-  /* touch devices don't have a mouse cursor to hide */
-  body.touch #game-canvas{cursor:none}
+  /* touch devices don't have a mouse cursor to hide; gamepad look uses the stick,
+     not the pointer, so hide the idle cursor there too */
+  body.touch #game-canvas,body.gamepad #game-canvas{cursor:none}
+  /* gamepad drives look without pointer lock — the click-to-play prompt is irrelevant */
+  body.gamepad #click-to-play{display:none!important}
 
   /* ── screens ── */
   .screen{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;
@@ -301,6 +304,15 @@
   .lb-row.me{background:linear-gradient(90deg,rgba(216,184,120,.13),transparent);
     box-shadow:inset 2px 0 0 var(--sand)}
   .lb-row.me .c-name{color:var(--sand);font-weight:700}
+
+  /* ═══ input-device (platform) icon — player lists + leaderboards ═══ */
+  .plat{display:inline-flex;align-items:center;justify-content:center;flex:none;
+    color:var(--sand-dim);opacity:.8;vertical-align:middle}
+  .plat svg{width:15px;height:15px;display:block}
+  .lb-row .c-name .plat{margin-left:2px}
+  .lb-row.me .c-name .plat{color:var(--sand);opacity:1}
+  .lp .plat{margin-left:2px}
+  .plat-bot{opacity:.55} /* AI bots read a touch quieter than human devices */
 
   @media (prefers-reduced-motion:reduce){
     #scr-end::before,#scr-end::after,.end-card,.end-kicker,#end-title,.end-rule,

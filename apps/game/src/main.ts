@@ -29,7 +29,7 @@ import { MODEL_LOAD_COUNT, buildProp, instantiate, loadModels, propHuntPool } fr
 import {
   BOT_TUNING, DEFAULT_CONFIG, GamePhase, GameSnapshot, INTERMISSION, MatchConfig, MAX_HP, ModeId, pickBotWeapon,
   MOVE_BACK_FACTOR, MOVE_STRAFE_FACTOR, Msg,
-  PICKUP_HEAL, PICKUP_RADIUS, PICKUP_RESPAWN, PlayerState, POWERUPS, POWERUP_INTERVAL,
+  PICKUP_HEAL, PICKUP_RADIUS, PICKUP_RESPAWN, Platform, PlayerState, POWERUPS, POWERUP_INTERVAL,
   POWERUP_RADIUS, PowerupKind, QUAD_MULT, RAPID_MULT, SPEED_MULT, TICK_RATE,
   MOVE, Vec3, WEAPONS, WeaponDef, WeaponId, DeathCause, deathCauseLabel, LOADOUT, clamp, rand, randomPowerup,
 } from "./types";
@@ -40,6 +40,7 @@ import {
 import { Voice } from "./voice";
 import { NpcChat, Relation, initNpcChat } from "./npcchat";
 import { TouchControls } from "./touch";
+import { GamepadControls } from "./gamepad";
 import { Settings } from "./settings";
 import { TracerPool, WeaponSystem } from "./weapons";
 
@@ -103,6 +104,9 @@ function escapeRe(s: string): string {
 // delay from pressing throw to the grenade leaving the hand — matches the toss
 // animation's wind-up so the projectile releases in sync with the arm.
 const THROW_WINDUP_MS = 350;
+// gamepad look speed (rad/s) at full right-stick deflection, before the sensitivity
+// setting scales it — tuned so aim feels responsive but controllable on a controller.
+const GP_LOOK_RATE = 3.2;
 // slow cinematic orbit (rad/s) of the death camera around the fallen body.
 const DEATH_CAM_ORBIT_SPEED = 0.4;
 // seconds the death orbit plays before a no-respawn player (Prop-Hunt hider) switches
@@ -145,7 +149,11 @@ class Game {
   net = new Net();
   voice = new Voice();
   touch = new TouchControls();
-  touchMode = false; // true once a touch input is seen (drives virtual controls)
+  gamepad = new GamepadControls();
+  // current local input device (last one used wins). Drives the virtual controls,
+  // pointer-lock behaviour, and the platform icon peers see next to this player.
+  myPlatform: Platform = "keyboard";
+  platforms: Record<string, Platform> = {}; // playerId → their current input device
   settings = new Settings();
 
   // ── AI opponents (host-driven; may coexist with human guests) ──
@@ -372,6 +380,7 @@ class Game {
     });
     this.bindInput();
     this.bindTouch();
+    this.bindGamepad();
     this.bindSettings();
     this.wireNet();
     this.wireHud();
@@ -432,7 +441,7 @@ class Game {
     document.addEventListener("pointerlockchange", () => {
       this.locked = document.pointerLockElement === canvas;
       if (!this.locked) { this.keys.clear(); this.fireHeld = false; }
-      if (this.inGame && !this.touchMode) {
+      if (this.inGame && this.myPlatform === "keyboard") {
         this.hud.clickToPlay(!this.locked);
         // Pressing Esc exits pointer lock *and* the browser swallows that Escape
         // keydown, so the pause menu can never open from the keydown handler while
@@ -442,11 +451,11 @@ class Game {
       }
     });
     canvas.addEventListener("click", () => {
-      if (this.touchMode) return; // touch mode drives look/fire without pointer lock
+      if (this.myPlatform !== "keyboard") return; // touch / gamepad drive look without pointer lock
       if (this.inGame && !this.locked) canvas.requestPointerLock();
     });
     document.getElementById("click-to-play")!.addEventListener("click", () => {
-      if (this.inGame && !this.locked && !this.touchMode) canvas.requestPointerLock();
+      if (this.inGame && !this.locked && this.myPlatform === "keyboard") canvas.requestPointerLock();
     });
 
     document.addEventListener("mousemove", (e) => {
@@ -1054,29 +1063,85 @@ class Game {
     // Adapt to the input device: switch to virtual controls the moment a touch
     // is seen, and back to mouse/keyboard on real mouse input (last one wins).
     // Desktop play is never altered — the touch overlay stays hidden + inert.
-    const setMode = (on: boolean): void => {
-      if (on === this.touchMode) return;
-      this.touchMode = on;
-      document.body.classList.toggle("touch", on);
-      this.touch.setEnabled(on);
-      this.touch.setWeapon(this.ws.current);
-      if (on && this.inGame) { this.hud.clickToPlay(false); document.exitPointerLock(); }
-      // returning to mouse mode while unlocked: re-show the prompt to re-acquire pointer lock
-      else if (!on && this.inGame && !this.locked) this.hud.clickToPlay(true);
-    };
     window.addEventListener("pointerdown", (e) => {
-      if (e.pointerType === "touch") setMode(true);
-      else if (e.pointerType === "mouse") setMode(false);
+      if (e.pointerType === "touch") this.setPlatform("touch");
+      else if (e.pointerType === "mouse") this.setPlatform("keyboard");
     }, { capture: true });
     window.addEventListener("pointermove", (e) => {
-      if (e.pointerType === "mouse" && (e.movementX || e.movementY)) setMode(false);
+      if (e.pointerType === "mouse" && (e.movementX || e.movementY)) this.setPlatform("keyboard");
     }, { capture: true });
     // A physical key press is an unambiguous desktop signal. Alt-tabbing away and back (or
     // a stray trackpad/synthetic pointer event) could flip us into touch mode, where mouse
     // look stops working and the camera only turns while a button is held (the touch look
     // pad needs a pointer down). Any keydown recovers mouse mode instantly. Ignored while
     // typing in chat so a touch player with a soft keyboard isn't kicked out mid-message.
-    window.addEventListener("keydown", () => { if (!this.hud.chatOpen) setMode(false); }, { capture: true });
+    window.addEventListener("keydown", () => { if (!this.hud.chatOpen) this.setPlatform("keyboard"); }, { capture: true });
+  }
+
+  /** Switch the active input device (last one used wins). Toggles the on-screen touch
+   *  overlay, and — for touch / gamepad, which drive look without a locked pointer —
+   *  releases pointer lock and hides the click-to-play prompt. Announces the change to
+   *  peers so their player-list icon for us updates live. */
+  setPlatform(p: Platform): void {
+    if (p === this.myPlatform) return;
+    this.myPlatform = p;
+    const touch = p === "touch";
+    document.body.classList.toggle("touch", touch);
+    document.body.classList.toggle("gamepad", p === "gamepad");
+    this.touch.setEnabled(touch);
+    this.touch.setWeapon(this.ws.current);
+    if (this.inGame) {
+      if (p === "keyboard") { if (!this.locked) this.hud.clickToPlay(true); }
+      else { this.hud.clickToPlay(false); if (this.locked) document.exitPointerLock(); }
+    }
+    this.announcePlatform();
+  }
+
+  // ─── gamepad (Xbox / PlayStation) ─────────────────────────────────────────────
+
+  bindGamepad(): void {
+    const g = this.gamepad;
+    // any pad activity makes it the active device (mirrors touch/mouse last-wins)
+    g.onActivity = () => { if (!this.hud.chatOpen) this.setPlatform("gamepad"); };
+    g.onFire = (down) => {
+      if (this.hud.chatOpen) { this.fireHeld = false; return; }
+      this.fireHeld = down;
+      if (down) this.triedFireQueued = true;
+    };
+    g.onJump = (down) => { if (down) this.keys.add("Space"); else this.keys.delete("Space"); };
+    g.onScore = (down) => { this.sbOpen = down; };
+    g.onScope = () => {
+      if (this.ws.def().scope && this.alive) { this.ws.setScope(!this.ws.scoped); this.applyScopeFov(); }
+    };
+    g.onReload = () => { if (this.alive) this.localReload(); };
+    g.onWeaponCycle = (dir) => {
+      if (this.alive && this.canSwitchWeapon()) { this.ws.cycle(dir); this.applyScopeFov(); }
+    };
+    g.onWeaponSelect = (i) => {
+      if (this.alive && this.canSwitchWeapon()) { this.ws.select(LOADOUT[i]); this.applyScopeFov(); }
+    };
+    g.onMic = () => {
+      if (this.voice.micOk) { this.voice.setMuted(!this.voice.muted); this.hud.voice(this.voice.muted ? "muted" : "on"); }
+    };
+    g.onPause = () => { if (this.settings.isOpen()) this.settings.close(); else this.openSettings(); };
+
+    // a freshly plugged-in pad becomes the device on its first input (handled by poll);
+    // if the active pad is unplugged mid-match, fall back to mouse/keyboard.
+    window.addEventListener("gamepadconnected", () => this.hud.banner("Gamepad connected"));
+    window.addEventListener("gamepaddisconnected", () => {
+      if (this.myPlatform === "gamepad") this.setPlatform("keyboard");
+    });
+  }
+
+  // ─── platform (input-device) sync ─────────────────────────────────────────────
+
+  /** publish our current input device to peers (+ record it locally). Host broadcasts to
+   *  every guest; a guest sends it to the host, which relays. Cheap + idempotent. */
+  announcePlatform(): void {
+    this.platforms[this.net.myId] = this.myPlatform;
+    if (this.net.isHost) this.net.broadcast({ t: "plat", id: this.net.myId, plat: this.myPlatform });
+    else this.net.send({ t: "plat", id: this.net.myId, plat: this.myPlatform });
+    if (this.phase === "lobby") this.refreshLobby();
   }
 
   // ─── loop ───────────────────────────────────────────────────────────────────
@@ -1087,15 +1152,25 @@ class Game {
       const cp = this.camEntity.transform.worldPosition;
       this.map.tickSounds({ x: cp.x, y: cp.y, z: cp.z });
     }
+    // poll the gamepad every frame so a controller can take over at any time (its
+    // callbacks self-gate on match state); analog move/look are read below.
+    this.gamepad.poll();
     if (this.inGame) {
       const kFwd = (this.keys.has("KeyW") ? 1 : 0) - (this.keys.has("KeyS") ? 1 : 0);
       const kRight = (this.keys.has("KeyD") ? 1 : 0) - (this.keys.has("KeyA") ? 1 : 0);
       const inp: Input = {
-        fwd: clamp(kFwd + this.touch.moveY, -1, 1),
-        right: clamp(kRight + this.touch.moveX, -1, 1),
+        fwd: clamp(kFwd + this.touch.moveY + this.gamepad.moveY, -1, 1),
+        right: clamp(kRight + this.touch.moveX + this.gamepad.moveX, -1, 1),
         jump: this.keys.has("Space"),
-        sprint: this.keys.has("ShiftLeft") || this.keys.has("ShiftRight") || this.touch.sprint,
+        sprint: this.keys.has("ShiftLeft") || this.keys.has("ShiftRight") || this.touch.sprint || this.gamepad.sprint,
       };
+      // gamepad look: analog right stick applied per-frame, like mouse-look (scaled by
+      // the sensitivity setting; halved while scoped, matching mouse ADS).
+      if (this.myPlatform === "gamepad" && this.alive && this.phase === "play" && !this.hud.chatOpen
+          && (this.gamepad.lookX || this.gamepad.lookY)) {
+        const sens = GP_LOOK_RATE * dt * this.settings.state.sensitivity * (this.ws.scoped ? 0.35 : 1);
+        this.body.look(this.gamepad.lookX, this.gamepad.lookY, sens);
+      }
       // prop hunt: seekers are frozen during the hide window; hiders are unarmed props
       const frozen = this.mode === "prophunt" && this.myRole === ROLE_SEEK && this.inPrepPhase();
       const isHider = this.mode === "prophunt" && this.myRole === ROLE_HIDE;
@@ -1217,7 +1292,7 @@ class Game {
       }
 
       this.hud.timer(this.phase, this.round, this.timeLeft, this.cfg.rounds);
-      this.hud.scoreboard(this.sbOpen || this.phase === "inter", this.net.players, this.scores, this.net.myId);
+      this.hud.scoreboard(this.sbOpen || this.phase === "inter", this.net.players, this.scores, this.net.myId, this.platforms);
       this.updateModeVisuals();
       this.updateModeHud();
     } else if (this.lobbyView || this.menuView) {
@@ -1952,6 +2027,7 @@ class Game {
       phase: this.phase, round: this.round, timeLeft: this.timeLeft, scores: this.scores,
       pk: this.pkTimers.map((t) => Math.ceil(t)), map: this.currentMapId,
       mode: this.mode, cfg: this.cfg, teams: this.teams, teamScore: this.teamScore, tiers: this.tiers,
+      platforms: this.platforms,
     };
   }
 
@@ -1969,6 +2045,9 @@ class Game {
     if (g.teams) this.teams = g.teams;
     if (g.teamScore) this.teamScore = g.teamScore;
     if (g.tiers) this.tiers = g.tiers;
+    // merge synced input-device icons, but never let a stale host snapshot stomp our
+    // own live platform (we're the source of truth for the device we're holding).
+    if (g.platforms) { this.platforms = { ...g.platforms }; this.platforms[this.net.myId] = this.myPlatform; }
     if (!this.net.isHost) this.myRole = this.teams[this.net.myId] ?? ROLE_SEEK;
     if (g.phase === "lobby") this.refreshLobby(); // keep the lobby mode label in sync
     // map-vote UI opens during the interlude, closes when the round starts
@@ -1993,7 +2072,7 @@ class Game {
     this.spectateId = null;
     this.hud.spectate(null);
     this.hud.respawnOverlay(null);
-    this.hud.end(this.net.players, this.scores, this.net.isHost, this.resultTitle(), this.net.myId);
+    this.hud.end(this.net.players, this.scores, this.net.isHost, this.resultTitle(), this.net.myId, this.platforms);
     this.hud.show("end");
     sfx.muffle(false); // clear any death-cam muffle carried into the end screen
     sfx.death();
@@ -2291,6 +2370,7 @@ class Game {
       const r = this.remotes.get(id);
       if (r) { r.entity.destroy(); this.remotes.delete(id); }
       delete this.hpMap[id];
+      delete this.platforms[id];
       this.voice.drop(id);
       this.refreshLobby();
     };
@@ -2345,6 +2425,7 @@ class Game {
         if (m.game.phase === "play" || m.game.phase === "inter") this.enterGame();
         else { this.hud.show("lobby"); this.enterLobby(); }
         this.hud.connecting(false);
+        this.announcePlatform(); // tell the host (→ everyone) our current input device
         this.startVoice();
         break;
       }
@@ -2362,6 +2443,7 @@ class Game {
         this.net.players = this.net.players.filter((p) => p.id !== m.id);
         const r = this.remotes.get(m.id);
         if (r) { r.entity.destroy(); this.remotes.delete(m.id); }
+        delete this.platforms[m.id];
         this.voice.drop(m.id);
         this.refreshLobby();
         break;
@@ -2492,6 +2574,14 @@ class Game {
         if (this.inGame && this.mode === "gungame") this.applyTier(m.tier);
         break;
       }
+      case "plat": {
+        // a player switched input device (mouse ↔ gamepad ↔ touch). Record it and, on
+        // the host, relay to the other guests so everyone's list icons stay in sync.
+        this.platforms[m.id] = m.plat;
+        if (this.net.isHost) this.net.broadcast(m, fromId);
+        if (this.phase === "lobby") this.refreshLobby();
+        break;
+      }
       case "ping": {
         if (this.net.isHost) this.net.sendTo(fromId, { t: "pong", ts: m.ts });
         break;
@@ -2582,6 +2672,7 @@ class Game {
         this.hud.connecting(false);
         this.scores["host"] = { k: 0, d: 0 };
         this.hpMap["host"] = MAX_HP;
+        this.platforms["host"] = this.myPlatform; // seed our own list icon
         this.refreshLobby();
         this.hud.show("lobby");
         this.enterLobby();
@@ -2654,6 +2745,7 @@ class Game {
       this.net.players.push(info);
       this.scores[id] = { k: 0, d: 0 };
       this.hpMap[id] = MAX_HP;
+      this.platforms[id] = "bot"; // AI opponents show a bot icon in lists / leaderboards
       this.ensureRemote(id, name);
       const body = new PlayerBody(this.map);
       body.gravityScale = this.cfg.gravity;
@@ -2668,6 +2760,7 @@ class Game {
         lastHp: MAX_HP, dodgeLockCd: 0,
       });
       this.net.broadcast({ t: "pjoin", p: info }); // let guests see the bot
+      this.net.broadcast({ t: "plat", id, plat: "bot" }); // …with a bot platform icon
     }
   }
 
@@ -2678,6 +2771,7 @@ class Game {
       this.net.players = this.net.players.filter((p) => p.id !== b.id);
       delete this.scores[b.id];
       delete this.hpMap[b.id];
+      delete this.platforms[b.id];
       this.net.broadcast({ t: "pleave", id: b.id });
     }
     this.bots.clear();
@@ -3030,7 +3124,7 @@ class Game {
   }
 
   refreshLobby(): void {
-    this.hud.lobby(this.net.lobbyCode, this.net.players, this.net.isHost, this.mode, this.cfg, this.net.myId);
+    this.hud.lobby(this.net.lobbyCode, this.net.players, this.net.isHost, this.mode, this.cfg, this.net.myId, this.platforms);
     this.hud.setOffline(this.net.offline);
     this.refreshLobbyAvatars();
   }
@@ -3170,7 +3264,8 @@ class Game {
     this.hud.hp(this.myHp);
     this.refreshAmmoHud();
     this.hud.crosshair(true);
-    this.hud.clickToPlay(!this.touchMode);
+    this.hud.clickToPlay(this.myPlatform === "keyboard");
+    this.announcePlatform(); // let peers know our current input device on match entry
   }
 
   refreshAmmoHud(): void {

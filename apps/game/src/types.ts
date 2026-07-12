@@ -193,6 +193,11 @@ export function deathCauseLabel(c: DeathCause): string {
 
 export interface PlayerInfo { id: string; name: string; color: number }
 
+/** The input device a player is currently using. Shown as an icon in player lists /
+ *  leaderboards. A player can switch device mid-match (mouse → gamepad → touch), so this
+ *  is live state, not fixed at join. `bot` is the AI opponents' pseudo-platform. */
+export type Platform = "keyboard" | "gamepad" | "touch" | "bot";
+
 export interface PlayerState {
   id: string;
   p: [number, number, number]; // feet pos
@@ -219,6 +224,7 @@ export interface GameSnapshot {
   teams?: Record<string, number>;  // tdm: 0/1 side · prophunt: 0 seeker / 1 hider
   teamScore?: [number, number];    // tdm: side scores · prophunt: [seeker, hider] round wins
   tiers?: Record<string, number>;  // gungame: player → weapon-ladder tier
+  platforms?: Record<string, Platform>; // per-player current input device (icons in lists)
 }
 
 export type Msg =
@@ -249,6 +255,7 @@ export type Msg =
   | { t: "cfg"; cfg: MatchConfig }                           // host → all: lobby match-rules change
   | { t: "role"; role: number; prop: number }                // host → one: prophunt role + disguise
   | { t: "tier"; tier: number }                              // host → one: gungame tier changed
+  | { t: "plat"; id: string; plat: Platform }                // any → all: player switched input device
   | { t: "ping"; ts: number }
   | { t: "pong"; ts: number }
   | { t: "leave" };
