@@ -174,9 +174,9 @@ class Sfx {
   }
   jump(): void { this.play("jumpStart", { gain: 0.5, rate: 0.97 + Math.random() * 0.06 }); }
   land(): void { this.play("jumpEnd", { gain: 0.55, rate: 0.97 + Math.random() * 0.06 }); }
-  hitmarker(hs: boolean): void { this.play(hs ? "headshot" : "hit", { gain: hs ? 0.75 : 0.6 }); }
+  hitmarker(hs: boolean): void { this.play(hs ? "headshot" : "hit", { gain: hs ? 1.2 : 1.0 }); }
   hurt(pan: number): void { this.thump(0.12, 300, 90, 0.5, this.out(pan)); }
-  death(): void { this.play("deathScreen", { gain: 0.75 }); }
+  death(): void { this.play("deathScreen", { gain: 1.2 }); }
   impact(pan: number, dist: number): void { this.burst(0.05, 2200, 3, 0.25, this.out(pan, dist)); }
   nadeThrow(): void { this.burst(0.09, 1400, 1.2, 0.2, this.out()); }
   nadeBounce(pan: number, dist: number): void { this.burst(0.04, 1800, 3, 0.25, this.out(pan, dist)); }
