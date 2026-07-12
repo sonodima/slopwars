@@ -13,7 +13,7 @@
 // The model runs fully on-device: no network, no keys, no data leaves the machine.
 
 // The two known API surfaces expose the same tiny slice we need.
-type Availability = "unavailable" | "downloadable" | "downloading" | "available";
+export type Availability = "unavailable" | "downloadable" | "downloading" | "available";
 
 interface LMSession {
   prompt(input: string, opts?: { signal?: AbortSignal }): Promise<string>;
@@ -64,9 +64,30 @@ export interface LineReq {
   transcript?: string[];
 }
 
+/** Progress callbacks for the (potentially minutes-long) model download. All
+ *  optional — provisioning works without wiring any of them up. */
+export interface NpcDownloadHooks {
+  /** the on-device model download has started. */
+  onStart?(): void;
+  /** download progress, as a fraction 0→1. */
+  onProgress?(loaded: number): void;
+  /** the model finished downloading (or was already cached) and is ready. */
+  onDone?(): void;
+  /** provisioning failed. */
+  onError?(): void;
+}
+
 export interface NpcChat {
+  /** can produce lines right now (the model is downloaded + a session can run). */
   readonly ready: boolean;
+  /** last-known model availability. `"downloadable"` means supported but not yet on
+   *  disk — a one-time download is required, which we only start on user consent. */
+  readonly status: Availability;
   line(req: LineReq): Promise<string | null>;
+  /** download (if needed) + warm up the model, reporting progress through `hooks`.
+   *  Resolves true once ready, false if it can't be provisioned. Safe to call again
+   *  once ready (returns true immediately). */
+  provision(hooks?: NpcDownloadHooks): Promise<boolean>;
 }
 
 // ── inference throttle ───────────────────────────────────────────────────────
@@ -89,28 +110,44 @@ function whenIdle(timeout = 1500): Promise<void> {
     : sleep(0);
 }
 
-/** the live implementation, created only once the model is confirmed usable. */
+/** the live implementation, created only once the API surface is confirmed present. */
 class LiveNpcChat implements NpcChat {
-  ready = true;
+  status: Availability;
+  /** true once the model is on disk + a session can be spun up without a big download.
+   *  Starts true only when the model was already cached at init (`"available"`). */
+  private provisioned: boolean;
   private sessionP: Promise<LMSession> | null = null;  // shared, in-flight session
   private chain: Promise<unknown> = Promise.resolve(); // serialize prompts (one model)
   private lastRun = 0;                                  // wall-clock ms of the last inference
 
-  constructor(
-    private factory: LMFactory,
-    /** progress sink (0→1) for the first-run model download, if one is needed. */
-    private onProgress?: (loaded: number) => void,
-  ) {}
-
-  /** provision the model eagerly (rather than lazily on the first line) so a boot
-   *  overlay can show download progress. Resolves when ready; rejects on failure. */
-  prewarm(): Promise<void> {
-    return this.ensureSession().then(() => undefined);
+  constructor(private factory: LMFactory, status: Availability) {
+    this.status = status;
+    this.provisioned = status === "available";
   }
 
-  private ensureSession(): Promise<LMSession> {
+  get ready(): boolean { return this.provisioned; }
+
+  /** download (if needed) + warm up the model. We never do this implicitly — the
+   *  caller triggers it on explicit user consent (a prompt, or the Settings toggle). */
+  async provision(hooks?: NpcDownloadHooks): Promise<boolean> {
+    if (this.status === "unavailable") { hooks?.onError?.(); return false; }
+    if (this.provisioned) { hooks?.onDone?.(); return true; }
+    hooks?.onStart?.();
+    try {
+      await this.ensureSession(hooks?.onProgress);
+      this.provisioned = true;
+      this.status = "available";
+      hooks?.onDone?.();
+      return true;
+    } catch (e) {
+      console.warn("[npcchat] provisioning failed", e);
+      hooks?.onError?.();
+      return false;
+    }
+  }
+
+  private ensureSession(onProgress?: (loaded: number) => void): Promise<LMSession> {
     if (this.sessionP) return this.sessionP;
-    const onProgress = this.onProgress;
     // Promise.resolve() so a synchronous throw from create() also lands in .catch
     this.sessionP = Promise.resolve()
       .then(() => this.factory.create({
@@ -181,27 +218,16 @@ class LiveNpcChat implements NpcChat {
 /** a no-op used when the Prompt API isn't available — callers need not branch. */
 const DISABLED: NpcChat = {
   ready: false,
+  status: "unavailable",
   async line() { return null; },
+  async provision() { return false; },
 };
 
-/** Progress callbacks for the (potentially minutes-long) first-run model download.
- *  All optional — the model is fully usable without wiring any of them up. */
-export interface NpcDownloadHooks {
-  /** a first-run model download has started (nothing to show if already cached). */
-  onStart?(): void;
-  /** download progress, as a fraction 0→1. */
-  onProgress?(loaded: number): void;
-  /** the model finished downloading and is ready to use. */
-  onDone?(): void;
-  /** provisioning failed — the overlay should be dismissed. */
-  onError?(): void;
-}
-
-/** Feature-detect + provision the model. Resolves to a working NpcChat, or the
- *  disabled stub. Safe to call once at boot. When a first-run download is needed it
- *  is kicked off in the background and reported through `hooks`; the returned chat is
- *  usable right away (lines just wait for the download to finish). */
-export async function initNpcChat(hooks?: NpcDownloadHooks): Promise<NpcChat> {
+/** Feature-detect the model and report its availability, WITHOUT downloading it.
+ *  Resolves to a working NpcChat (whose `.status` tells the caller whether a one-time
+ *  download is still needed) or the disabled stub. The heavy download only happens
+ *  later, on explicit user consent, via `chat.provision()`. */
+export async function initNpcChat(): Promise<NpcChat> {
   const factory = locateFactory();
   if (!factory) {
     console.info("[npcchat] Prompt API not available — NPC AI banter disabled");
@@ -214,20 +240,8 @@ export async function initNpcChat(hooks?: NpcDownloadHooks): Promise<NpcChat> {
       console.info("[npcchat] model unavailable on this device — banter disabled");
       return DISABLED;
     }
-    const needsDownload = status === "downloadable" || status === "downloading";
-    const chat = new LiveNpcChat(factory, needsDownload ? hooks?.onProgress : undefined);
-    if (needsDownload) {
-      // Provision now (instead of lazily on the first line) so the UI can show a
-      // progress overlay while the on-device model streams in — this can take a
-      // while, and the player is free to keep using the client meanwhile.
-      hooks?.onStart?.();
-      void chat.prewarm().then(
-        () => hooks?.onDone?.(),
-        (e) => { console.warn("[npcchat] model download failed", e); hooks?.onError?.(); },
-      );
-    }
-    console.info(`[npcchat] Prompt API present (status: ${status}) — NPC banter ON`);
-    return chat;
+    console.info(`[npcchat] Prompt API present (status: ${status})`);
+    return new LiveNpcChat(factory, status);
   } catch (e) {
     console.warn("[npcchat] init failed — banter disabled", e);
     return DISABLED;

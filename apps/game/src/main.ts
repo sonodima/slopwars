@@ -248,15 +248,11 @@ class Game {
 
     // Kick off the on-device NPC-chat model (Chrome Prompt API) in the background.
     // Best-effort: resolves to a no-op stub on non-Chrome / unsupported devices.
-    void initNpcChat({
-      onStart: () => this.hud.showAiDownload(),
-      onProgress: (loaded) => this.hud.setAiDownloadProgress(loaded),
-      onDone: () => this.hud.aiDownloadDone(),
-      onError: () => this.hud.hideAiDownload(),
-    }).then((n) => {
+    void initNpcChat().then((n) => {
       this.npc = n;
-      this.settings.setAiSupported(n.ready); // NPC-chat toggle lives in client settings now
-      this.syncAiChatPref();                 // fold the (per-host) preference into the match cfg
+      this.settings.setAiSupported(n.status !== "unavailable"); // gates the Settings toggle
+      this.decideAiDownload();  // consent prompt / resume / auto-provision as appropriate
+      this.syncAiChatPref();    // fold the (per-host) preference into the match cfg
     });
 
     const { engine, physx } = await createGameEngine("game-canvas");
@@ -904,7 +900,16 @@ class Game {
 
   bindSettings(): void {
     this.settings.build();
-    this.settings.onChange = () => { this.applySettings(); this.syncAiChatPref(); };
+    this.settings.onChange = () => {
+      this.applySettings();
+      // toggling NPC AI chat on while the model isn't downloaded yet kicks off the
+      // (consented) download; syncAiChatPref folds the preference into the match cfg.
+      if (this.settings.state.aiChat && this.npc && !this.npc.ready) void this.startAiDownload();
+      this.syncAiChatPref();
+    };
+    // first-run consent pop-up: "Download" arms the toggle (which triggers the fetch
+    // via onChange), "Not now" just records the choice so we don't ask again.
+    this.hud.onAiConsent = (accept) => this.settings.setAiChat(accept);
     document.getElementById("btn-gear")!.addEventListener("click", () => this.openSettings());
     document.getElementById("tc-settings")!.addEventListener("pointerdown", (e) => {
       e.preventDefault(); e.stopPropagation(); this.openSettings();
@@ -918,6 +923,36 @@ class Game {
 
     this.applySettings();
     this.syncAiChatPref(); // arm the match cfg from the persisted per-host preference
+  }
+
+  /** once support is known, decide what (if anything) to do about the model download:
+   *   • already cached / unsupported → nothing;
+   *   • a download is already running → attach the progress toast;
+   *   • the user already opted in earlier → resume the download silently-consented;
+   *   • otherwise, first launch → show the one-time consent pop-up (unless already asked). */
+  private decideAiDownload(): void {
+    const npc = this.npc;
+    if (!npc || npc.status === "unavailable" || npc.status === "available") return;
+    if (npc.status === "downloading" || this.settings.state.aiChat) void this.startAiDownload();
+    else if (!this.settings.state.aiPrompted) this.hud.showAiConsent();
+  }
+
+  /** download + warm the model (once), driving the progress toast. Guarded so it never
+   *  runs twice concurrently or when the model is already ready. On success the freshly
+   *  ready model is folded into the match cfg. */
+  private aiDownloading = false;
+  private async startAiDownload(): Promise<void> {
+    const npc = this.npc;
+    if (!npc || this.aiDownloading || npc.ready) return;
+    this.aiDownloading = true;
+    const ok = await npc.provision({
+      onStart: () => this.hud.showAiDownload(),
+      onProgress: (loaded) => this.hud.setAiDownloadProgress(loaded),
+      onDone: () => this.hud.aiDownloadDone(),
+      onError: () => this.hud.hideAiDownload(),
+    });
+    this.aiDownloading = false;
+    if (ok) this.syncAiChatPref(); // now ready → reflect into cfg (+ broadcast if hosting)
   }
 
   /** NPC AI chat is a per-host *client* preference (Settings), not a per-match rule.

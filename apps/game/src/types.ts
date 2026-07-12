@@ -24,7 +24,7 @@ export interface MatchConfig {
 }
 export const DEFAULT_CONFIG: MatchConfig = {
   bots: 0, difficulty: "normal", rounds: ROUNDS_PER_GAME, roundTime: ROUND_TIME, gravity: 1, speed: 1,
-  thirdPerson: false, aiChat: true,
+  thirdPerson: false, aiChat: false, // opt-in: driven by the host's client setting once the model is ready
 };
 // slider bounds (shared by lobby UI + clamping)
 export const CFG_BOUNDS = {

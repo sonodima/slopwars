@@ -18,6 +18,8 @@ export class Hud {
   onMode: ((mode: ModeId) => void) | null = null;
   onCfg: ((patch: Partial<MatchConfig>) => void) | null = null;
   onHome: (() => void) | null = null;
+  /** first-run consent: user chose whether to download the on-device NPC-AI model. */
+  onAiConsent: ((accept: boolean) => void) | null = null;
 
   private hitTtl = 0;
   private dmgTtl = 0;
@@ -54,6 +56,8 @@ export class Hud {
     });
 
     $("ai-dl-x").onclick = () => this.hideAiDownload();
+    $("ai-consent-yes").onclick = () => { this.hideAiConsent(); this.onAiConsent?.(true); };
+    $("ai-consent-no").onclick = () => { this.hideAiConsent(); this.onAiConsent?.(false); };
   }
 
   openChat(): void {
@@ -244,17 +248,31 @@ export class Hud {
     }
   }
 
-  // ─── NPC-AI on-device model download toast ─────────────────────────────────
-  // A first-run download can take minutes; this surfaces its progress in a small
-  // pinned card so the player knows the feature is "getting ready" and can keep
-  // playing meanwhile. Nothing shows when the model is already cached.
+  // ─── NPC-AI on-device model: consent + download toasts ─────────────────────
+  // The model is a heavy one-time download, so we ask first (showAiConsent). Once the
+  // player accepts (or re-enables from Settings), the download can take minutes; the
+  // progress toast keeps them informed while they keep playing. Nothing shows when the
+  // model is already cached.
 
-  /** a first-run model download has begun — reveal the toast in its loading state. */
+  /** first-run consent pop-up: ask whether to download the model. */
+  showAiConsent(): void {
+    $("ai-consent").classList.remove("ai-out", "hidden");
+  }
+
+  /** hide the consent pop-up (after the player picks, or when it's no longer needed). */
+  hideAiConsent(): void {
+    const el = $("ai-consent");
+    if (el.classList.contains("hidden")) return;
+    el.classList.add("ai-out");
+    window.setTimeout(() => el.classList.add("hidden"), 280);
+  }
+
+  /** a model download has begun — reveal the toast in its loading state. */
   showAiDownload(): void {
-    if (this.aiDlDismissed) return;
+    this.aiDlDismissed = false; // a freshly-triggered download always shows
     this.aiDlStart = Date.now();
     window.clearTimeout(this.aiDlDoneTimer);
-    $("ai-dl").classList.remove("done", "ai-dl-out");
+    $("ai-dl").classList.remove("done", "ai-out");
     $("ai-dl-title").textContent = "Preparing NPC AI";
     $("ai-dl-msg").textContent = "Downloading the on-device model — you can keep playing.";
     $("ai-dl-pct").textContent = "0%";
@@ -283,7 +301,7 @@ export class Hud {
     el.classList.remove("hidden");
     el.classList.add("done");
     $("ai-dl-title").textContent = "NPC AI ready";
-    $("ai-dl-msg").textContent = "The on-device model is ready — enable NPC AI chat in Settings.";
+    $("ai-dl-msg").textContent = "The on-device model is ready — bots will now trash-talk.";
     window.clearTimeout(this.aiDlDoneTimer);
     this.aiDlDoneTimer = window.setTimeout(() => this.hideAiDownload(), 6500);
   }
@@ -294,7 +312,7 @@ export class Hud {
     window.clearTimeout(this.aiDlDoneTimer);
     const el = $("ai-dl");
     if (el.classList.contains("hidden")) return;
-    el.classList.add("ai-dl-out");
+    el.classList.add("ai-out");
     window.setTimeout(() => el.classList.add("hidden"), 280);
   }
 
