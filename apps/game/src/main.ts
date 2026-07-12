@@ -38,6 +38,7 @@ import {
   TEAM_COLORS, TEAM_NAMES, seekerCount, tierWeapon,
 } from "./modes";
 import { Voice } from "./voice";
+import { NpcChat, initNpcChat } from "./npcchat";
 import { TouchControls } from "./touch";
 import { Settings } from "./settings";
 import { TracerPool, WeaponSystem } from "./weapons";
@@ -82,6 +83,16 @@ function approachAngle(cur: number, tgt: number, maxStep: number): number {
   const d = normAngle(tgt - cur);
   if (Math.abs(d) <= maxStep) return tgt;
   return normAngle(cur + Math.sign(d) * maxStep);
+}
+
+/** Fisher–Yates copy — returns a new shuffled array, leaving the input untouched. */
+function shuffle<T>(arr: readonly T[]): T[] {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = (Math.random() * (i + 1)) | 0;
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
 }
 
 // delay from pressing throw to the grenade leaving the hand — matches the toss
@@ -134,6 +145,13 @@ class Game {
 
   // ── AI opponents (host-driven; may coexist with human guests) ──
   bots = new Map<string, BotAI>();
+
+  // ── Chrome Prompt-API NPC banter (host-only, on-device, best-effort) ──
+  npc: NpcChat | null = null;                          // set once the model resolves
+  private npcStreak: Record<string, Record<string, number>> = {}; // victimBot → killer → count
+  private npcTauntCd: Record<string, number> = {};     // botId → wall-clock s before it may taunt again
+  private npcLog: string[] = [];                        // recent chat lines, for reply context
+  private npcReplyCd = 0;                               // wall-clock s before bots may answer chat again
 
   // ── host match rules (mirrored to guests) ──
   cfg: MatchConfig = { ...DEFAULT_CONFIG };
@@ -218,6 +236,10 @@ class Game {
     // register the PWA service worker up-front (offline shell) — must not wait
     // on the heavy asset load below, so it works even if a load stalls
     this.registerServiceWorker();
+
+    // Kick off the on-device NPC-chat model (Chrome Prompt API) in the background.
+    // Best-effort: resolves to a no-op stub on non-Chrome / unsupported devices.
+    void initNpcChat().then((n) => { this.npc = n; });
 
     const { engine, physx } = await createGameEngine("game-canvas");
     this.engine = engine;
@@ -1417,12 +1439,70 @@ class Game {
       this.net.broadcast(killMsg);
       this.applyLocal(killMsg);
       this.hostModeOnKill(attacker, victim, w);
+      this.npcOnKill(attacker, victim);
       this.pushGame();
       const respawn = MODES[this.mode].respawn;
       // prop hunt: dead hiders don't respawn (they stay out for the round)
       const noRespawn = this.mode === "prophunt" && this.teams[victim] === ROLE_HIDE;
       if (!noRespawn) window.setTimeout(() => this.hostSpawn(victim), respawn * 1000);
     }
+  }
+
+  /** host-only: broadcast a chat line as if a bot typed it, and show it locally.
+   *  Mirrors the wire shape a guest→host "chat" message would take. */
+  botSay(botId: string, txt: string): void {
+    if (!this.net.isHost || !this.bots.has(botId)) return;
+    const clean = txt.slice(0, 120);
+    this.hud.chatMsg(this.names.get(botId) ?? "bot", this.net.colorOf(botId), clean);
+    this.net.broadcast({ t: "chat", id: botId, txt: clean });
+    this.npcLog.push(`${this.names.get(botId) ?? "bot"}: ${clean}`);
+    if (this.npcLog.length > 20) this.npcLog.shift();
+  }
+
+  /** host-only: a human just killed a bot. Count it and, past a threshold, let the
+   *  bot fire off an AI-generated taunt naming its killer (rate-limited per bot). */
+  private npcOnKill(attacker: string, victim: string): void {
+    if (!this.net.isHost || !this.npc?.ready) return;
+    if (!this.bots.has(victim) || this.bots.has(attacker) || attacker === victim) return;
+    const streak = (this.npcStreak[victim] ??= {});
+    const deaths = (streak[attacker] = (streak[attacker] ?? 0) + 1);
+    if (deaths < 2) return;                                   // first death is a freebie
+    const now = performance.now() / 1000;
+    if (now < (this.npcTauntCd[victim] ?? 0)) return;         // one taunt per bot per ~12s
+    this.npcTauntCd[victim] = now + 12;
+    const player = this.names.get(attacker) ?? "player";
+    const bot = this.names.get(victim) ?? "bot";
+    void this.npc.taunt(player, bot, deaths).then((line) => {
+      if (line && this.bots.has(victim)) this.botSay(victim, line);
+    });
+  }
+
+  /** host-only: a human sent a chat line. Have one (or two) living bots answer,
+   *  using recent chat as context. Rate-limited so a chatty lobby stays readable. */
+  private npcOnChat(fromId: string, txt: string): void {
+    if (!this.net.isHost) return;
+    const who = this.names.get(fromId) ?? "player";
+    this.npcLog.push(`${who}: ${txt}`);
+    if (this.npcLog.length > 20) this.npcLog.shift();
+    if (!this.npc?.ready || this.bots.has(fromId)) return;    // ignore bot-authored lines
+    const now = performance.now() / 1000;
+    if (now < this.npcReplyCd) return;
+    this.npcReplyCd = now + 6;
+    // prefer bots that are alive; pick 1, or 2 when several are around
+    const live = [...this.bots.keys()].filter((id) => (this.hpMap[id] ?? 0) > 0);
+    const pool = live.length ? live : [...this.bots.keys()];
+    if (!pool.length) return;
+    const responders = shuffle(pool).slice(0, pool.length >= 3 ? 2 : 1);
+    const transcript = this.npcLog.slice();
+    responders.forEach((id, i) => {
+      const bot = this.names.get(id) ?? "bot";
+      window.setTimeout(() => {
+        if (!this.bots.has(id)) return;
+        void this.npc!.reply(bot, who, txt, transcript).then((line) => {
+          if (line && this.bots.has(id)) this.botSay(id, line);
+        });
+      }, i * 900);                                            // stagger so replies don't collide
+    });
   }
 
   /** true during the Prop-Hunt hide window at the start of a round */
@@ -2089,7 +2169,10 @@ class Game {
       case "chat": {
         const from = this.net.isHost ? fromId : m.id;
         this.hud.chatMsg(this.names.get(from) ?? "?", this.net.colorOf(from), m.txt);
-        if (this.net.isHost) this.net.broadcast({ t: "chat", id: from, txt: m.txt }, fromId);
+        if (this.net.isHost) {
+          this.net.broadcast({ t: "chat", id: from, txt: m.txt }, fromId);
+          this.npcOnChat(from, m.txt); // a guest spoke → maybe bots answer
+        }
         break;
       }
       case "heal": {
@@ -2268,7 +2351,7 @@ class Game {
     this.hud.onChat = (txt) => {
       this.hud.chatMsg(this.names.get(this.net.myId) ?? "me", this.net.colorOf(this.net.myId), txt);
       const m: Msg = { t: "chat", id: this.net.myId, txt };
-      if (this.net.isHost) this.net.broadcast(m);
+      if (this.net.isHost) { this.net.broadcast(m); this.npcOnChat(this.net.myId, txt); }
       else this.net.send(m);
     };
 
@@ -2341,6 +2424,10 @@ class Game {
       this.net.broadcast({ t: "pleave", id: b.id });
     }
     this.bots.clear();
+    this.npcStreak = {};
+    this.npcTauntCd = {};
+    this.npcReplyCd = 0;
+    this.npcLog = [];
   }
 
   /** absolute position of any combatant (local player or bot) */
