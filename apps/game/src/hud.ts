@@ -97,12 +97,21 @@ export class Hud {
   loadingProgress(frac: number): void {
     const pct = Math.round(Math.max(0, Math.min(1, frac)) * 100);
     $("load-bar").style.width = `${pct}%`;
-    $("load-pct").textContent = `${pct}%`;
   }
 
-  /** name of the asset currently being fetched (loading screen) */
+  /** name of the asset currently being fetched — appended to the boot log that
+   *  sits behind the wordmark (keep only the last handful of lines) */
   loadingLabel(name: string): void {
-    $("load-asset").textContent = name;
+    const log = $("load-log");
+    if (log.lastElementChild?.textContent === name) return; // de-dupe repeats
+    const line = document.createElement("div");
+    line.className = "ll";
+    line.textContent = name;
+    log.appendChild(line);
+    // let the log grow to fill the page, then scroll: drop the oldest line only
+    // once the stack overflows the viewport height
+    while (log.childElementCount > 1 && log.scrollHeight > log.clientHeight)
+      log.firstElementChild!.remove();
   }
 
   menuError(msg: string): void {

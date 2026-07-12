@@ -7,6 +7,12 @@ import {
 
 const BASE = import.meta.env.BASE_URL;
 
+/** optional pedantic loader log: every asset fetch reports itself here (wired to
+ *  the boot-screen log by the game). No-op until a sink is installed. */
+let assetLog: ((line: string) => void) | null = null;
+export function setAssetLog(fn: ((line: string) => void) | null): void { assetLog = fn; }
+export function logAsset(kind: string, path: string): void { assetLog?.(`${kind} ${path}`); }
+
 /** absolute-at-runtime url for an asset under public/assets/ */
 export function assetUrl(path: string): string {
   return `${BASE}assets/${path}`;
@@ -20,6 +26,7 @@ export function assetUrl(path: string): string {
  *  far glossier/more reflective than authored — the classic "not real PBR" look. (The
  *  glTF loader already picks the right space per texture; this is for our own maps.) */
 export async function loadTexture2D(engine: Engine, path: string, srgb = true): Promise<Texture2D> {
+  logAsset("tex", path);
   const t = await engine.resourceManager.load<Texture2D>({
     url: assetUrl(path), type: AssetType.Texture2D, params: { isSRGBColorSpace: srgb },
   });
@@ -30,9 +37,11 @@ export async function loadTexture2D(engine: Engine, path: string, srgb = true): 
 
 /** equirectangular .hdr → prefiltered TextureCube (skybox + IBL specular) */
 export async function loadHDRCube(engine: Engine, path: string): Promise<TextureCube> {
+  logAsset("hdri", path);
   return engine.resourceManager.load<TextureCube>({ url: assetUrl(path), type: AssetType.HDR });
 }
 
 export async function loadGLTF(engine: Engine, path: string): Promise<GLTFResource> {
+  logAsset("mesh", path);
   return engine.resourceManager.load<GLTFResource>({ url: assetUrl(path), type: AssetType.GLTF });
 }
