@@ -11,12 +11,15 @@ export interface SettingsState {
   fov: number; // vertical FOV in degrees (hip-fire)
   showStats: boolean; // perf overlay
   aiChat: boolean; // host-only: run the on-device LLM for NPC trash-talk (Chrome built-in AI)
+  aiPrompted: boolean; // whether we've already asked to download the model (gates the boot consent)
   name: string; // persisted callsign
 }
 
 const KEY = "slopwars.settings";
 
-const DEFAULTS: SettingsState = { quality: "high", sensitivity: 1, fov: 75, showStats: true, aiChat: true, name: "" };
+// aiChat defaults OFF: the model is a heavy one-time download, so it stays opt-in —
+// armed either from the first-run consent prompt or the Settings toggle.
+const DEFAULTS: SettingsState = { quality: "high", sensitivity: 1, fov: 75, showStats: true, aiChat: false, aiPrompted: false, name: "" };
 
 function load(): SettingsState {
   let s: SettingsState = { ...DEFAULTS };
@@ -52,7 +55,8 @@ export class Settings {
     $("set-stats").addEventListener("click", () => this.set({ showStats: !this.state.showStats }));
     $("set-aichat").addEventListener("click", () => {
       if (!this.aiSupported) return; // the model can't run on this browser — toggle is inert
-      this.set({ aiChat: !this.state.aiChat });
+      // any explicit use of the toggle also counts as answering the download prompt
+      this.set({ aiChat: !this.state.aiChat, aiPrompted: true });
     });
     $("set-done").addEventListener("click", () => this.close());
     // tapping the dimmed backdrop (outside the panel) closes too
@@ -73,6 +77,12 @@ export class Settings {
   setAiSupported(supported: boolean): void {
     this.aiSupported = supported;
     this.refresh();
+  }
+
+  /** set the NPC-AI-chat intent (from the first-run consent prompt). Marks the prompt
+   *  as answered so it never auto-shows again, and fires onChange like any other edit. */
+  setAiChat(on: boolean): void {
+    this.set({ aiChat: on, aiPrompted: true });
   }
 
   /** persist an edited callsign (trimmed to 16 chars, never blank in storage) */
