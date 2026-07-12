@@ -67,8 +67,6 @@ export interface LineReq {
   context?: string[];
   /** recent chat lines, oldest→newest, for reply context (optional) */
   transcript?: string[];
-  /** recent NPC lines to steer away from, so bots don't parrot each other */
-  avoid?: string[];
 }
 
 export interface NpcChat {
@@ -121,14 +119,10 @@ class LiveNpcChat implements NpcChat {
       ? `Chat log (oldest first; lines starting with "${req.bot}:" are YOUR own past messages):\n` +
         `${req.transcript.slice(-8).join("\n")}\n`
       : "";
-    const avoid = req.avoid?.length
-      ? `Do NOT reuse or rephrase any of these recent lines — say something totally different:\n${req.avoid.slice(-8).join("\n")}\n`
-      : "";
     return this.run(
       `You are the bot "${req.bot}". "${req.player}" is your ${req.relation}.\n` +
       facts +
       ctx +
-      avoid +
       req.situation
     );
   }
