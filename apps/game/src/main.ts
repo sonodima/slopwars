@@ -115,6 +115,7 @@ class Game {
   lastVoteCounts: Record<string, number> = {};
   body!: PlayerBody;
   ws!: WeaponSystem;
+  lastWeapon: WeaponId | null = null; // weapon held at death — reselected on respawn
   tracers!: TracerPool;
   nades!: Projectiles;
   // dynamic-prop simulation — PhysX rigid bodies when available, else the custom
@@ -723,7 +724,10 @@ class Game {
       return;
     }
     this.ws.showViewmodel(this.inGame);
-    this.ws.select("ak47");
+    // re-equip whatever was held at death (nades are refilled by now, so a thrown-empty
+    // weapon is valid again); fall back to the rifle on first spawn / if unavailable.
+    const w = this.lastWeapon && this.ws.available(this.lastWeapon) ? this.lastWeapon : "ak47";
+    this.ws.select(w);
   }
 
   /** show/hide combat controls: Prop-Hunt hiders are unarmed props */
@@ -1312,13 +1316,12 @@ class Game {
       const m: Msg = { t: "nade", id: this.net.myId, k: kind, o: [o.x, o.y, o.z], v: [v.x, v.y, v.z] };
       if (this.net.isHost) this.net.broadcast(m);
       else this.net.send(m);
-      // last one thrown → back to rifle (but keep the gungame/prophunt weapon lock)
-      if (this.ws.ammo[kind].mag <= 0) window.setTimeout(() => {
-        if (this.alive && this.ws.current === kind) {
-          if (this.mode === "gungame") this.applyTier(this.tiers[this.net.myId] ?? 0);
-          else if (this.canSwitchWeapon()) { this.ws.select("ak47"); this.applyScopeFov(); }
-        }
-      }, 500);
+      // last one thrown → the spent throwable leaves the loadout, so switch off it at once
+      // (keep the gungame/prophunt weapon lock). Immediate so the HUD never shows a 0-ammo nade.
+      if (this.ws.ammo[kind].mag <= 0 && this.ws.current === kind) {
+        if (this.mode === "gungame") this.applyTier(this.tiers[this.net.myId] ?? 0);
+        else if (this.canSwitchWeapon()) { this.ws.select("ak47"); this.applyScopeFov(); }
+      }
     };
     window.setTimeout(release, THROW_WINDUP_MS);
   }
@@ -2175,6 +2178,7 @@ class Game {
       this.hud.kill(this.names.get(m.k) ?? "?", this.names.get(m.v) ?? "?", m.w, m.hs === 1);
       if (m.v === this.net.myId) {
         this.alive = false;
+        this.lastWeapon = this.ws.current; // remember it so respawn re-equips the same gun
         this.selfOperator?.markDead(m.hs === 1); // pick the death variant before syncDeath
         this.respawnAt = performance.now() / 1000 + MODES[this.mode].respawn;
         sfx.death(); // clear cue, before the death cam muffles the bus
@@ -2716,6 +2720,7 @@ class Game {
     const a = this.ws.ammo[this.ws.current];
     this.hud.ammo(this.ws.current, a.mag, a.reserve, this.ws.reloading > 0);
     this.touch.setWeapon(this.ws.current);
+    this.touch.setAvailable(LOADOUT.map((id) => this.ws.available(id))); // drop spent throwables from the strip
   }
 }
 

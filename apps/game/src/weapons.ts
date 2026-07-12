@@ -72,7 +72,14 @@ export class WeaponSystem {
 
   def(): WeaponDef { return WEAPONS[this.current]; }
 
+  /** is this weapon actually in the inventory right now? A throwable leaves the loadout
+   *  once its last one is gone (mag 0) — it's no longer shown or selectable until refilled. */
+  available(w: WeaponId): boolean {
+    return WEAPONS[w].throwable ? this.ammo[w].mag > 0 : true;
+  }
+
   select(w: WeaponId): void {
+    if (!this.available(w)) return; // can't equip a spent throwable
     this.current = w;
     this.reloading = 0;
     this.cooldown = Math.max(this.cooldown, 0.25);
@@ -119,8 +126,12 @@ export class WeaponSystem {
   }
 
   cycle(dir: number): void {
-    const i = LOADOUT.indexOf(this.current);
-    this.select(LOADOUT[(i + dir + LOADOUT.length) % LOADOUT.length]);
+    const n = LOADOUT.length;
+    let i = LOADOUT.indexOf(this.current);
+    for (let k = 0; k < n; k++) { // skip spent throwables so scroll never lands on an empty slot
+      i = (i + dir + n) % n;
+      if (this.available(LOADOUT[i])) { this.select(LOADOUT[i]); return; }
+    }
   }
 
   reload(): void {
