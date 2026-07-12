@@ -655,6 +655,13 @@
     box-shadow:0 0 10px rgba(216,184,120,.5);transition:width .35s ease}
   .ai-dl-meta{display:flex;justify-content:space-between;margin-top:7px;
     font-family:var(--mono);font-size:10px;letter-spacing:1px;color:var(--sand-dim)}
+  /* indeterminate state: no measured % yet → a shimmer sweeps the track, no numbers */
+  #ai-dl.indet .ai-dl-track{
+    background:linear-gradient(90deg,rgba(216,184,120,.14) 0%,rgba(216,184,120,.55) 50%,rgba(216,184,120,.14) 100%);
+    background-size:220% 100%;animation:ai-dl-indet 1.15s linear infinite}
+  #ai-dl.indet #ai-dl-fill{display:none}
+  #ai-dl.indet .ai-dl-meta{visibility:hidden}
+  @keyframes ai-dl-indet{from{background-position:220% 0}to{background-position:-220% 0}}
   /* success state: swap sand → green, hide the track, keep the card until dismissed */
   #ai-dl.done .ai-dl-ico{color:var(--green);filter:drop-shadow(0 0 6px rgba(143,191,77,.6));animation:none}
   #ai-dl.done .ai-title{color:var(--green)}
@@ -665,7 +672,7 @@
   .ai-btn.ghost{background:transparent;border:1px solid var(--line);color:var(--sand)}
   .ai-btn.ghost:hover{border-color:var(--sand);filter:none}
   @media (prefers-reduced-motion:reduce){
-    .ai-toast,.ai-dl-ico,#ai-dl-fill{animation:none;transition:none}
+    .ai-toast,.ai-dl-ico,#ai-dl-fill,#ai-dl.indet .ai-dl-track{animation:none;transition:none}
   }
 </style>
 </head>

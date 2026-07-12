@@ -273,26 +273,44 @@ export class Hud {
     window.setTimeout(() => el.classList.add("hidden"), 280);
   }
 
-  /** a model download has begun — reveal the toast in its loading state. */
+  /** a model download has begun — reveal the toast. Starts INDETERMINATE (an animated
+   *  bar, no %): the Prompt API's `downloadprogress` may not have fired yet — and when
+   *  attaching to a browser-level Gemini-Nano download already cached, it can skip the
+   *  byte-download phase entirely and go straight to (progress-less) loading. We show a
+   *  real percentage only while measured progress is climbing (setAiDownloadProgress). */
   showAiDownload(): void {
     this.aiDlDismissed = false; // a freshly-triggered download always shows
     this.aiDlStart = Date.now();
     window.clearTimeout(this.aiDlDoneTimer);
-    $("ai-dl").classList.remove("done", "ai-out");
+    const el = $("ai-dl");
+    el.classList.remove("done", "ai-out");
+    el.classList.add("indet"); // no measured progress yet → animated bar
     $("ai-dl-title").textContent = "Preparing NPC AI";
     $("ai-dl-msg").textContent = "Downloading the on-device model — you can keep playing.";
-    $("ai-dl-pct").textContent = "0%";
+    $("ai-dl-pct").textContent = "";
     $("ai-dl-eta").textContent = "";
     ($("ai-dl-fill") as HTMLElement).style.width = "0%";
-    $("ai-dl").classList.remove("hidden");
+    el.classList.remove("hidden");
   }
 
-  /** update the toast with the latest download fraction (0→1) + a rough ETA. */
+  /** update the toast from a `downloadprogress` fraction (0→1; `total` is always 1).
+   *  Determinate while bytes stream in; once they're all in (loaded=1) the browser
+   *  extracts + loads the model into memory with no further progress signal, so we
+   *  flip back to indeterminate — per Chrome's "inform users of model download" guide. */
   setAiDownloadProgress(loaded: number): void {
     if (this.aiDlDismissed) return;
     const el = $("ai-dl");
     if (el.classList.contains("hidden")) this.showAiDownload();
     const frac = Math.max(0, Math.min(1, loaded));
+    if (frac <= 0) return; // no signal yet — stay indeterminate
+    if (frac >= 1) {
+      // bytes are in → extraction / load-into-memory phase (no measurable progress)
+      el.classList.add("indet");
+      $("ai-dl-msg").textContent = "Almost ready — loading the model…";
+      return;
+    }
+    el.classList.remove("indet");
+    $("ai-dl-msg").textContent = "Downloading the on-device model — you can keep playing.";
     const pct = Math.round(frac * 100);
     ($("ai-dl-fill") as HTMLElement).style.width = `${pct}%`;
     $("ai-dl-pct").textContent = `${pct}%`;
@@ -304,7 +322,7 @@ export class Hud {
   aiDownloadDone(): void {
     if (this.aiDlDismissed) return;
     const el = $("ai-dl");
-    el.classList.remove("hidden");
+    el.classList.remove("hidden", "indet");
     el.classList.add("done");
     $("ai-dl-title").textContent = "NPC AI ready";
     $("ai-dl-msg").textContent = "The on-device model is ready — bots will now trash-talk.";
