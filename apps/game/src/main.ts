@@ -114,9 +114,10 @@ const GP_LOOK_RATE = 3.2;
 //  • follow    — the aim tracks a fraction of a *moving* target's drift, so strafers stick
 // It never pulls a stationary target onto the crosshair (no soft-lock / auto-aim), only
 // helps you stay on one you've already found — "enough that it helps", not an aimbot.
-const AA_BUBBLE = 0.14;        // rad (~8°) angular radius around the crosshair where assist engages
+const AA_BUBBLE = 0.16;        // rad (~9°) angular radius around the crosshair where assist engages
 const AA_RANGE = 55;           // m — beyond this there's no assist
-const AA_FRICTION_MIN = 0.5;   // dead-centre on a target, look input slows to this (at full strength)
+const AA_FRICTION_MIN = 0.28;  // dead-centre on a target, look input slows to this (at full strength)
+const AA_FRICTION_CURVE = 0.55; // <1 = friction ramps up early (strong over more of the bubble, not just dead-centre)
 const AA_FOLLOW = 0.62;        // fraction of a target's horizontal angular drift the aim follows
 const AA_FOLLOW_PITCH = 0.4;   // gentler tracking on the vertical axis
 // slow cinematic orbit (rad/s) of the death camera around the fallen body.
@@ -1306,8 +1307,11 @@ class Game {
     if (!best || !bestP) { this.aimTargetId = null; this.aimPrevTargetPos = null; return; }
 
     const proximity = 1 - bestAng / AA_BUBBLE; // 1 dead-centre → 0 at the bubble edge
-    // (1) friction: slow the look input the closer the crosshair sits to the target
-    this.aimFriction = 1 - (1 - AA_FRICTION_MIN) * proximity * strength;
+    // (1) friction: slow the look input the closer the crosshair sits to the target. The
+    // curve (<1) makes the slowdown build early rather than only dead-centre, so the aim
+    // gets "heavy" as you arrive on a player — easier to settle the reticle and flick precisely.
+    const fricProx = Math.pow(proximity, AA_FRICTION_CURVE);
+    this.aimFriction = 1 - (1 - AA_FRICTION_MIN) * fricProx * strength;
 
     // (2) follow: track the target's own angular drift (measured with the eye held fixed, so
     //     it's the target's motion — not the player's — that's compensated). No pull while
