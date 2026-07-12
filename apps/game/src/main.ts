@@ -248,7 +248,12 @@ class Game {
 
     // Kick off the on-device NPC-chat model (Chrome Prompt API) in the background.
     // Best-effort: resolves to a no-op stub on non-Chrome / unsupported devices.
-    void initNpcChat().then((n) => { this.npc = n; this.hud.setAiSupported(n.ready); });
+    void initNpcChat({
+      onStart: () => this.hud.showAiDownload(),
+      onProgress: (loaded) => this.hud.setAiDownloadProgress(loaded),
+      onDone: () => this.hud.aiDownloadDone(),
+      onError: () => this.hud.hideAiDownload(),
+    }).then((n) => { this.npc = n; this.hud.setAiSupported(n.ready); });
 
     const { engine, physx } = await createGameEngine("game-canvas");
     this.engine = engine;

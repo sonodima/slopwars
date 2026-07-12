@@ -26,6 +26,11 @@ export class Hud {
   private hitTtl = 0;
   private dmgTtl = 0;
 
+  // ── NPC-AI model download toast ──
+  private aiDlStart = 0;          // wall-clock ms the download began (for the ETA)
+  private aiDlDismissed = false;  // user hit × — never re-surface this session
+  private aiDlDoneTimer = 0;      // auto-dismiss timer id for the success state
+
   constructor() {
     $("btn-create").onclick = () => this.onCreate?.(this.name());
     $("btn-join").onclick = () => {
@@ -51,6 +56,8 @@ export class Hud {
         this.closeChat();
       } else if (e.code === "Escape") this.closeChat();
     });
+
+    $("ai-dl-x").onclick = () => this.hideAiDownload();
   }
 
   openChat(): void {
@@ -269,6 +276,72 @@ export class Hud {
   setAiSupported(supported: boolean): void {
     this.aiChatSupported = supported;
     this.syncAiRow();
+  }
+
+  // ─── NPC-AI on-device model download toast ─────────────────────────────────
+  // A first-run download can take minutes; this surfaces its progress in a small
+  // pinned card so the player knows the feature is "getting ready" and can keep
+  // playing meanwhile. Nothing shows when the model is already cached.
+
+  /** a first-run model download has begun — reveal the toast in its loading state. */
+  showAiDownload(): void {
+    if (this.aiDlDismissed) return;
+    this.aiDlStart = Date.now();
+    window.clearTimeout(this.aiDlDoneTimer);
+    $("ai-dl").classList.remove("done", "ai-dl-out");
+    $("ai-dl-title").textContent = "Preparing NPC AI";
+    $("ai-dl-msg").textContent = "Downloading the on-device model — you can keep playing.";
+    $("ai-dl-pct").textContent = "0%";
+    $("ai-dl-eta").textContent = "";
+    ($("ai-dl-fill") as HTMLElement).style.width = "0%";
+    $("ai-dl").classList.remove("hidden");
+  }
+
+  /** update the toast with the latest download fraction (0→1) + a rough ETA. */
+  setAiDownloadProgress(loaded: number): void {
+    if (this.aiDlDismissed) return;
+    const el = $("ai-dl");
+    if (el.classList.contains("hidden")) this.showAiDownload();
+    const frac = Math.max(0, Math.min(1, loaded));
+    const pct = Math.round(frac * 100);
+    ($("ai-dl-fill") as HTMLElement).style.width = `${pct}%`;
+    $("ai-dl-pct").textContent = `${pct}%`;
+    $("ai-dl-eta").textContent = Hud.etaLabel(this.aiDlStart, frac);
+  }
+
+  /** the model finished downloading — flip the toast to a success state that the
+   *  player can dismiss (auto-clears after a few seconds if they don't). */
+  aiDownloadDone(): void {
+    if (this.aiDlDismissed) return;
+    const el = $("ai-dl");
+    el.classList.remove("hidden");
+    el.classList.add("done");
+    $("ai-dl-title").textContent = "NPC AI ready";
+    $("ai-dl-msg").textContent = "The on-device model is ready — enable NPC AI chat in the lobby.";
+    window.clearTimeout(this.aiDlDoneTimer);
+    this.aiDlDoneTimer = window.setTimeout(() => this.hideAiDownload(), 6500);
+  }
+
+  /** dismiss the toast (× button, auto-timeout, or a failed download). */
+  hideAiDownload(): void {
+    this.aiDlDismissed = true;
+    window.clearTimeout(this.aiDlDoneTimer);
+    const el = $("ai-dl");
+    if (el.classList.contains("hidden")) return;
+    el.classList.add("ai-dl-out");
+    window.setTimeout(() => el.classList.add("hidden"), 280);
+  }
+
+  /** turn "started at + fraction done" into a compact "~2m left" style ETA. Returns
+   *  "" until there's enough signal to estimate (avoids a wildly wrong first guess). */
+  private static etaLabel(startMs: number, frac: number): string {
+    if (frac <= 0.02 || frac >= 1) return "";
+    const elapsed = (Date.now() - startMs) / 1000;
+    if (elapsed < 1.5) return "";
+    const remain = Math.round(elapsed * (1 - frac) / frac);
+    if (remain <= 0) return "";
+    if (remain < 60) return `~${remain}s left`;
+    return `~${Math.round(remain / 60)}m left`;
   }
 
   /** push cfg values into the already-built host grid without touching the DOM
