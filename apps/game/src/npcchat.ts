@@ -5,9 +5,10 @@
 // API is absent or the model can't be provisioned, so non-Chrome players simply
 // never see AI banter — the rest of the game is unaffected.
 //
-// Two situations produce lines, both driven by the host (bots only exist there):
-//   • a human kills the same bot repeatedly  → that bot taunts them by name
-//   • a human types in chat                  → one or more bots fire back
+// The rivalry model: this is a competitive shooter, so bots are TOXIC toward
+// enemies (mock, rage-bait, never compliment) and only warm toward teammates
+// (hype up good plays). The caller decides the relationship + the situation; this
+// module just turns that into one tidy line of chat.
 //
 // The model runs fully on-device: no network, no keys, no data leaves the machine.
 
@@ -36,15 +37,34 @@ function locateFactory(): LMFactory | null {
 }
 
 const SYSTEM_PROMPT =
-  "You role-play a cocky NPC bot in a fast-paced multiplayer FPS. You only ever " +
-  "produce ONE short line of in-game chat trash-talk: max 12 words, no quotes, no " +
-  "emoji, no line breaks, all lowercase, casual gamer slang. Stay playful, never " +
-  "slurs or hate. Output only the line itself.";
+  "You role-play an NPC bot in a trash-talking, highly competitive multiplayer " +
+  "FPS. Rivalry is intense. Rules you ALWAYS follow:\n" +
+  "- Output ONE line of in-game chat only: max 12 words, all lowercase, no quotes, " +
+  "no emoji, no line breaks, casual gamer slang.\n" +
+  "- Toward an ENEMY: be cocky, mocking, toxic, rage-baiting. NEVER compliment or " +
+  "praise an enemy, even if they beat you — downplay it, make excuses, talk trash.\n" +
+  "- Toward a TEAMMATE: you can hype them up and praise good plays.\n" +
+  "- Never real-world slurs, hate, or threats — keep it playful game trash-talk.\n" +
+  "Output only the line, nothing else.";
+
+export type Relation = "enemy" | "teammate";
+
+export interface LineReq {
+  /** the bot doing the talking */
+  bot: string;
+  /** the other human this line is about / aimed at */
+  player: string;
+  /** the bot's relationship to that human — drives toxic vs friendly tone */
+  relation: Relation;
+  /** what just happened + what kind of line to produce (caller-authored) */
+  situation: string;
+  /** recent chat lines, oldest→newest, for reply context (optional) */
+  transcript?: string[];
+}
 
 export interface NpcChat {
   readonly ready: boolean;
-  taunt(player: string, bot: string, deaths: number): Promise<string | null>;
-  reply(bot: string, playerName: string, playerMsg: string, transcript: string[]): Promise<string | null>;
+  line(req: LineReq): Promise<string | null>;
 }
 
 /** the live implementation, created only once the model is confirmed usable. */
@@ -63,6 +83,15 @@ class LiveNpcChat implements NpcChat {
       topK: 8,
     });
     return this.session;
+  }
+
+  line(req: LineReq): Promise<string | null> {
+    const ctx = req.transcript?.length ? `Recent chat:\n${req.transcript.slice(-6).join("\n")}\n` : "";
+    return this.run(
+      `You are the bot "${req.bot}". "${req.player}" is your ${req.relation}.\n` +
+      ctx +
+      req.situation,
+    );
   }
 
   /** run a prompt on the shared session, serialized and time-boxed. Never throws. */
@@ -90,29 +119,12 @@ class LiveNpcChat implements NpcChat {
     this.chain = task.catch(() => null);
     return task;
   }
-
-  taunt(player: string, bot: string, deaths: number): Promise<string | null> {
-    return this.run(
-      `You are the bot "${bot}". The player "${player}" has now killed you ${deaths} ` +
-      `times this match. Fire back one salty line that names ${player}.`,
-    );
-  }
-
-  reply(bot: string, playerName: string, playerMsg: string, transcript: string[]): Promise<string | null> {
-    const ctx = transcript.slice(-6).join("\n");
-    return this.run(
-      `You are the bot "${bot}" in a match. Recent chat:\n${ctx}\n\n` +
-      `The player "${playerName}" just said: "${playerMsg}"\n` +
-      `Reply with one short in-character line reacting to them.`,
-    );
-  }
 }
 
 /** a no-op used when the Prompt API isn't available — callers need not branch. */
 const DISABLED: NpcChat = {
   ready: false,
-  async taunt() { return null; },
-  async reply() { return null; },
+  async line() { return null; },
 };
 
 /** Feature-detect + provision the model. Resolves to a working NpcChat, or the

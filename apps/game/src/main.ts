@@ -38,7 +38,7 @@ import {
   TEAM_COLORS, TEAM_NAMES, seekerCount, tierWeapon,
 } from "./modes";
 import { Voice } from "./voice";
-import { NpcChat, initNpcChat } from "./npcchat";
+import { NpcChat, Relation, initNpcChat } from "./npcchat";
 import { TouchControls } from "./touch";
 import { Settings } from "./settings";
 import { TracerPool, WeaponSystem } from "./weapons";
@@ -95,6 +95,11 @@ function shuffle<T>(arr: readonly T[]): T[] {
   return a;
 }
 
+/** escape a string for safe use inside a RegExp (bot names → word-boundary match). */
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 // delay from pressing throw to the grenade leaving the hand — matches the toss
 // animation's wind-up so the projectile releases in sync with the arm.
 const THROW_WINDUP_MS = 350;
@@ -148,8 +153,11 @@ class Game {
 
   // ── Chrome Prompt-API NPC banter (host-only, on-device, best-effort) ──
   npc: NpcChat | null = null;                          // set once the model resolves
-  private npcStreak: Record<string, Record<string, number>> = {}; // victimBot → killer → count
-  private npcTauntCd: Record<string, number> = {};     // botId → wall-clock s before it may taunt again
+  private npcDeaths: Record<string, Record<string, number>> = {}; // victimBot → killer → times killed
+  private npcStreakK: Record<string, number> = {};     // humanId → current kill streak (reset on death)
+  private npcRival: Record<string, string> = {};       // humanId → botId last traded kills with (chat context)
+  private npcBotCd: Record<string, number> = {};       // botId → wall-clock s before it may speak again
+  private npcSpontaneousCd = 0;                         // global gate: min gap between unprompted NPC lines
   private npcLog: string[] = [];                        // recent chat lines, for reply context
   private npcReplyCd = 0;                               // wall-clock s before bots may answer chat again
 
@@ -1459,26 +1467,96 @@ class Game {
     if (this.npcLog.length > 20) this.npcLog.shift();
   }
 
-  /** host-only: a human just killed a bot. Count it and, past a threshold, let the
-   *  bot fire off an AI-generated taunt naming its killer (rate-limited per bot). */
-  private npcOnKill(attacker: string, victim: string): void {
-    if (!this.net.isHost || !this.npc?.ready) return;
-    if (!this.bots.has(victim) || this.bots.has(attacker) || attacker === victim) return;
-    const streak = (this.npcStreak[victim] ??= {});
-    const deaths = (streak[attacker] = (streak[attacker] ?? 0) + 1);
-    if (deaths < 2) return;                                   // first death is a freebie
+  /** a bot's tone toward a human: teammates (same side in a team mode) vs enemies.
+   *  FFA / gungame have no teams → everyone is an enemy, so banter stays toxic. */
+  private botRelation(botId: string, humanId: string): Relation {
+    if (MODES[this.mode].teams && this.teams[botId] !== undefined && this.teams[botId] === this.teams[humanId]) {
+      return "teammate";
+    }
+    return "enemy";
+  }
+
+  /** gate + fire one unprompted NPC line: honours per-bot and global cooldowns and a
+   *  probability roll so bots don't chatter on every single kill/death. */
+  private npcTryLine(botId: string, human: string, relation: Relation, situation: string, prob: number): void {
+    if (!this.npc?.ready || !this.bots.has(botId)) return;
     const now = performance.now() / 1000;
-    if (now < (this.npcTauntCd[victim] ?? 0)) return;         // one taunt per bot per ~12s
-    this.npcTauntCd[victim] = now + 12;
-    const player = this.names.get(attacker) ?? "player";
-    const bot = this.names.get(victim) ?? "bot";
-    void this.npc.taunt(player, bot, deaths).then((line) => {
-      if (line && this.bots.has(victim)) this.botSay(victim, line);
+    if (now < (this.npcBotCd[botId] ?? 0)) return;   // this bot spoke too recently
+    if (now < this.npcSpontaneousCd) return;         // global anti-spam across all bots
+    if (Math.random() > prob) return;                // …and only sometimes even then
+    this.npcBotCd[botId] = now + 10;
+    this.npcSpontaneousCd = now + 4;
+    const bot = this.names.get(botId) ?? "bot";
+    const player = this.names.get(human) ?? "player";
+    void this.npc.line({ bot, player, relation, situation }).then((line) => {
+      if (line && this.bots.has(botId)) this.botSay(botId, line);
     });
   }
 
-  /** host-only: a human sent a chat line. Have one (or two) living bots answer,
-   *  using recent chat as context. Rate-limited so a chatty lobby stays readable. */
+  /** host-only: react to a kill. Bots rage-bait enemies they drop, get salty when a
+   *  human keeps farming them, and a teammate bot may hype a human on a streak. Only
+   *  *sometimes* — see npcTryLine — so it fires when it makes sense, not every frag. */
+  private npcOnKill(attacker: string, victim: string): void {
+    if (!this.net.isHost || attacker === victim) return;
+    const aBot = this.bots.has(attacker), vBot = this.bots.has(victim);
+
+    // remember the last bot a human traded kills with — used to resolve who a later
+    // chat message is aimed at when no bot is named explicitly.
+    if (aBot !== vBot) {
+      const human = aBot ? victim : attacker;
+      this.npcRival[human] = aBot ? attacker : victim;
+    }
+    // human kill-streak bookkeeping (drives teammate praise); a death resets it.
+    if (!aBot) this.npcStreakK[attacker] = (this.npcStreakK[attacker] ?? 0) + 1;
+    if (!vBot) this.npcStreakK[victim] = 0;
+
+    if (!this.npc?.ready) return;
+
+    // bot dropped a human enemy → cocky rage-bait (friendly fire is blocked upstream,
+    // so a bot killing a human is always an enemy kill).
+    if (aBot && !vBot) {
+      this.npcTryLine(attacker, victim, "enemy",
+        `You just fragged ${this.names.get(victim) ?? "them"}. Rage-bait them in one line — act like it was free.`,
+        0.45);
+    }
+
+    // human keeps killing the same bot → it gets salty and names them (never concedes).
+    if (!aBot && vBot) {
+      const tally = (this.npcDeaths[victim] ??= {});
+      const deaths = (tally[attacker] = (tally[attacker] ?? 0) + 1);
+      if (deaths >= 2) {
+        this.npcTryLine(victim, attacker, "enemy",
+          `${this.names.get(attacker) ?? "they"} has killed you ${deaths} times. Fire back one salty line naming them — never admit they're good, make an excuse.`,
+          0.6);
+      }
+    }
+
+    // human on a tear → a living TEAMMATE bot hypes them up (team modes only).
+    if (!aBot) {
+      const s = this.npcStreakK[attacker];
+      if (s >= 3 && s % 2 === 1) {
+        const mate = this.pickTeammateBot(attacker);
+        if (mate) {
+          this.npcTryLine(mate, attacker, "teammate",
+            `Your teammate ${this.names.get(attacker) ?? "them"} is on a ${s}-kill streak. Hype them up in one line.`,
+            0.6);
+        }
+      }
+    }
+  }
+
+  /** a random living bot on the same team as `human` (team modes only), else null. */
+  private pickTeammateBot(human: string): string | null {
+    if (!MODES[this.mode].teams) return null;
+    const team = this.teams[human];
+    if (team === undefined) return null;
+    const mates = [...this.bots.keys()].filter((id) => this.teams[id] === team && (this.hpMap[id] ?? 0) > 0);
+    return mates.length ? shuffle(mates)[0] : null;
+  }
+
+  /** host-only: a human sent a chat line. Work out which bot(s) it's aimed at —
+   *  a named bot, else the bot they've been trading kills with, else a random one —
+   *  and have them answer in-character (toxic to enemies, chill to teammates). */
   private npcOnChat(fromId: string, txt: string): void {
     if (!this.net.isHost) return;
     const who = this.names.get(fromId) ?? "player";
@@ -1487,18 +1565,39 @@ class Game {
     if (!this.npc?.ready || this.bots.has(fromId)) return;    // ignore bot-authored lines
     const now = performance.now() / 1000;
     if (now < this.npcReplyCd) return;
-    this.npcReplyCd = now + 6;
-    // prefer bots that are alive; pick 1, or 2 when several are around
-    const live = [...this.bots.keys()].filter((id) => (this.hpMap[id] ?? 0) > 0);
-    const pool = live.length ? live : [...this.bots.keys()];
-    if (!pool.length) return;
-    const responders = shuffle(pool).slice(0, pool.length >= 3 ? 2 : 1);
+
+    // 1) any bot named outright in the message → those bots answer.
+    const lower = txt.toLowerCase();
+    const named = [...this.bots.keys()].filter((id) => {
+      const n = (this.names.get(id) ?? "").toLowerCase();
+      return n.length >= 2 && new RegExp(`\\b${escapeRe(n)}\\b`).test(lower);
+    });
+    let targets = named;
+    // 2) nobody named → address the bot they've been trading kills with (context).
+    if (!targets.length) {
+      const rival = this.npcRival[fromId];
+      if (rival && this.bots.has(rival)) targets = [rival];
+    }
+    // 3) still nobody → a random living bot fields it.
+    if (!targets.length) {
+      const live = [...this.bots.keys()].filter((id) => (this.hpMap[id] ?? 0) > 0);
+      const pool = live.length ? live : [...this.bots.keys()];
+      if (pool.length) targets = [shuffle(pool)[0]];
+    }
+    if (!targets.length) return;
+
+    this.npcReplyCd = now + 5;
     const transcript = this.npcLog.slice();
-    responders.forEach((id, i) => {
+    targets.slice(0, 2).forEach((id, i) => {
       const bot = this.names.get(id) ?? "bot";
+      const relation = this.botRelation(id, fromId);
+      const addressed = named.includes(id) ? "They named you directly." : "They're likely talking to you.";
       window.setTimeout(() => {
         if (!this.bots.has(id)) return;
-        void this.npc!.reply(bot, who, txt, transcript).then((line) => {
+        void this.npc!.line({
+          bot, player: who, relation, transcript,
+          situation: `${addressed} ${who} said: "${txt}". Reply in one line, in character as their ${relation}.`,
+        }).then((line) => {
           if (line && this.bots.has(id)) this.botSay(id, line);
         });
       }, i * 900);                                            // stagger so replies don't collide
@@ -2424,8 +2523,11 @@ class Game {
       this.net.broadcast({ t: "pleave", id: b.id });
     }
     this.bots.clear();
-    this.npcStreak = {};
-    this.npcTauntCd = {};
+    this.npcDeaths = {};
+    this.npcStreakK = {};
+    this.npcRival = {};
+    this.npcBotCd = {};
+    this.npcSpontaneousCd = 0;
     this.npcReplyCd = 0;
     this.npcLog = [];
   }
