@@ -248,7 +248,16 @@ class Game {
 
     // Kick off the on-device NPC-chat model (Chrome Prompt API) in the background.
     // Best-effort: resolves to a no-op stub on non-Chrome / unsupported devices.
-    void initNpcChat().then((n) => { this.npc = n; this.hud.setAiSupported(n.ready); });
+    void initNpcChat({
+      onStart: () => this.hud.showAiDownload(),
+      onProgress: (loaded) => this.hud.setAiDownloadProgress(loaded),
+      onDone: () => this.hud.aiDownloadDone(),
+      onError: () => this.hud.hideAiDownload(),
+    }).then((n) => {
+      this.npc = n;
+      this.settings.setAiSupported(n.ready); // NPC-chat toggle lives in client settings now
+      this.syncAiChatPref();                 // fold the (per-host) preference into the match cfg
+    });
 
     const { engine, physx } = await createGameEngine("game-canvas");
     this.engine = engine;
@@ -895,7 +904,7 @@ class Game {
 
   bindSettings(): void {
     this.settings.build();
-    this.settings.onChange = () => this.applySettings();
+    this.settings.onChange = () => { this.applySettings(); this.syncAiChatPref(); };
     document.getElementById("btn-gear")!.addEventListener("click", () => this.openSettings());
     document.getElementById("tc-settings")!.addEventListener("pointerdown", (e) => {
       e.preventDefault(); e.stopPropagation(); this.openSettings();
@@ -908,6 +917,22 @@ class Game {
     menuName.addEventListener("input", () => this.settings.setName(menuName.value));
 
     this.applySettings();
+    this.syncAiChatPref(); // arm the match cfg from the persisted per-host preference
+  }
+
+  /** NPC AI chat is a per-host *client* preference (Settings), not a per-match rule.
+   *  Fold it into the match config: while hosting a lobby, live-broadcast the change to
+   *  guests; otherwise stash it for the next match we host. A guest's local toggle never
+   *  touches the (host-authoritative) config. Gated by model support so an unsupported
+   *  host never advertises AI banter it can't produce. */
+  private syncAiChatPref(): void {
+    const want = this.settings.state.aiChat && this.settings.aiSupported;
+    if (this.net.isHost) {
+      if (this.phase === "lobby") { if (this.cfg.aiChat !== want) this.setCfg({ aiChat: want }); }
+      else this.cfg.aiChat = want;
+    } else if (!this.net.peer) {
+      this.cfg.aiChat = want; // not in a session yet → pre-arm for the lobby we'll host
+    }
   }
 
   /** open the settings overlay, revealing the in-match "leave" control only in-game */

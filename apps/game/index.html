@@ -404,6 +404,14 @@
     transition:transform .12s,background .12s}
   .tgl.on{background:rgba(143,191,77,.3);border-color:var(--green)}
   .tgl.on i{transform:translateX(20px);background:var(--green)}
+  .tgl.disabled{opacity:.4;pointer-events:none}
+  /* helper note under a setting (NPC AI chat requirement + support link) */
+  .set-note{margin-top:9px;font-size:10px;line-height:1.6;letter-spacing:.3px;
+    color:var(--sand-dim);opacity:.9;text-transform:none}
+  .set-note a{color:var(--sand);text-decoration:none;border-bottom:1px solid var(--line);white-space:nowrap}
+  .set-note a:hover{border-color:var(--sand)}
+  #set-aichat-status{color:var(--red);font-weight:700}
+  #set-aichat-status:not(:empty){margin-right:5px}
   #set-done{margin-top:22px}
   #set-leave{margin-top:18px;background:transparent;border:1px solid var(--red);color:var(--red)}
   #set-leave:hover{background:rgba(224,72,58,.14);filter:none}
@@ -514,6 +522,44 @@
   @keyframes rotate-nudge{0%,100%{transform:rotate(-12deg)}50%{transform:rotate(78deg)}}
   @media (orientation:portrait){
     body.touch[data-screen="game"] #rotate-hint{display:flex}
+  }
+
+  /* ═══ NPC-AI model download toast ═══
+     A small, dismissable card pinned top-left (clear of the top-right gear and the
+     bottom touch controls) so it stays visible across menu → lobby → match on both
+     desktop and mobile while the on-device model provisions in the background. */
+  #ai-dl{position:fixed;z-index:60;
+    top:max(14px,env(safe-area-inset-top));left:max(14px,env(safe-area-inset-left));
+    width:min(300px,calc(100vw - 28px));padding:13px 15px 14px;
+    background:var(--panel);border:1px solid var(--line);
+    box-shadow:0 18px 44px rgba(0,0,0,.55),inset 0 2px 0 rgba(216,184,120,.4);
+    backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
+    animation:ai-dl-in .32s cubic-bezier(.2,.9,.3,1) both}
+  @keyframes ai-dl-in{from{opacity:0;transform:translateY(-10px) scale(.97)}to{opacity:1;transform:none}}
+  #ai-dl.ai-dl-out{animation:ai-dl-out .28s ease forwards}
+  @keyframes ai-dl-out{to{opacity:0;transform:translateY(-8px) scale(.97)}}
+  #ai-dl-x{position:absolute;top:6px;right:6px;width:24px;height:24px;padding:0;margin:0;
+    background:transparent;border:none;color:var(--sand-dim);font-size:18px;line-height:1;
+    display:flex;align-items:center;justify-content:center;border-radius:4px}
+  #ai-dl-x:hover{color:var(--sand);background:rgba(216,184,120,.12);filter:none}
+  .ai-dl-head{display:flex;align-items:center;gap:8px;padding-right:20px}
+  .ai-dl-ico{color:var(--sand);font-size:13px;line-height:1;filter:drop-shadow(0 0 6px rgba(216,184,120,.55));
+    animation:ai-dl-pulse 1.6s ease-in-out infinite}
+  @keyframes ai-dl-pulse{50%{opacity:.45}}
+  #ai-dl-title{font-size:11px;letter-spacing:2.5px;text-transform:uppercase;font-weight:700;color:var(--sand)}
+  .ai-dl-msg{font-size:11px;line-height:1.45;color:var(--sand-dim);margin-top:6px;letter-spacing:.3px}
+  .ai-dl-track{height:5px;margin-top:11px;background:rgba(216,184,120,.16);border-radius:3px;overflow:hidden}
+  #ai-dl-fill{height:100%;width:0%;border-radius:3px;
+    background:linear-gradient(90deg,var(--sand-dim),var(--sand));
+    box-shadow:0 0 10px rgba(216,184,120,.5);transition:width .35s ease}
+  .ai-dl-meta{display:flex;justify-content:space-between;margin-top:7px;
+    font-family:var(--mono);font-size:10px;letter-spacing:1px;color:var(--sand-dim)}
+  /* success state: swap sand → green, hide the track, keep the card until dismissed */
+  #ai-dl.done .ai-dl-ico{color:var(--green);filter:drop-shadow(0 0 6px rgba(143,191,77,.6));animation:none}
+  #ai-dl.done #ai-dl-title{color:var(--green)}
+  #ai-dl.done .ai-dl-track,#ai-dl.done .ai-dl-meta{display:none}
+  @media (prefers-reduced-motion:reduce){
+    #ai-dl,.ai-dl-ico,#ai-dl-fill{animation:none;transition:none}
   }
 </style>
 </head>
@@ -667,9 +713,23 @@
       <span>Performance stats</span>
       <button class="tgl" id="set-stats" role="switch" aria-pressed="true"><i></i></button>
     </div>
+    <div class="set-toggle">
+      <span>NPC AI chat</span>
+      <button class="tgl" id="set-aichat" role="switch" aria-pressed="false"><i></i></button>
+    </div>
+    <p class="set-note" id="set-aichat-note"><span id="set-aichat-status"></span>On-device AI trash-talk for bots — only the host runs it, and it needs a Chromium browser with built-in AI (the Prompt API). <a href="https://developer.chrome.com/docs/ai/get-started" target="_blank" rel="noopener">Check browser support ↗</a></p>
     <button id="set-leave" class="danger hidden">Leave match</button>
     <button id="set-done">Done</button>
   </div>
+</div>
+
+<!-- ── NPC-AI on-device model download toast (top-left, over everything) ── -->
+<div id="ai-dl" class="hidden" role="status" aria-live="polite">
+  <button id="ai-dl-x" aria-label="Dismiss">×</button>
+  <div class="ai-dl-head"><span class="ai-dl-ico">✦</span><span id="ai-dl-title">Preparing NPC AI</span></div>
+  <div id="ai-dl-msg" class="ai-dl-msg">Downloading the on-device model — you can keep playing.</div>
+  <div class="ai-dl-track"><div id="ai-dl-fill"></div></div>
+  <div class="ai-dl-meta"><span id="ai-dl-pct">0%</span><span id="ai-dl-eta"></span></div>
 </div>
 
 <script type="module" src="/src/main.ts"></script>

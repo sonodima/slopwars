@@ -10,12 +10,13 @@ export interface SettingsState {
   sensitivity: number; // look-speed multiplier (mouse + touch)
   fov: number; // vertical FOV in degrees (hip-fire)
   showStats: boolean; // perf overlay
+  aiChat: boolean; // host-only: run the on-device LLM for NPC trash-talk (Chrome built-in AI)
   name: string; // persisted callsign
 }
 
 const KEY = "slopwars.settings";
 
-const DEFAULTS: SettingsState = { quality: "high", sensitivity: 1, fov: 75, showStats: true, name: "" };
+const DEFAULTS: SettingsState = { quality: "high", sensitivity: 1, fov: 75, showStats: true, aiChat: true, name: "" };
 
 function load(): SettingsState {
   let s: SettingsState = { ...DEFAULTS };
@@ -31,6 +32,9 @@ export class Settings {
   state: SettingsState = load();
   /** fired whenever a value changes (main.ts re-applies graphics/fov/etc.) */
   onChange: (s: SettingsState) => void = () => {};
+  /** whether this browser can actually run the NPC-chat model (Chrome Prompt API).
+   *  Learned asynchronously at boot; gates the toggle so it can't be armed uselessly. */
+  aiSupported = false;
   private built = false;
 
   /** wire the overlay controls (call once, after the DOM exists) */
@@ -46,6 +50,10 @@ export class Settings {
     const fov = $("set-fov") as HTMLInputElement;
     fov.addEventListener("input", () => this.set({ fov: parseInt(fov.value, 10) }));
     $("set-stats").addEventListener("click", () => this.set({ showStats: !this.state.showStats }));
+    $("set-aichat").addEventListener("click", () => {
+      if (!this.aiSupported) return; // the model can't run on this browser — toggle is inert
+      this.set({ aiChat: !this.state.aiChat });
+    });
     $("set-done").addEventListener("click", () => this.close());
     // tapping the dimmed backdrop (outside the panel) closes too
     $("settings").addEventListener("pointerdown", (e) => { if (e.target === $("settings")) this.close(); });
@@ -58,6 +66,13 @@ export class Settings {
     try { localStorage.setItem(KEY, JSON.stringify(this.state)); } catch { /* ignore */ }
     this.refresh();
     this.onChange(this.state);
+  }
+
+  /** reflect on-device model support once probing resolves: disable the toggle and
+   *  surface a "not available" note when the feature can't run on this browser. */
+  setAiSupported(supported: boolean): void {
+    this.aiSupported = supported;
+    this.refresh();
   }
 
   /** persist an edited callsign (trimmed to 16 chars, never blank in storage) */
@@ -79,6 +94,14 @@ export class Settings {
     const tgl = $("set-stats");
     tgl.classList.toggle("on", s.showStats);
     tgl.setAttribute("aria-pressed", String(s.showStats));
+
+    const ai = $("set-aichat");
+    const aiOn = this.aiSupported && s.aiChat;      // only "on" where the model can run
+    ai.classList.toggle("on", aiOn);
+    ai.classList.toggle("disabled", !this.aiSupported);
+    ai.setAttribute("aria-pressed", String(aiOn));
+    const status = document.getElementById("set-aichat-status");
+    if (status) status.textContent = this.aiSupported ? "" : "Not available on this browser.";
   }
 
   open(): void { this.refresh(); $("settings").classList.remove("hidden"); }

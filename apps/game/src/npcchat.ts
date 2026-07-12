@@ -92,20 +92,42 @@ function whenIdle(timeout = 1500): Promise<void> {
 /** the live implementation, created only once the model is confirmed usable. */
 class LiveNpcChat implements NpcChat {
   ready = true;
-  private session: LMSession | null = null;
+  private sessionP: Promise<LMSession> | null = null;  // shared, in-flight session
   private chain: Promise<unknown> = Promise.resolve(); // serialize prompts (one model)
   private lastRun = 0;                                  // wall-clock ms of the last inference
 
-  constructor(private factory: LMFactory) {}
+  constructor(
+    private factory: LMFactory,
+    /** progress sink (0→1) for the first-run model download, if one is needed. */
+    private onProgress?: (loaded: number) => void,
+  ) {}
 
-  private async ensureSession(): Promise<LMSession> {
-    if (this.session) return this.session;
-    this.session = await this.factory.create({
-      initialPrompts: [{ role: "system", content: SYSTEM_PROMPT }],
-      temperature: 0.4, 
-      topK: 20,
-    });
-    return this.session;
+  /** provision the model eagerly (rather than lazily on the first line) so a boot
+   *  overlay can show download progress. Resolves when ready; rejects on failure. */
+  prewarm(): Promise<void> {
+    return this.ensureSession().then(() => undefined);
+  }
+
+  private ensureSession(): Promise<LMSession> {
+    if (this.sessionP) return this.sessionP;
+    const onProgress = this.onProgress;
+    // Promise.resolve() so a synchronous throw from create() also lands in .catch
+    this.sessionP = Promise.resolve()
+      .then(() => this.factory.create({
+        initialPrompts: [{ role: "system", content: SYSTEM_PROMPT }],
+        temperature: 0.4,
+        topK: 20,
+        // Chrome streams the on-device model the first time and reports progress via
+        // a `downloadprogress` event (e.loaded: 0→1); forward it to the overlay.
+        monitor(m: { addEventListener?(t: string, cb: (e: { loaded: number }) => void): void }) {
+          m.addEventListener?.("downloadprogress", (e) => onProgress?.(e.loaded));
+        },
+      }))
+      .catch((err: unknown) => {
+        this.sessionP = null; // failed provisioning — let a later call retry clean
+        throw err;
+      });
+    return this.sessionP;
   }
 
   line(req: LineReq): Promise<string | null> {
@@ -144,8 +166,9 @@ class LiveNpcChat implements NpcChat {
       } catch (e) {
         console.warn("[npcchat] prompt failed", e);
         // a poisoned session won't recover — drop it so the next call rebuilds.
-        try { this.session?.destroy?.(); } catch { /* */ }
-        this.session = null;
+        const dead = this.sessionP;
+        this.sessionP = null;
+        dead?.then((s) => { try { s.destroy?.(); } catch { /* */ } }, () => { /* */ });
         return null;
       }
     });
@@ -161,9 +184,24 @@ const DISABLED: NpcChat = {
   async line() { return null; },
 };
 
+/** Progress callbacks for the (potentially minutes-long) first-run model download.
+ *  All optional — the model is fully usable without wiring any of them up. */
+export interface NpcDownloadHooks {
+  /** a first-run model download has started (nothing to show if already cached). */
+  onStart?(): void;
+  /** download progress, as a fraction 0→1. */
+  onProgress?(loaded: number): void;
+  /** the model finished downloading and is ready to use. */
+  onDone?(): void;
+  /** provisioning failed — the overlay should be dismissed. */
+  onError?(): void;
+}
+
 /** Feature-detect + provision the model. Resolves to a working NpcChat, or the
- *  disabled stub. Safe to call once at boot; awaits any pending model download. */
-export async function initNpcChat(): Promise<NpcChat> {
+ *  disabled stub. Safe to call once at boot. When a first-run download is needed it
+ *  is kicked off in the background and reported through `hooks`; the returned chat is
+ *  usable right away (lines just wait for the download to finish). */
+export async function initNpcChat(hooks?: NpcDownloadHooks): Promise<NpcChat> {
   const factory = locateFactory();
   if (!factory) {
     console.info("[npcchat] Prompt API not available — NPC AI banter disabled");
@@ -176,10 +214,20 @@ export async function initNpcChat(): Promise<NpcChat> {
       console.info("[npcchat] model unavailable on this device — banter disabled");
       return DISABLED;
     }
-    // "downloadable"/"downloading" → creating the session kicks off / awaits the
-    // on-device download. This can take a while the first time.
+    const needsDownload = status === "downloadable" || status === "downloading";
+    const chat = new LiveNpcChat(factory, needsDownload ? hooks?.onProgress : undefined);
+    if (needsDownload) {
+      // Provision now (instead of lazily on the first line) so the UI can show a
+      // progress overlay while the on-device model streams in — this can take a
+      // while, and the player is free to keep using the client meanwhile.
+      hooks?.onStart?.();
+      void chat.prewarm().then(
+        () => hooks?.onDone?.(),
+        (e) => { console.warn("[npcchat] model download failed", e); hooks?.onError?.(); },
+      );
+    }
     console.info(`[npcchat] Prompt API present (status: ${status}) — NPC banter ON`);
-    return new LiveNpcChat(factory);
+    return chat;
   } catch (e) {
     console.warn("[npcchat] init failed — banter disabled", e);
     return DISABLED;
