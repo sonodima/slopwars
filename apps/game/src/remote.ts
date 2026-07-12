@@ -132,6 +132,8 @@ export class RemotePlayer {
   private upperTimer = 0;        // seconds left of a one-shot upper-body clip (reload/throw)
   private prevUpdateNow = 0;     // wall-clock of the last update (dt for the dead-body fall)
   private fallVelY = 0;          // downward velocity of a dead body settling to the ground
+  private fallSeeded = false;    // seeded fallVelY from the last live vy on the first dead frame
+  private lastVy = 0;            // last live vertical velocity (m/s) — carried into the death fall
   /** ground height sampler (map.floorY), set by the game so a dead body can fall. */
   groundYAt: ((x: number, z: number) => number) | null = null;
 
@@ -369,7 +371,7 @@ export class RemotePlayer {
     let dy = c.yaw - a.yaw;
     if (dy > Math.PI) dy -= 2 * Math.PI; else if (dy < -Math.PI) dy += 2 * Math.PI;
     this.yaw = a.yaw + dy * k;
-    this.fallVelY = 0; // reset so the next death starts from rest
+    this.fallVelY = 0; this.fallSeeded = false; // reset; next death re-seeds from live vy
 
     this.syncDeath();
     this.applyTransform();
@@ -377,9 +379,13 @@ export class RemotePlayer {
     this.driveAnimation();
   }
 
-  /** apply gravity to a dead body until it reaches the ground (via groundYAt). */
+  /** apply gravity to a dead body until it reaches the ground (via groundYAt). A body killed
+   *  mid-air carries the vertical velocity it had when alive, so its arc continues smoothly
+   *  (MOVE.gravity = 19) instead of hanging then accelerating from rest — which read as a
+   *  too-slow, laggy drop. Matches the local player's own physics-driven fall. */
   private deadFall(dt: number): void {
     if (!this.groundYAt || dt <= 0) return;
+    if (!this.fallSeeded) { this.fallVelY = this.lastVy; this.fallSeeded = true; }
     const gy = this.groundYAt(this.pos.x, this.pos.z);
     if (this.pos.y > gy + 0.01) {
       this.fallVelY -= 19 * dt;
@@ -469,6 +475,7 @@ export class RemotePlayer {
       vy = (this.pos.y - this.prevY) / dt;
     }
     this.prevX = this.pos.x; this.prevZ = this.pos.z; this.prevY = this.pos.y;
+    if (this.alive) this.lastVy = vy; // remember live vertical speed to seed the death fall
 
     if (!this.alive) return; // death handled in syncDeath (before the transform toggle)
 

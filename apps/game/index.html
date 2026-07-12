@@ -192,6 +192,9 @@
   #respawn{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;padding:0 0 10vh 0;pointer-events:none}
   #respawn .d{font-size:16px;letter-spacing:6px;color:var(--sand);text-transform:uppercase;opacity:.8}
   #respawn-t{font-size:72px;font-weight:700;font-family:var(--mono);color:#f0e8d5;line-height:1}
+  #spectate{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;padding:12vh 0 0 0;pointer-events:none}
+  #spectate .d{font-size:13px;letter-spacing:6px;color:var(--sand);text-transform:uppercase;opacity:.7}
+  #spectate-n{font-size:28px;font-weight:700;font-family:var(--font);color:#f0e8d5;line-height:1.2}
   /* death cinematic: desaturate the whole scene while dead */
   #game-canvas{transition:filter .35s ease}
   body.dead #game-canvas{filter:grayscale(1) contrast(1.05) brightness(.92)}
@@ -432,6 +435,13 @@
     bottom:calc(max(16px,env(safe-area-inset-bottom)) + 178px)}
   body.touch #hud-ammo{font-size:20px}
   body.touch #hud-weapon{font-size:10px;letter-spacing:2px}
+  /* respawn counter: shrink + centre vertically on mobile so it clears the bottom
+     weapon strip / touch controls instead of overlapping them */
+  body.touch #respawn{justify-content:center;padding:0}
+  body.touch #respawn .d{font-size:12px;letter-spacing:4px}
+  body.touch #respawn-t{font-size:44px}
+  body.touch #spectate{padding-top:9vh}
+  body.touch #spectate-n{font-size:20px}
   body.touch #stats{top:calc(max(10px,env(safe-area-inset-top)) + 42px);left:max(10px,env(safe-area-inset-left));font-size:9px}
   body.touch #game-code{right:max(12px,env(safe-area-inset-right))}
   body.touch #killfeed{right:max(12px,env(safe-area-inset-right));font-size:11px}
@@ -560,6 +570,7 @@
   <div id="banner" class="hidden"></div>
   <div id="vote" class="hidden"><div class="vh">vote next map</div><div id="vote-cards"></div></div>
   <div id="respawn" class="hidden"><div class="d">respawn in</div><div id="respawn-t">3</div></div>
+  <div id="spectate" class="hidden"><div class="d">spectating</div><div id="spectate-n"></div></div>
   <div id="click-to-play" class="hidden">click to play</div>
 
   <!-- ═══ ON-SCREEN TOUCH CONTROLS (shown only in touch mode) ═══ -->
