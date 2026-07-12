@@ -927,6 +927,8 @@ class Game {
       this.touch.setEnabled(on);
       this.touch.setWeapon(this.ws.current);
       if (on && this.inGame) { this.hud.clickToPlay(false); document.exitPointerLock(); }
+      // returning to mouse mode while unlocked: re-show the prompt to re-acquire pointer lock
+      else if (!on && this.inGame && !this.locked) this.hud.clickToPlay(true);
     };
     window.addEventListener("pointerdown", (e) => {
       if (e.pointerType === "touch") setMode(true);
@@ -935,6 +937,12 @@ class Game {
     window.addEventListener("pointermove", (e) => {
       if (e.pointerType === "mouse" && (e.movementX || e.movementY)) setMode(false);
     }, { capture: true });
+    // A physical key press is an unambiguous desktop signal. Alt-tabbing away and back (or
+    // a stray trackpad/synthetic pointer event) could flip us into touch mode, where mouse
+    // look stops working and the camera only turns while a button is held (the touch look
+    // pad needs a pointer down). Any keydown recovers mouse mode instantly. Ignored while
+    // typing in chat so a touch player with a soft keyboard isn't kicked out mid-message.
+    window.addEventListener("keydown", () => { if (!this.hud.chatOpen) setMode(false); }, { capture: true });
   }
 
   // ─── loop ───────────────────────────────────────────────────────────────────
@@ -1113,6 +1121,7 @@ class Game {
       pitch: this.body.pitch,
       w: this.ws.current,
       hp: this.alive ? this.myHp : 0,
+      g: this.body.onGround,
     };
   }
 
@@ -1120,7 +1129,7 @@ class Game {
     if (this.net.isHost) {
       const ps: PlayerState[] = [this.myState()];
       for (const r of this.remotes.values()) {
-        ps.push({ id: r.id, p: [r.pos.x, r.pos.y, r.pos.z], yaw: r.yaw, pitch: 0, w: r.weapon, hp: this.hpMap[r.id] ?? 0 });
+        ps.push({ id: r.id, p: [r.pos.x, r.pos.y, r.pos.z], yaw: r.yaw, pitch: 0, w: r.weapon, hp: this.hpMap[r.id] ?? 0, g: r.netGround });
       }
       this.net.broadcast({ t: "snap", ps, time: now });
     } else {
@@ -1930,7 +1939,6 @@ class Game {
     let r = this.remotes.get(id);
     if (!r) {
       r = new RemotePlayer(this.engine, this.engine.sceneManager.activeScene.getRootEntity()!, id, name, this.net.colorOf(id), this.models);
-      r.groundYAt = (x, z) => this.map.floorY(x, z); // let a dead body fall to the floor
       this.remotes.set(id, r);
     }
     return r;
@@ -2320,7 +2328,13 @@ class Game {
     for (const bot of this.bots.values()) {
       const r = this.remotes.get(bot.id);
       if (!r) continue;
-      if ((this.hpMap[bot.id] ?? 0) <= 0) { r.setPose(bot.body.pos, bot.body.yaw, false); continue; }
+      if ((this.hpMap[bot.id] ?? 0) <= 0) {
+        // dead bot: keep stepping gravity (no input) so a body killed mid-air falls to the
+        // ground and plays its death prone, instead of freezing where it was hit.
+        bot.body.update(dt, { fwd: 0, right: 0, jump: false, sprint: false }, 0);
+        r.setPose(bot.body.pos, bot.body.yaw, false, bot.body.onGround);
+        continue;
+      }
 
       const role = this.teams[bot.id];
       const isHider = this.mode === "prophunt" && role === ROLE_HIDE;

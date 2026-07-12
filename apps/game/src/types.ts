@@ -171,6 +171,7 @@ export interface PlayerState {
   pitch: number;
   w: WeaponId;
   hp: number;
+  g?: boolean; // onGround — drives the remote's jump/fall animation (undefined → infer from motion)
 }
 
 export type GamePhase = "lobby" | "play" | "inter" | "over";
