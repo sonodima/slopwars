@@ -226,9 +226,9 @@ export function createMcp({ root, bridge }: Deps): { handle: (msg: any) => Promi
     { name: "editor_screenshot", description: "Capture a PNG screenshot of the current viewport.", inputSchema: { type: "object", properties: {} },
       run: async () => { const r = await live("screenshot") as { dataUrl: string }; return { __image: r.dataUrl }; } },
 
-    { name: "editor_save_map", description: "Save the current map to maps/<id>.json.", inputSchema: { type: "object", properties: {} },
+    { name: "editor_save_map", description: "Save the current map to public/assets/maps/<id>/ (or <id>.json).", inputSchema: { type: "object", properties: {} },
       run: () => live("saveMap") },
-    { name: "editor_load_map", description: "Load a map by file path (e.g. maps/koi.json).",
+    { name: "editor_load_map", description: "Load a map by file path (e.g. assets/maps/koi/map.json).",
       inputSchema: { type: "object", properties: { file: { type: "string" } }, required: ["file"] },
       run: (a) => live("loadMap", { file: a.file }) },
     { name: "editor_new_map", description: "Start a new blank map.", inputSchema: { type: "object", properties: {} },

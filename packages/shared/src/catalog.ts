@@ -174,12 +174,17 @@ export interface AssetCatalog {
   hdri: HdriAsset[];
 }
 
-/** map summary produced by scanning maps/*.json (for the pool + editor picker) */
+/** map summary produced by scanning the maps/ directory (for the pool + editor picker).
+ *  A map is either a flat `maps/<id>.json` file or a `maps/<id>/` folder holding the map
+ *  JSON (map.json / <id>.json) plus an optional `preview.json` listing screenshots. */
 export interface MapCatalogEntry {
   id: string;
   name: string;
   theme: string;
-  file: string;            // path relative to the served root, e.g. "maps/koi.json"
+  file: string;            // path relative to the served root, e.g. "maps/koi/map.json"
+  /** screenshot paths (served-root-relative) from the folder's preview.json — shown as
+   *  thumbnails in the map picker / vote UI. Empty/absent when a map ships no previews. */
+  previews?: string[];
 }
 
 // ── lookup helpers (used by both apps) ──────────────────────────────────────

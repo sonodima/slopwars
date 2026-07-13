@@ -49,11 +49,11 @@ This is a **pnpm workspace** monorepo:
 | **editor** | `apps/editor/` | Browser map editor (local dev tool, not deployed). Its Vite dev server is the "editor host" — file API + built-in MCP server (`apps/editor/host/`). See `apps/editor/README.md`. |
 | **shared** | `packages/shared/` | Map schema, asset-catalog types, and the asset-scanner Vite plugin used by both. |
 
-Shared, file-driven asset directories at the repo root:
+Shared, file-driven asset directories under `public/assets/`:
 
 | What | Where | Notes |
 |---|---|---|
-| **Maps** | `maps/*.json` | One JSON file per map. No map data lives in TypeScript. |
+| **Maps** | `public/assets/maps/{id}/map.json` | One folder per map (or a flat `{id}.json`). Drop `preview.*` images in the folder to show screenshots in the map picker. No map data lives in TypeScript. See `public/assets/maps/README.md`. |
 | **Models** | `public/assets/models/{name}/` | glTF **geometry** (no textures); folder name = asset key. `meta.json` holds calibration + collision. |
 | **Textures** | `public/assets/textures/{name}/` | PBR sets (color / normal / arm). |
 | **Materials** | `public/assets/materials/{name}.json` | Created/edited from the editor. A texture is applied to geometry *through* a material — assign one to a model. |
@@ -61,7 +61,7 @@ Shared, file-driven asset directories at the repo root:
 
 Assets are **discovered by scanning the filesystem** (the `virtual:asset-catalog`
 / `virtual:map-catalog` modules) — there are no hardcoded asset file lists in
-code. Committing a new model/texture folder or a `maps/*.json` file is all it
+code. Committing a new model/texture folder or a `maps/{id}/` folder is all it
 takes to make it available to the client and the editor.
 
 ### Commands

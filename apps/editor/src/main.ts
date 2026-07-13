@@ -960,7 +960,11 @@ async function openMap(file: string): Promise<void> {
 async function saveMap(): Promise<void> {
   const map = state.map; if (!map) return;
   const id = map.meta.id || state.fileId;
-  try { await api.saveMap(id, map); state.dirty = false; refreshMapName(); renderTabStrip(); renderSaveButtons(); browser?.refreshMaps(); toast(`saved maps/${id}.json`); }
+  try {
+    const res = await api.saveMap(id, map) as { file?: string };
+    state.dirty = false; refreshMapName(); renderTabStrip(); renderSaveButtons(); browser?.refreshMaps();
+    toast(`saved ${res?.file ?? `assets/maps/${id}`}`);
+  }
   catch (e) { toast("save failed: " + e, true); }
 }
 

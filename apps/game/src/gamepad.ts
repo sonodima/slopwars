@@ -13,6 +13,8 @@
 //   D-pad       → weapon slots (↑ rifle · ↓ knife · ← pistol · → AWP)
 //   Back (8)    → scoreboard (hold)                      Start (9)   → pause / settings
 
+import { DEFAULT_PADS, PadAction } from "./keybinds";
+
 /** radial dead-zone below which a stick reads as centred (drift rejection) */
 const DEAD = 0.18;
 /** look response curve exponent (>1 = finer control near centre, fast at the rim) */
@@ -52,6 +54,12 @@ export class GamepadControls {
   onPause: () => void = () => {};               // Start/Options
   /** fresh input seen this frame (button/stick) — used to switch into gamepad mode */
   onActivity: () => void = () => {};
+  /** rebinding capture: when set, the next button press is delivered here (and swallowed
+   *  from the game) so Settings can rebind a control. Cleared after one press. */
+  onCapture: ((index: number) => void) | null = null;
+
+  /** action → button-index map (remappable in Settings; main.ts keeps it in sync) */
+  binds: Record<PadAction, number> = { ...DEFAULT_PADS };
 
   private prev: boolean[] = [];
   private prevMode: GamepadMode = "game";
@@ -97,33 +105,43 @@ export class GamepadControls {
     const rising = (i: number): boolean => !!pressed[i] && !this.prev[i];
     const changed = (i: number): boolean => !!pressed[i] !== !!this.prev[i];
 
+    const b = this.binds;
+
+    // rebinding capture: the next fresh button press is routed to the pending bind (and
+    // swallowed from the game), so Settings can assign a button to an action.
+    if (this.onCapture) {
+      for (let i = 0; i < n; i++) if (rising(i)) { const cb = this.onCapture; this.onCapture = null; this.prev = pressed; cb(i); return; }
+      this.prev = pressed;
+      return;
+    }
+
     // leaving game mode with something held (e.g. pausing mid-fire) must release it,
     // or the held action sticks on under the open menu.
     if (this.mode !== this.prevMode) {
       if (this.mode === "menu") {
-        if (this.prev[7]) this.onFire(false);
-        if (this.prev[0]) this.onJump(false);
-        if (this.prev[8]) this.onScore(false);
+        if (this.prev[b.fire]) this.onFire(false);
+        if (this.prev[b.jump]) this.onJump(false);
+        if (this.prev[b.scoreboard]) this.onScore(false);
       }
       this.prevMode = this.mode;
       this.repeat.x.dir = 0; this.repeat.y.dir = 0;
     }
 
-    if (rising(9)) this.onPause();                   // Start/Options — pause (both modes)
+    if (rising(b.pause)) this.onPause();             // pause (both modes)
 
     if (this.mode === "game") {
-      if (changed(7)) this.onFire(!!pressed[7]);     // RT — fire
-      if (changed(0)) this.onJump(!!pressed[0]);     // A/✕ — jump
-      if (changed(8)) this.onScore(!!pressed[8]);    // Back/Select — scoreboard
-      if (rising(6)) this.onScope();                 // LT — aim / scope
-      if (rising(2)) this.onReload();                // X/□ — reload
-      if (rising(4)) this.onWeaponCycle(-1);         // LB — previous weapon
-      if (rising(5)) this.onWeaponCycle(1);          // RB — next weapon
+      if (changed(b.fire)) this.onFire(!!pressed[b.fire]);        // fire
+      if (changed(b.jump)) this.onJump(!!pressed[b.jump]);        // jump
+      if (changed(b.scoreboard)) this.onScore(!!pressed[b.scoreboard]); // scoreboard
+      if (rising(b.scope)) this.onScope();                        // aim / scope
+      if (rising(b.reload)) this.onReload();                      // reload
+      if (rising(b.weaponPrev)) this.onWeaponCycle(-1);           // previous weapon
+      if (rising(b.weaponNext)) this.onWeaponCycle(1);            // next weapon
       if (rising(12)) this.onWeaponSelect(2);        // D-pad ↑ — rifle
       if (rising(13)) this.onWeaponSelect(0);        // D-pad ↓ — knife
       if (rising(14)) this.onWeaponSelect(1);        // D-pad ← — pistol
       if (rising(15)) this.onWeaponSelect(3);        // D-pad → — AWP
-      if (rising(3)) this.onMic();                   // Y/△ — mic toggle
+      if (rising(b.mic)) this.onMic();               // mic toggle
     } else {
       // ── menu navigation: A confirm, B back, D-pad / left stick move focus ──
       if (rising(0)) this.onConfirm();               // A/✕ — activate
@@ -166,9 +184,9 @@ export class GamepadControls {
   release(): void {
     this.moveX = 0; this.moveY = 0; this.sprint = false;
     this.lookX = 0; this.lookY = 0;
-    if (this.prev[7]) this.onFire(false);
-    if (this.prev[0]) this.onJump(false);
-    if (this.prev[8]) this.onScore(false);
+    if (this.prev[this.binds.fire]) this.onFire(false);
+    if (this.prev[this.binds.jump]) this.onJump(false);
+    if (this.prev[this.binds.scoreboard]) this.onScore(false);
     this.prev = [];
     this.repeat.x.dir = 0; this.repeat.y.dir = 0;
   }

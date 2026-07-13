@@ -33,6 +33,8 @@ export class Hud {
   onStart: (() => void) | null = null;
   onPlayAgain: (() => void) | null = null;
   onVote: ((mapId: string) => void) | null = null;
+  /** host picked the round-1 starting map in the lobby */
+  onStartMap: ((mapId: string) => void) | null = null;
   onMode: ((mode: ModeId) => void) | null = null;
   onCfg: ((patch: Partial<MatchConfig>) => void) | null = null;
   onHome: (() => void) | null = null;
@@ -531,17 +533,50 @@ export class Hud {
     e.textContent = `${name} · ${Math.ceil(secs)}s`;
   }
 
+  // ── map picker cards (shared by the lobby "starting map" grid + interlude vote) ──
+  /** one map card: preview thumbnail + name/theme, plus optional live vote count.
+   *  `previews[id]` is a screenshot URL (folder-map preview), or absent for no thumbnail. */
+  private static mapCard(m: MapMeta, previews: Record<string, string>, currentId?: string, withCount = false): string {
+    const url = previews[m.id];
+    const preview = url
+      ? `<div class="vpreview" style="background-image:url('${esc(url)}')"></div>`
+      : `<div class="vpreview empty"></div>`;
+    return `<div class="vc" data-id="${esc(m.id)}"${m.id === currentId ? " data-cur=\"1\"" : ""}>` +
+      preview +
+      `<div class="vbody"><div class="vn">${esc(m.name)}</div><div class="vt">${esc(m.theme)}</div></div>` +
+      (withCount ? `<div class="vcount" id="vcount-${esc(m.id)}">0</div>` : "") +
+      (m.id === currentId ? "<div class=\"vcur\">current</div>" : "") +
+      `</div>`;
+  }
+
+  // ── lobby: host's "starting map" picker (round 1) ──
+  /** render the lobby map grid. Host: clickable, sets the round-1 map. Guest: read-only,
+   *  showing the host's pick. `selectedId` is the currently chosen map. */
+  lobbyMaps(metas: MapMeta[], previews: Record<string, string>, selectedId: string | undefined, isHost: boolean): void {
+    const el = $("lobby-maps");
+    el.classList.toggle("readonly", !isHost);
+    // one card per map, the host's pick marked `.sel`
+    el.innerHTML = metas.map((m) => Hud.mapCard(m, previews, undefined)).join("");
+    for (const c of Array.from(el.children)) {
+      const cel = c as HTMLElement;
+      cel.classList.toggle("sel", cel.dataset.id === selectedId);
+      if (isHost) cel.addEventListener("click", () => this.onStartMap?.(cel.dataset.id!));
+    }
+    // hide the picker entirely when there's nothing to choose (single map / none loaded)
+    const only = metas.length <= 1;
+    $("lobby-maps-label").classList.toggle("hidden", metas.length === 0);
+    $("lobby-maps-hint").classList.toggle("hidden", only || !isHost);
+  }
+
   // ── map vote (interlude) ──
-  /** show vote cards (metas) with `currentId` marked, or hide when metas === null */
-  vote(metas: MapMeta[] | null, currentId?: string): void {
+  /** show vote cards (metas) with `currentId` marked, or hide when metas === null.
+   *  `previews` maps a map id to its screenshot URL for the card thumbnail. */
+  vote(metas: MapMeta[] | null, currentId?: string, previews: Record<string, string> = {}): void {
     const el = $("vote");
-    if (!metas) { el.classList.add("hidden"); return; }
+    if (!metas || metas.length === 0) { el.classList.add("hidden"); document.body.classList.remove("voting"); return; }
     el.classList.remove("hidden");
-    $("vote-cards").innerHTML = metas
-      .map((m) => `<div class="vc" data-id="${m.id}"${m.id === currentId ? " data-cur=\"1\"" : ""}>` +
-        `<div class="vn">${esc(m.name)}</div><div class="vt">${esc(m.theme)}</div>` +
-        `<div class="vcount" id="vcount-${m.id}">0</div>${m.id === currentId ? "<div class=\"vcur\">current</div>" : ""}</div>`)
-      .join("");
+    document.body.classList.add("voting"); // pushes the scoreboard up so the two don't overlap
+    $("vote-cards").innerHTML = metas.map((m) => Hud.mapCard(m, previews, currentId, true)).join("");
     for (const c of Array.from($("vote-cards").children)) {
       c.addEventListener("click", () => this.onVote?.((c as HTMLElement).dataset.id!));
     }

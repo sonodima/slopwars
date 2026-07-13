@@ -17,7 +17,7 @@
 | Goal | Description |
 |---|---|
 | **Desktop Map Editor** | GUI application for creating and modifying maps outside the runtime client. |
-| **JSON Map Format** | Maps stored as JSON files under the project `maps/` directory; no map data in TypeScript source. |
+| **JSON Map Format** | Maps stored as JSON files under `public/assets/maps/`; no map data in TypeScript source. |
 | **File-Driven Assets** | All assets (models, textures, audio, materials) live in project directories and are discovered at runtime / edit-time; zero hardcoded asset lists in code. |
 | **Git-First Workflow** | Committing maps, materials, and assets to the repository automatically makes them available to the client. |
 
@@ -36,7 +36,7 @@
 ### 1.3 Directory Conventions
 | Asset | Path | Naming Rule | Metadata |
 |---|---|---|---|
-| **Maps** | `maps/{mapName}.json` | One JSON file per map | Inline in JSON |
+| **Maps** | `public/assets/maps/{id}/map.json` | Folder per map (or flat `{id}.json`); `preview.*` images = picker screenshots | Inline in JSON |
 | **Models** | `public/assets/models/{assetName}/` | Folder name = asset name | Optional `{assetName}.meta.json` inside folder |
 | **Textures (PBR)** | `public/assets/textures/{assetName}/` | Folder name = asset name; expected maps: albedo, normal, roughness/metalness/ao | Optional `meta.json` |
 | **Materials** | `public/assets/materials/{assetName}.json` or `public/assets/materials/{assetName}/` | File or folder name = material name | Same file or `meta.json` |
@@ -55,7 +55,7 @@
 ### 1.5 Editor Features
 | Feature | Specification |
 |---|---|
-| **Map Management** | Load any `maps/*.json`, edit in-place, save, or create new maps that are written to `maps/`. |
+| **Map Management** | Load any map under `public/assets/maps/`, edit in-place, save, or create new maps written back to that folder. |
 | **Asset Import** | Import models, PBR texture sets, audio files; editor creates the correct folder structure and metadata. |
 | **Material Editor** | Create, edit, delete materials; assign PBR texture sets; live preview. |
 | **Model Browser** | List available models, drag-to-rotate preview, place into map. |

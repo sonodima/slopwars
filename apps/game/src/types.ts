@@ -21,6 +21,7 @@ export interface MatchConfig {
   speed: number;       // movement-speed scale (1 = normal)
   thirdPerson: boolean; // whole match plays in a behind-the-back third-person camera
   aiChat: boolean;     // host runs the on-device LLM for NPC trash-talk (Chrome only)
+  startMap?: string;   // host's chosen map for round 1 (undefined → random from rotation)
 }
 export const DEFAULT_CONFIG: MatchConfig = {
   bots: 0, difficulty: "normal", rounds: ROUNDS_PER_GAME, roundTime: ROUND_TIME, gravity: 1, speed: 1,

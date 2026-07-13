@@ -17,8 +17,9 @@ import { GameModels } from "./models";
 import { MapEnv, ModelMeta, ShadowQuality, envSunColor, modelMaterials } from "./maps/schema";
 import { applyFogFalloff, applyPost, applyShadows } from "./rendersettings";
 import {
-  DEFAULT_MAP, loadMapPool, mapById, mapMetas, pickVotedMap, randomMapId, tallyVotes,
+  DEFAULT_MAP, loadMapPool, mapById, mapMetas, mapPreviews, pickVotedMap, randomMapId, ROTATION, tallyVotes,
 } from "./maps";
+import { KeyAction, weaponSlot } from "./keybinds";
 import { HE_DAMAGE, HE_RADIUS, MOL_RADIUS, MOL_TICK_DMG, NadeKind, Projectiles } from "./nades";
 import { Net } from "./net";
 import { PhysicsWorld, type PropSim } from "./physics";
@@ -237,7 +238,8 @@ class Game {
   locked = false;
   sbOpen = false;
 
-  keys = new Set<string>();
+  keys = new Set<string>();        // raw pressed KeyboardEvent.code set (keyboard only)
+  auxJump = false;                 // jump held via touch / gamepad (decoupled from key binds)
   fireHeld = false;
   sendAcc = 0;
   gameAcc = 0;
@@ -454,6 +456,11 @@ class Game {
 
   // ─── input ──────────────────────────────────────────────────────────────────
 
+  /** is the (remappable) key for this action currently held? */
+  private keyDown(a: KeyAction): boolean { return this.keys.has(this.settings.keyCode(a)); }
+  /** vertical look sign — inverted when the "Invert Y" setting is on */
+  private ySign(): number { return this.settings.state.invertY ? -1 : 1; }
+
   bindInput(): void {
     const canvas = document.getElementById("game-canvas") as HTMLCanvasElement;
 
@@ -480,7 +487,7 @@ class Game {
     document.addEventListener("mousemove", (e) => {
       if (!this.locked || !this.inGame || !this.alive) return; // no aiming while dead (cinematic cam)
       const sens = 0.0022 * this.settings.state.sensitivity * (this.ws.scoped ? 0.35 : 1);
-      this.body.look(e.movementX, e.movementY, sens);
+      this.body.look(e.movementX, e.movementY * this.ySign(), sens);
     });
 
     document.addEventListener("mousedown", (e) => {
@@ -509,16 +516,17 @@ class Game {
       }
       if (!this.inGame) return;
       if (this.hud.chatOpen) return; // chat input handles its own keys
-      if (e.code === "Tab") { e.preventDefault(); this.sbOpen = true; }
+      const action = this.settings.keyActionFor(e.code); // remappable → action, or null
+      if (action === "scoreboard") { e.preventDefault(); this.sbOpen = true; }
       if (!this.locked) return;
-      if (e.code === "KeyT" || e.code === "Enter") {
+      if (action === "chat" || e.code === "Enter") {
         e.preventDefault();
         this.keys.clear();
         this.fireHeld = false;
         this.hud.openChat();
         return;
       }
-      if (e.code === "KeyV") {
+      if (action === "mic") {
         if (this.voice.micOk) {
           this.voice.setMuted(!this.voice.muted);
           this.hud.voice(this.voice.muted ? "muted" : "on");
@@ -526,12 +534,12 @@ class Game {
         return;
       }
       this.keys.add(e.code);
-      if (e.code === "KeyR") this.localReload();
-      const wi = ["Digit1", "Digit2", "Digit3", "Digit4", "Digit5", "Digit6"].indexOf(e.code);
+      if (action === "reload") this.localReload();
+      const wi = weaponSlot(action);
       if (wi >= 0 && this.alive && this.canSwitchWeapon()) { this.ws.select(LOADOUT[wi]); this.applyScopeFov(); }
     });
     document.addEventListener("keyup", (e) => {
-      if (e.code === "Tab") this.sbOpen = false;
+      if (this.settings.keyActionFor(e.code) === "scoreboard") this.sbOpen = false;
       this.keys.delete(e.code);
     });
   }
@@ -928,6 +936,11 @@ class Game {
 
   bindSettings(): void {
     this.settings.build();
+    // let Settings capture a single gamepad button when rebinding a controller control
+    this.settings.onCapturePad = (done) => {
+      this.gamepad.onCapture = (i) => done(i);
+      return () => { this.gamepad.onCapture = null; };
+    };
     this.settings.onChange = () => {
       this.applySettings();
       // toggling NPC AI chat on while the model isn't downloaded yet kicks off the
@@ -1013,6 +1026,7 @@ class Game {
     this.applyGraphics();
     this.applyScopeFov(); // picks up fov
     document.getElementById("stats")!.classList.toggle("hidden", !this.settings.state.showStats);
+    this.gamepad.binds = this.settings.padBinds(); // pick up remapped controller buttons
   }
 
   /** the device quality preset as a ceiling on the map's authored shadow tier
@@ -1067,7 +1081,7 @@ class Game {
       this.fireHeld = down;
       if (down) this.triedFireQueued = true;
     };
-    t.onJump = (down) => { if (down) this.keys.add("Space"); else this.keys.delete("Space"); };
+    t.onJump = (down) => { this.auxJump = down; };
     t.onScore = (down) => { this.sbOpen = down; };
     t.onScope = () => {
       if (this.ws.def().scope && this.alive) { this.ws.setScope(!this.ws.scoped); this.applyScopeFov(); }
@@ -1128,7 +1142,7 @@ class Game {
       this.fireHeld = down;
       if (down) this.triedFireQueued = true;
     };
-    g.onJump = (down) => { if (down) this.keys.add("Space"); else this.keys.delete("Space"); };
+    g.onJump = (down) => { this.auxJump = down; };
     g.onScore = (down) => { this.sbOpen = down; };
     g.onScope = () => {
       if (this.ws.def().scope && this.alive) { this.ws.setScope(!this.ws.scoped); this.applyScopeFov(); }
@@ -1152,10 +1166,39 @@ class Game {
 
     // a freshly plugged-in pad becomes the device on its first input (handled by poll);
     // if the active pad is unplugged mid-match, fall back to mouse/keyboard.
-    window.addEventListener("gamepadconnected", () => this.hud.banner("Gamepad connected"));
+    window.addEventListener("gamepadconnected", () => this.nudgeGamepad());
     window.addEventListener("gamepaddisconnected", () => {
       if (this.myPlatform === "gamepad") this.setPlatform("keyboard");
     });
+    // ── installed-PWA focus fix ──
+    // Chromium only reports gamepad button/axis VALUES while the window holds focus, and a
+    // pad only becomes our active device on its first non-idle input (poll → onActivity).
+    // A browser tab almost always already has focus, but an installed PWA (display:
+    // fullscreen/standalone) can be launched or resumed unfocused — so a connected pad reads
+    // idle forever and "the controller doesn't work". When focus/visibility returns and a pad
+    // is present, re-surface the actionable hint so the player knows to press a button (which
+    // then flows through poll and switches us into gamepad mode).
+    const onRegainFocus = (): void => {
+      if (document.visibilityState === "visible" && this.myPlatform !== "gamepad" && this.hasGamepad()) {
+        this.nudgeGamepad();
+      }
+    };
+    window.addEventListener("focus", onRegainFocus);
+    document.addEventListener("visibilitychange", onRegainFocus);
+  }
+
+  /** is any gamepad currently connected (regardless of whether it's the active device)? */
+  private hasGamepad(): boolean {
+    const pads = typeof navigator !== "undefined" && navigator.getGamepads ? navigator.getGamepads() : [];
+    for (const p of pads) if (p && p.connected) return true;
+    return false;
+  }
+
+  /** actionable "press a button" hint — a connected pad only activates on its first input
+   *  (and only reports input while the window is focused; see the PWA focus note above). */
+  private nudgeGamepad(): void {
+    if (this.myPlatform === "gamepad") return;
+    this.hud.banner("Gamepad connected — press a button to use it");
   }
 
   // ─── platform (input-device) sync ─────────────────────────────────────────────
@@ -1277,11 +1320,15 @@ class Game {
 
   /** Per-frame aim assist for controller + touch. Sets `aimFriction` (look-input slowdown
    *  near a target) and nudges the view to follow a *moving* target. Disabled for mouse,
-   *  when the strength slider is 0, while dead / not playing, on throwables, and in menus. */
+   *  when the strength slider is 0, while dead / not playing, on throwables, and in menus.
+   *  Also disabled entirely in Prop Hunt: the mode's whole point is that hiders are
+   *  disguised as props, so magnetizing a seeker's reticle onto them would give the hunt
+   *  away and defeat the hide mechanic. */
   updateAimAssist(dt: number, nowMs: number): void {
     this.aimFriction = 1;
     const eligible = (this.myPlatform === "gamepad" || this.myPlatform === "touch")
-      && this.settings.state.aimAssist && this.alive && this.phase === "play" && !this.isHider()
+      && this.settings.state.aimAssist && this.alive && this.phase === "play"
+      && this.mode !== "prophunt" && !this.isHider()
       && !this.settings.isOpen() && !this.hud.chatOpen && !this.ws.def().throwable;
     if (!eligible) { this.aimTargetId = null; this.aimPrevTargetPos = null; return; }
 
@@ -1345,24 +1392,24 @@ class Game {
     if (!navRoot && this.navFocusEl) this.clearNav(); // left the menus → drop the focus ring
     this.gamepad.poll();
     if (this.inGame) {
-      const kFwd = (this.keys.has("KeyW") ? 1 : 0) - (this.keys.has("KeyS") ? 1 : 0);
-      const kRight = (this.keys.has("KeyD") ? 1 : 0) - (this.keys.has("KeyA") ? 1 : 0);
+      const kFwd = (this.keyDown("forward") ? 1 : 0) - (this.keyDown("back") ? 1 : 0);
+      const kRight = (this.keyDown("right") ? 1 : 0) - (this.keyDown("left") ? 1 : 0);
       const inp: Input = {
         fwd: clamp(kFwd + this.touch.moveY + this.gamepad.moveY, -1, 1),
         right: clamp(kRight + this.touch.moveX + this.gamepad.moveX, -1, 1),
-        jump: this.keys.has("Space"),
-        sprint: this.keys.has("ShiftLeft") || this.keys.has("ShiftRight") || this.touch.sprint || this.gamepad.sprint,
+        jump: this.keyDown("jump") || this.auxJump,
+        sprint: this.keyDown("sprint") || this.touch.sprint || this.gamepad.sprint,
       };
       // aim assist (controller / touch): compute friction + apply target-follow. Must run
       // before the gamepad look below so the friction scale is fresh this frame.
       this.updateAimAssist(dt, performance.now());
       // gamepad look: analog right stick applied per-frame, like mouse-look (scaled by
-      // the sensitivity setting; halved while scoped, matching mouse ADS; and slowed by
-      // aim-assist friction when the crosshair is near a target).
+      // the controller sensitivity setting; halved while scoped, matching mouse ADS; and
+      // slowed by aim-assist friction when the crosshair is near a target).
       if (this.myPlatform === "gamepad" && this.alive && this.phase === "play" && !this.hud.chatOpen
           && (this.gamepad.lookX || this.gamepad.lookY)) {
-        const sens = GP_LOOK_RATE * dt * this.settings.state.sensitivity * (this.ws.scoped ? 0.35 : 1) * this.aimFriction;
-        this.body.look(this.gamepad.lookX, this.gamepad.lookY, sens);
+        const sens = GP_LOOK_RATE * dt * this.settings.state.padSensitivity * (this.ws.scoped ? 0.35 : 1) * this.aimFriction;
+        this.body.look(this.gamepad.lookX, this.gamepad.lookY * this.ySign(), sens);
       }
       // prop hunt: seekers are frozen during the hide window; hiders are unarmed props
       const frozen = this.mode === "prophunt" && this.myRole === ROLE_SEEK && this.inPrepPhase();
@@ -2163,10 +2210,12 @@ class Game {
   }
 
   async hostStartRound(n: number): Promise<void> {
-    // round 1 = random map; later rounds = plurality of the interlude vote when
-    // there are human guests to vote, otherwise just keep rotating randomly
-    const mapId = n === 1 ? randomMapId()
-      : this.hasHumanGuests() ? pickVotedMap(this.mapVotes) : this.currentMapId;
+    // round 1 = the host's lobby pick (falling back to a random rotation map if unset /
+    // no longer valid); later rounds = plurality of the interlude vote, which itself falls
+    // back to random when nobody voted ("vote to change, otherwise random").
+    const picked = this.cfg.startMap;
+    const validPick = !!picked && ROTATION.some((m) => m.meta.id === picked);
+    const mapId = n === 1 ? (validPick ? picked! : randomMapId()) : pickVotedMap(this.mapVotes);
     await this.loadMap(mapId);
     this.mapVotes = {};
     this.myVote = null;
@@ -2379,13 +2428,15 @@ class Game {
 
   // ─── map voting (interlude) ────────────────────────────────────────────────────
 
-  /** open the next-map vote card UI for the interlude */
+  /** open the next-map vote card UI for the interlude. Shown for everyone (solo included) so
+   *  the local player can always pick the next map; with nobody voting it stays random. Only
+   *  hidden when there's a single map (nothing to choose). */
   openVote(currentId: string): void {
-    if (!this.hasHumanGuests()) { this.hud.vote(null); return; } // no human voters → keep rotating
     this.myVote = null;
     if (this.net.isHost) this.mapVotes = {};
     this.lastVoteCounts = {};
-    this.hud.vote(mapMetas(), currentId);
+    if (ROTATION.length <= 1) { this.hud.vote(null); return; } // one map → no vote
+    this.hud.vote(mapMetas(), currentId, this.mapPreviewMap());
     this.hud.voteCounts({}, null);
   }
 
@@ -2866,6 +2917,9 @@ class Game {
         this.scores["host"] = { k: 0, d: 0 };
         this.hpMap["host"] = MAX_HP;
         this.platforms["host"] = this.myPlatform; // seed our own list icon
+        // default the round-1 map to the first rotation map so the lobby shows a real,
+        // pickable selection (mirrored to guests with cfg); the host can change it.
+        if (!this.cfg.startMap) this.cfg.startMap = ROTATION[0]?.meta.id ?? DEFAULT_MAP;
         this.refreshLobby();
         this.hud.show("lobby");
         this.enterLobby();
@@ -2906,6 +2960,7 @@ class Game {
     };
 
     this.hud.onVote = (id) => this.castVote(id);
+    this.hud.onStartMap = (id) => this.setCfg({ startMap: id });
     this.hud.onMode = (id) => this.setMode(id);
     this.hud.onCfg = (patch) => this.setCfg(patch);
     this.hud.onHome = () => this.leaveToMenu();
@@ -3318,8 +3373,18 @@ class Game {
 
   refreshLobby(): void {
     this.hud.lobby(this.net.lobbyCode, this.net.players, this.net.isHost, this.mode, this.cfg, this.net.myId, this.platforms);
+    // host's round-1 map picker (guests see it read-only). The shown selection defaults to
+    // the rotation default until the host picks, so what's highlighted is what round 1 uses.
+    this.hud.lobbyMaps(mapMetas(), this.mapPreviewMap(), this.cfg.startMap ?? DEFAULT_MAP, this.net.isHost);
     this.hud.setOffline(this.net.offline);
     this.refreshLobbyAvatars();
+  }
+
+  /** map id → its first preview screenshot URL (for the picker/vote card thumbnails) */
+  private mapPreviewMap(): Record<string, string> {
+    const out: Record<string, string> = {};
+    for (const m of mapMetas()) { const p = mapPreviews(m.id); if (p.length) out[m.id] = p[0]; }
+    return out;
   }
 
   // ─── 3D lobby ─────────────────────────────────────────────────────────────────

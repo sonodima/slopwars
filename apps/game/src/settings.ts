@@ -1,19 +1,28 @@
-// ─── User settings: graphics quality preset + aim/FOV/HUD prefs ──────────────
+// ─── User settings: graphics quality preset + aim/FOV/HUD prefs + key bindings ─
 // Pure state + persistence + the settings-overlay DOM. Engine-agnostic: main.ts
-// maps `quality` onto concrete camera/scene knobs via its own applyGraphics().
+// maps `quality` onto concrete camera/scene knobs via its own applyGraphics(), and
+// reads the (remappable) key/pad bindings when interpreting input.
+import {
+  DEFAULT_KEYS, DEFAULT_PADS, KEY_ACTIONS, KeyAction, keyLabel, PAD_ACTIONS, PadAction, padLabel,
+} from "./keybinds";
+
 const $ = (id: string): HTMLElement => document.getElementById(id)!;
 
 export type Quality = "low" | "medium" | "high";
 
 export interface SettingsState {
   quality: Quality;
-  sensitivity: number; // look-speed multiplier (mouse + touch)
+  sensitivity: number; // mouse + touch look-speed multiplier
+  padSensitivity: number; // controller (right-stick) look-speed multiplier
+  invertY: boolean; // invert the vertical look axis (mouse + controller)
   fov: number; // vertical FOV in degrees (hip-fire)
   aimAssist: boolean; // controller + touch aim assist on/off (ignored for mouse+keyboard)
   showStats: boolean; // perf overlay
   aiChat: boolean; // host-only: run the on-device LLM for NPC trash-talk (Chrome built-in AI)
   aiPrompted: boolean; // whether we've already asked to download the model (gates the boot consent)
   name: string; // persisted callsign
+  keys: Partial<Record<KeyAction, string>>; // keyboard rebindings (over DEFAULT_KEYS)
+  pads: Partial<Record<PadAction, number>>; // gamepad button rebindings (over DEFAULT_PADS)
 }
 
 const KEY = "slopwars.settings";
@@ -22,7 +31,10 @@ const KEY = "slopwars.settings";
 // armed either from the first-run consent prompt or the Settings toggle.
 // aimAssist defaults ON: it's a comfort feature for controller/touch players and does
 // nothing on mouse+keyboard, so there's no downside to shipping it enabled.
-const DEFAULTS: SettingsState = { quality: "high", sensitivity: 1, fov: 75, aimAssist: true, showStats: true, aiChat: false, aiPrompted: false, name: "" };
+const DEFAULTS: SettingsState = {
+  quality: "high", sensitivity: 1, padSensitivity: 1, invertY: false, fov: 75, aimAssist: true,
+  showStats: true, aiChat: false, aiPrompted: false, name: "", keys: {}, pads: {},
+};
 
 function load(): SettingsState {
   let s: SettingsState = { ...DEFAULTS };
@@ -30,18 +42,41 @@ function load(): SettingsState {
     const raw = localStorage.getItem(KEY);
     if (raw) s = { ...DEFAULTS, ...JSON.parse(raw) };
   } catch { /* ignore corrupt / unavailable storage */ }
+  if (!s.keys || typeof s.keys !== "object") s.keys = {};
+  if (!s.pads || typeof s.pads !== "object") s.pads = {};
   if (!s.name) s.name = "player" + ((Math.random() * 900 + 100) | 0);
   return s;
 }
 
 export class Settings {
   state: SettingsState = load();
-  /** fired whenever a value changes (main.ts re-applies graphics/fov/etc.) */
+  /** fired whenever a value changes (main.ts re-applies graphics/fov/bindings/etc.) */
   onChange: (s: SettingsState) => void = () => {};
+  /** request a single gamepad-button capture; returns a cancel fn. Wired by main.ts (it
+   *  owns the pad poll). Called when the player clicks a controller binding to rebind it. */
+  onCapturePad: ((done: (index: number) => void) => (() => void)) | null = null;
   /** whether this browser can actually run the NPC-chat model (Chrome Prompt API).
    *  Learned asynchronously at boot; gates the toggle so it can't be armed uselessly. */
   aiSupported = false;
   private built = false;
+  /** active rebind in progress (row highlighted, waiting for input), or null */
+  private capturing: { device: "key" | "pad"; action: string } | null = null;
+  private cancelCapture: (() => void) | null = null;
+
+  // ── resolved bindings (state override → default) ──
+  keyCode(a: KeyAction): string { return this.state.keys[a] ?? DEFAULT_KEYS[a]; }
+  padButton(a: PadAction): number { return this.state.pads[a] ?? DEFAULT_PADS[a]; }
+  /** the key action a code is currently bound to (reverse lookup), or null */
+  keyActionFor(code: string): KeyAction | null {
+    for (const { action } of KEY_ACTIONS) if (this.keyCode(action) === code) return action;
+    return null;
+  }
+  /** current gamepad button index → action map (for gamepad.ts) */
+  padBinds(): Record<PadAction, number> {
+    const out = {} as Record<PadAction, number>;
+    for (const { action } of PAD_ACTIONS) out[action] = this.padButton(action);
+    return out;
+  }
 
   /** wire the overlay controls (call once, after the DOM exists) */
   build(): void {
@@ -53,8 +88,11 @@ export class Settings {
     }
     const sens = $("set-sens") as HTMLInputElement;
     sens.addEventListener("input", () => this.set({ sensitivity: parseFloat(sens.value) }));
+    const padSens = $("set-padsens") as HTMLInputElement;
+    padSens.addEventListener("input", () => this.set({ padSensitivity: parseFloat(padSens.value) }));
     const fov = $("set-fov") as HTMLInputElement;
     fov.addEventListener("input", () => this.set({ fov: parseInt(fov.value, 10) }));
+    $("set-invert").addEventListener("click", () => this.set({ invertY: !this.state.invertY }));
     $("set-aim").addEventListener("click", () => this.set({ aimAssist: !this.state.aimAssist }));
     $("set-stats").addEventListener("click", () => this.set({ showStats: !this.state.showStats }));
     $("set-aichat").addEventListener("click", () => {
@@ -66,7 +104,73 @@ export class Settings {
     // tapping the dimmed backdrop (outside the panel) closes too
     $("settings").addEventListener("pointerdown", (e) => { if (e.target === $("settings")) this.close(); });
 
+    this.buildBindings();
     this.refresh();
+  }
+
+  // ── key/pad rebinding UI ───────────────────────────────────────────────────
+  /** one-time construction of the keyboard + gamepad binding rows + their listeners */
+  private buildBindings(): void {
+    const rows = (id: string, defs: { action: string; label: string }[], device: "key" | "pad"): void => {
+      $(id).innerHTML = defs.map((d) =>
+        `<div class="bind-row" data-action="${d.action}"><span class="bind-label">${d.label}</span>` +
+        `<button class="bind-key" data-device="${device}" data-action="${d.action}"></button></div>`).join("");
+    };
+    rows("set-keybinds", KEY_ACTIONS, "key");
+    rows("set-padbinds", PAD_ACTIONS, "pad");
+    // delegate clicks on any binding button → start capturing a new key/button for it
+    const wire = (id: string): void => {
+      $(id).addEventListener("click", (e) => {
+        const btn = (e.target as HTMLElement).closest(".bind-key") as HTMLElement | null;
+        if (btn) this.beginRebind(btn.dataset.device as "key" | "pad", btn.dataset.action!);
+      });
+    };
+    wire("set-keybinds");
+    wire("set-padbinds");
+    $("set-keys-reset").addEventListener("click", () => { this.cancelRebind(); this.set({ keys: {} }); });
+    $("set-pads-reset").addEventListener("click", () => { this.cancelRebind(); this.set({ pads: {} }); });
+    // collapse/expand the (long) controls section
+    $("set-controls-toggle").addEventListener("click", () => {
+      const open = $("set-controls").classList.toggle("open");
+      $("set-controls-toggle").textContent = open ? "Controls ▴" : "Controls ▾";
+    });
+  }
+
+  /** begin capturing a replacement key/button for `action`. Escape (or picking again)
+   *  cancels. Persists on the first valid input, then re-renders. */
+  private beginRebind(device: "key" | "pad", action: string): void {
+    this.cancelRebind();
+    this.capturing = { device, action };
+    this.refresh();
+    if (device === "key") {
+      const onKey = (e: KeyboardEvent): void => {
+        e.preventDefault();
+        e.stopImmediatePropagation(); // never let the rebind keystroke reach the game
+        if (e.code !== "Escape") this.set({ keys: { ...this.state.keys, [action]: e.code } });
+        this.finishRebind(onKey);
+      };
+      window.addEventListener("keydown", onKey, { capture: true });
+      this.cancelCapture = () => window.removeEventListener("keydown", onKey, { capture: true } as EventListenerOptions);
+    } else {
+      const cancel = this.onCapturePad?.((index) => {
+        this.set({ pads: { ...this.state.pads, [action]: index } });
+        this.finishRebind();
+      });
+      this.cancelCapture = cancel ?? null;
+    }
+  }
+
+  private finishRebind(onKey?: (e: KeyboardEvent) => void): void {
+    if (onKey) window.removeEventListener("keydown", onKey, { capture: true } as EventListenerOptions);
+    this.cancelCapture = null;
+    this.capturing = null;
+    this.refresh();
+  }
+
+  /** abort any in-progress capture without changing a binding */
+  private cancelRebind(): void {
+    if (this.cancelCapture) { this.cancelCapture(); this.cancelCapture = null; }
+    if (this.capturing) { this.capturing = null; this.refresh(); }
   }
 
   private set(patch: Partial<SettingsState>): void {
@@ -102,15 +206,15 @@ export class Settings {
       b.classList.toggle("on", (b as HTMLElement).dataset.v === s.quality);
     }
     ($("set-sens") as HTMLInputElement).value = String(s.sensitivity);
+    ($("set-padsens") as HTMLInputElement).value = String(s.padSensitivity);
     ($("set-fov") as HTMLInputElement).value = String(s.fov);
     $("set-sens-val").textContent = s.sensitivity.toFixed(2);
+    $("set-padsens-val").textContent = s.padSensitivity.toFixed(2);
     $("set-fov-val").textContent = String(s.fov);
-    const aimTgl = $("set-aim");
-    aimTgl.classList.toggle("on", s.aimAssist);
-    aimTgl.setAttribute("aria-pressed", String(s.aimAssist));
-    const tgl = $("set-stats");
-    tgl.classList.toggle("on", s.showStats);
-    tgl.setAttribute("aria-pressed", String(s.showStats));
+    this.toggleBtn("set-invert", s.invertY);
+    this.toggleBtn("set-aim", s.aimAssist);
+    this.toggleBtn("set-stats", s.showStats);
+    this.refreshBindings();
 
     const ai = $("set-aichat");
     const aiOn = this.aiSupported && s.aiChat;      // only "on" where the model can run
@@ -121,8 +225,34 @@ export class Settings {
     if (status) status.textContent = this.aiSupported ? "" : "Not available on this browser.";
   }
 
+  private toggleBtn(id: string, on: boolean): void {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.classList.toggle("on", on);
+    el.setAttribute("aria-pressed", String(on));
+  }
+
+  /** paint each binding button with its current key/button label (or "press…" while
+   *  that row is capturing a replacement) */
+  private refreshBindings(): void {
+    for (const { action } of KEY_ACTIONS) {
+      const btn = document.querySelector<HTMLElement>(`#set-keybinds .bind-key[data-action="${action}"]`);
+      if (!btn) continue;
+      const cap = this.capturing?.device === "key" && this.capturing.action === action;
+      btn.textContent = cap ? "press a key…" : keyLabel(this.keyCode(action));
+      btn.classList.toggle("capturing", cap);
+    }
+    for (const { action } of PAD_ACTIONS) {
+      const btn = document.querySelector<HTMLElement>(`#set-padbinds .bind-key[data-action="${action}"]`);
+      if (!btn) continue;
+      const cap = this.capturing?.device === "pad" && this.capturing.action === action;
+      btn.textContent = cap ? "press a button…" : padLabel(this.padButton(action));
+      btn.classList.toggle("capturing", cap);
+    }
+  }
+
   open(): void { this.refresh(); $("settings").classList.remove("hidden"); }
-  close(): void { $("settings").classList.add("hidden"); }
+  close(): void { this.cancelRebind(); $("settings").classList.add("hidden"); }
   toggle(): void { this.isOpen() ? this.close() : this.open(); }
   isOpen(): boolean { return !$("settings").classList.contains("hidden"); }
 }

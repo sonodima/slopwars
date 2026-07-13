@@ -10,6 +10,8 @@ import { logAsset } from "../assets";
 const BASE = import.meta.env.BASE_URL;
 
 const BY_ID = new Map<string, MapDef>();
+/** id → screenshot URLs (from a folder map's preview.json), shown in the map picker */
+const PREVIEWS = new Map<string, string[]>();
 /** every map, in catalog order (loaded by loadMapPool) */
 export let MAP_POOL: MapDef[] = [];
 /** maps eligible for random selection / the vote (meta.rotate !== false) */
@@ -19,13 +21,13 @@ export let DEFAULT_MAP = "koi";
 
 /** fetch all maps referenced by the catalog into the registry (once, at boot) */
 export async function loadMapPool(): Promise<void> {
-  const defs = await Promise.all(
-    mapCatalog.map(async (e): Promise<MapDef | null> => {
+  const loaded = await Promise.all(
+    mapCatalog.map(async (e): Promise<{ def: MapDef; previews: string[] } | null> => {
       try {
         logAsset("map", e.file);
         const res = await fetch(`${BASE}${e.file}`);
         if (!res.ok) throw new Error(`${res.status}`);
-        return (await res.json()) as MapDef;
+        return { def: (await res.json()) as MapDef, previews: (e.previews ?? []).map((p) => `${BASE}${p}`) };
       } catch (err) {
         console.warn("[maps] failed to load", e.file, err);
         return null;
@@ -33,8 +35,10 @@ export async function loadMapPool(): Promise<void> {
     }),
   );
   BY_ID.clear();
-  MAP_POOL = defs.filter((d): d is MapDef => d !== null);
-  for (const d of MAP_POOL) BY_ID.set(d.meta.id, d);
+  PREVIEWS.clear();
+  const ok = loaded.filter((d): d is { def: MapDef; previews: string[] } => d !== null);
+  MAP_POOL = ok.map((d) => d.def);
+  for (const d of ok) { BY_ID.set(d.def.meta.id, d.def); if (d.previews.length) PREVIEWS.set(d.def.meta.id, d.previews); }
   ROTATION = MAP_POOL.filter((m) => m.meta.rotate !== false);
   if (ROTATION.length === 0) ROTATION = MAP_POOL.slice();
   DEFAULT_MAP = BY_ID.has("office") ? "office" : (MAP_POOL[0]?.meta.id ?? "koi");
@@ -42,6 +46,11 @@ export async function loadMapPool(): Promise<void> {
 
 export function mapById(id: string): MapDef {
   return BY_ID.get(id) ?? MAP_POOL[0] ?? emptyMap("empty", "Empty");
+}
+
+/** screenshot URLs for a map's picker card (empty when the map ships no preview.json) */
+export function mapPreviews(id: string): string[] {
+  return PREVIEWS.get(id) ?? [];
 }
 
 /** metas of maps in the vote rotation (order = card order in the vote UI) */

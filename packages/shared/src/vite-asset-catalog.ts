@@ -1,19 +1,20 @@
-// ─── Vite plugin: file-driven asset scanner + map serving ─────────────────────
+// ─── Vite plugin: file-driven asset scanner ───────────────────────────────────
 // This is the heart of the asset pipeline. At dev/build time it reads the
-// project's `public/assets/` and `maps/` directories from disk and exposes them
-// to both apps through virtual modules, so no asset file names are ever written
-// into game or editor source:
+// project's `public/assets/` directory (which now also holds `maps/`) from disk
+// and exposes it to both apps through virtual modules, so no asset file names are
+// ever written into game or editor source:
 //
 //   import catalog from "virtual:asset-catalog"   // AssetCatalog
 //   import maps    from "virtual:map-catalog"      // MapCatalogEntry[]
 //
-// In dev it also serves `maps/*.json` (which live outside publicDir). On build,
-// every map is emitted into the bundle so the deployed client can fetch it.
+// Maps live under `public/assets/maps/` alongside every other asset, so they're part
+// of the game's publicDir: Vite serves them in dev and copies them into the build
+// itself. The client fetches `./assets/maps/<id>/map.json` at runtime.
 //
 // The editor's write path (save maps, import assets) and MCP bridge used to live
 // here as dev-server middleware. They now run in the editor's Tauri backend
-// (apps/editor/src-tauri/), so this plugin is read-only again — it only provides
-// the catalog to both apps and serves maps to the game in dev.
+// (apps/editor/src-tauri/), so this plugin is read-only — it only provides the
+// catalog to both apps.
 import fs from "node:fs";
 import path from "node:path";
 import type { Plugin } from "vite";
@@ -140,16 +141,64 @@ export function scanAssets(root: string): AssetCatalog {
   };
 }
 
+// Maps live alongside every other asset, under public/assets/maps/. Because that's inside
+// the game's publicDir, Vite serves them in dev and copies them into the build with no
+// custom plumbing — exactly like models/textures/audio. A map is either a flat
+// `maps/<id>.json` or a `maps/<id>/` folder holding the map JSON + screenshot images.
+const MAPS_SUBDIR = path.join("public", "assets", "maps");
+/** served-root-relative prefix a map (or its previews) is fetched under */
+const MAPS_URL = "assets/maps";
+const PREVIEW_IMG = /\.(jpe?g|png|webp|avif)$/i;
+
+/** the map JSON inside a `maps/<id>/` folder — prefer map.json, then <id>.json, else the
+ *  first *.json that parses as a MapDef (has a `meta`). */
+function folderMapFile(dir: string, id: string): string | null {
+  const files = readFilesFlat(dir).filter((f) => f.endsWith(".json"));
+  const exact = files.find((f) => f === "map.json") ?? files.find((f) => f === `${id}.json`);
+  if (exact) return exact;
+  for (const f of files) {
+    try { if (JSON.parse(fs.readFileSync(path.join(dir, f), "utf8"))?.meta) return f; } catch { /* skip */ }
+  }
+  return null;
+}
+
+/** screenshot paths (served-root-relative) for a folder map — every image file dropped in
+ *  the folder, with any file named `preview.*` first, then the rest alphabetically. No
+ *  manifest: an author just adds `preview.jpg` (or several images) and they show up. */
+function folderPreviews(dir: string, id: string): string[] {
+  const imgs = readFilesFlat(dir).filter((f) => PREVIEW_IMG.test(f)).sort((a, b) => {
+    const pa = /^preview\./i.test(a) ? 0 : 1, pb = /^preview\./i.test(b) ? 0 : 1;
+    return pa - pb || a.localeCompare(b);
+  });
+  return imgs.map((f) => `${MAPS_URL}/${id}/${f}`);
+}
+
 export function scanMaps(root: string): MapCatalogEntry[] {
-  const dir = path.join(root, "maps");
+  const dir = path.join(root, MAPS_SUBDIR);
   if (!fs.existsSync(dir)) return [];
   const out: MapCatalogEntry[] = [];
+  // flat maps: assets/maps/<id>.json
   for (const f of readFilesFlat(dir)) {
     if (!f.endsWith(".json")) continue;
     try {
       const def = JSON.parse(fs.readFileSync(path.join(dir, f), "utf8"));
       const meta = def?.meta ?? {};
-      out.push({ id: meta.id ?? f.replace(/\.json$/, ""), name: meta.name ?? f, theme: meta.theme ?? "", file: `maps/${f}` });
+      out.push({ id: meta.id ?? f.replace(/\.json$/, ""), name: meta.name ?? f, theme: meta.theme ?? "", file: `${MAPS_URL}/${f}` });
+    } catch { /* skip malformed */ }
+  }
+  // folder maps: assets/maps/<id>/(map.json | <id>.json) + screenshot images
+  for (const d of readDirs(dir)) {
+    const sub = path.join(dir, d);
+    const mapFile = folderMapFile(sub, d);
+    if (!mapFile) continue;
+    try {
+      const def = JSON.parse(fs.readFileSync(path.join(sub, mapFile), "utf8"));
+      const meta = def?.meta ?? {};
+      const previews = folderPreviews(sub, d);
+      out.push({
+        id: meta.id ?? d, name: meta.name ?? d, theme: meta.theme ?? "",
+        file: `${MAPS_URL}/${d}/${mapFile}`, ...(previews.length ? { previews } : {}),
+      });
     } catch { /* skip malformed */ }
   }
   return out.sort((a, b) => a.name.localeCompare(b.name));
@@ -169,49 +218,35 @@ export function assetCatalogPlugin(opts: Options = {}): Plugin {
       if (id === "\0" + V_MAPS) return `export default ${JSON.stringify(scanMaps(root))};`;
     },
 
-    // maps live outside publicDir → emit them into the build so the deployed
-    // client can fetch `./maps/<id>.json`.
-    generateBundle() {
-      const dir = path.join(root, "maps");
-      if (!fs.existsSync(dir)) return;
-      for (const f of readFilesFlat(dir)) {
-        if (!f.endsWith(".json")) continue;
-        this.emitFile({ type: "asset", fileName: `maps/${f}`, source: fs.readFileSync(path.join(dir, f), "utf8") });
-      }
-    },
+    // Maps now live under public/assets/maps/, i.e. inside the game's publicDir, so Vite
+    // serves them in dev and copies them into the build itself — no custom emit/middleware.
 
     configureServer(server) {
-      const mapsDir = path.join(root, "maps");
       const assetsDir = path.join(root, "public", "assets");
+      const mapsDir = path.join(root, MAPS_SUBDIR);
 
       // Live catalog refresh: publicDir isn't part of Vite's module graph, so editing an
       // asset — most importantly a model's meta.json (its scale, materials, or `muzzle`
-      // anchor) — used to leave `virtual:asset-catalog` stale until the dev server was
-      // restarted. The game/editor then rendered with the OLD meta (e.g. a muzzle flash
-      // at the previous anchor), so freshly-authored edits looked like they hadn't
-      // applied. Watch the asset tree and, on any change, invalidate the virtual module
-      // (its `load` re-scans from disk) and full-reload so edits show up immediately.
+      // anchor), or a map's JSON — used to leave the virtual catalog stale until the dev
+      // server was restarted. The game/editor then rendered with the OLD data, so
+      // freshly-authored edits looked like they hadn't applied. Watch the asset tree and,
+      // on any change, invalidate the virtual module(s) (their `load` re-scans from disk)
+      // and full-reload so edits show up immediately.
       server.watcher.add(assetsDir);
       const refreshCatalog = (file: string): void => {
         if (!file.startsWith(assetsDir)) return;
-        const mod = server.moduleGraph.getModuleById("\0" + V_ASSETS);
-        if (mod) server.moduleGraph.invalidateModule(mod);
+        const invalidate = (v: string): void => {
+          const mod = server.moduleGraph.getModuleById("\0" + v);
+          if (mod) server.moduleGraph.invalidateModule(mod);
+        };
+        invalidate(V_ASSETS);
+        // a change under the maps/ subtree also invalidates the map catalog
+        if (file.startsWith(mapsDir)) invalidate(V_MAPS);
         server.ws.send({ type: "full-reload" });
       };
       server.watcher.on("add", refreshCatalog);
       server.watcher.on("change", refreshCatalog);
       server.watcher.on("unlink", refreshCatalog);
-
-      // serve maps/*.json in dev (they are not under publicDir)
-      server.middlewares.use((req, res, next) => {
-        const url = (req.url ?? "").split("?")[0];
-        if (req.method === "GET" && url.startsWith("/maps/") && url.endsWith(".json")) {
-          const file = path.join(mapsDir, path.basename(url));
-          if (fs.existsSync(file)) { res.setHeader("Content-Type", "application/json"); res.end(fs.readFileSync(file)); return; }
-          res.statusCode = 404; res.end("map not found"); return;
-        }
-        return next();
-      });
     },
   };
 }
