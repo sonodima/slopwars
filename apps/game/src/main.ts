@@ -461,6 +461,15 @@ class Game {
   /** vertical look sign — inverted when the "Invert Y" setting is on */
   private ySign(): number { return this.settings.state.invertY ? -1 : 1; }
 
+  /** Release the pointer lock if we hold it. Guarded because the Pointer Lock API is
+   *  absent on some touch browsers (notably iOS Safari) where `document.exitPointerLock`
+   *  is undefined — calling it there throws, and at match end this runs inside the frame
+   *  loop, so the exception would kill the loop and strand the match (inputs locked, no
+   *  end screen). Touch never requests a lock, so `this.locked` is false and we no-op. */
+  private releasePointerLock(): void {
+    if (this.locked && typeof document.exitPointerLock === "function") document.exitPointerLock();
+  }
+
   bindInput(): void {
     const canvas = document.getElementById("game-canvas") as HTMLCanvasElement;
 
@@ -1126,7 +1135,7 @@ class Game {
     this.touch.setWeapon(this.ws.current);
     if (this.inGame) {
       if (p === "keyboard") { if (!this.locked) this.hud.clickToPlay(true); }
-      else { this.hud.clickToPlay(false); if (this.locked) document.exitPointerLock(); }
+      else { this.hud.clickToPlay(false); this.releasePointerLock(); }
     }
     this.announcePlatform();
   }
@@ -2310,7 +2319,7 @@ class Game {
     if (this.selfAvatar) this.selfAvatar.isActive = false;
     if (this.selfOperator) this.selfOperator.entity.isActive = false;
     document.body.classList.remove("hider");
-    document.exitPointerLock();
+    this.releasePointerLock();
     this.spectateId = null;
     this.hud.spectate(null);
     this.hud.respawnOverlay(null);
@@ -2628,7 +2637,7 @@ class Game {
         this.inGame = false;
         this.leaving = true;
         this.exitLobby();
-        document.exitPointerLock();
+        this.releasePointerLock();
         this.hud.menuError("Host left — lobby closed.");
         this.hud.show("menu");
         window.setTimeout(() => location.reload(), 1200);
