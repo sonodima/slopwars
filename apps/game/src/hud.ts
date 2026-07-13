@@ -534,18 +534,17 @@ export class Hud {
   }
 
   // ── map picker cards (shared by the lobby "starting map" grid + interlude vote) ──
-  /** one map card: preview thumbnail + name/theme, plus optional live vote count.
-   *  `previews[id]` is a screenshot URL (folder-map preview), or absent for no thumbnail. */
+  /** one map card: the preview screenshot fills the whole card with the map name overlaid.
+   *  `previews[id]` is a screenshot URL (folder-map preview), or absent for a placeholder.
+   *  A live vote count (interlude) sits as a corner badge. */
   private static mapCard(m: MapMeta, previews: Record<string, string>, currentId?: string, withCount = false): string {
     const url = previews[m.id];
-    const preview = url
-      ? `<div class="vpreview" style="background-image:url('${esc(url)}')"></div>`
-      : `<div class="vpreview empty"></div>`;
-    return `<div class="vc" data-id="${esc(m.id)}"${m.id === currentId ? " data-cur=\"1\"" : ""}>` +
-      preview +
-      `<div class="vbody"><div class="vn">${esc(m.name)}</div><div class="vt">${esc(m.theme)}</div></div>` +
+    const cls = url ? "vc" : "vc empty";
+    const bg = url ? ` style="background-image:url('${esc(url)}')"` : "";
+    return `<div class="${cls}" data-id="${esc(m.id)}"${bg}${m.id === currentId ? " data-cur=\"1\"" : ""}>` +
       (withCount ? `<div class="vcount" id="vcount-${esc(m.id)}">0</div>` : "") +
       (m.id === currentId ? "<div class=\"vcur\">current</div>" : "") +
+      `<div class="vname">${esc(m.name)}</div>` +
       `</div>`;
   }
 

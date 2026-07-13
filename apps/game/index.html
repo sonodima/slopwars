@@ -404,25 +404,28 @@
     z-index:9;pointer-events:auto;text-align:center;max-width:96vw}
   #vote .vh{font-size:11px;letter-spacing:4px;text-transform:uppercase;color:var(--sand-dim);margin-bottom:8px}
   #vote-cards{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;max-width:96vw;overflow-x:auto}
-  .vc{position:relative;width:150px;background:rgba(10,9,6,.86);border:1px solid var(--line);padding:0 0 26px;
-    cursor:pointer;transition:border-color .1s,transform .1s;overflow:hidden}
+  /* the preview screenshot fills the whole card; the map name is overlaid on a bottom
+     scrim. No image → a subtle striped placeholder. */
+  .vc{position:relative;width:158px;height:92px;background:#0a0906 center/cover no-repeat;
+    border:1px solid var(--line);cursor:pointer;transition:border-color .1s,transform .1s;overflow:hidden}
   .vc:hover{border-color:var(--sand);transform:translateY(-2px)}
   .vc.sel{border-color:var(--sand);box-shadow:0 0 0 1px var(--sand),0 0 22px rgba(216,184,120,.3)}
-  /* preview thumbnail (folder-map screenshot). No image → a subtle placeholder band. */
-  .vc .vpreview{height:74px;background:#0a0906 center/cover no-repeat;border-bottom:1px solid var(--line);
-    display:flex;align-items:center;justify-content:center}
-  .vc .vpreview.empty{background:repeating-linear-gradient(135deg,rgba(216,184,120,.05) 0 8px,transparent 8px 16px)}
-  .vc .vpreview.empty::after{content:"no preview";font-size:8px;letter-spacing:2px;text-transform:uppercase;color:#6d6350}
-  .vc .vbody{padding:10px 12px 0}
-  .vc .vn{font-size:15px;letter-spacing:2px;color:var(--sand);text-transform:uppercase;font-weight:700}
-  .vc .vt{font-size:10px;letter-spacing:.5px;color:#8d8471;margin-top:4px;line-height:1.35;min-height:26px}
-  .vc .vcount{font-family:var(--mono);font-size:22px;font-weight:700;color:#f0e8d5;margin:8px 12px 0}
-  .vc .vcur{position:absolute;top:6px;right:8px;font-size:8px;letter-spacing:2px;color:var(--sand-dim);
-    text-transform:uppercase;background:rgba(10,9,6,.75);padding:2px 5px}
+  .vc.empty{background:repeating-linear-gradient(135deg,rgba(216,184,120,.06) 0 9px,rgba(10,9,6,.9) 9px 18px)}
+  /* map name overlaid across the bottom, over a dark gradient so it reads on any shot */
+  .vc .vname{position:absolute;left:0;right:0;bottom:0;padding:16px 10px 8px;
+    font-size:14px;letter-spacing:1.5px;color:#fff;text-transform:uppercase;font-weight:700;
+    text-align:center;text-shadow:0 1px 4px rgba(0,0,0,.9);
+    background:linear-gradient(transparent,rgba(6,5,4,.85))}
+  .vc.sel .vname{color:var(--sand)}
+  /* live vote tally — a badge in the top-left corner */
+  .vc .vcount{position:absolute;top:5px;left:6px;font-family:var(--mono);font-size:15px;font-weight:700;
+    color:#fff;background:rgba(6,5,4,.7);border:1px solid var(--line);min-width:22px;text-align:center;
+    padding:1px 5px;line-height:1.3}
+  .vc .vcur{position:absolute;top:6px;right:6px;font-size:8px;letter-spacing:2px;color:var(--sand);
+    text-transform:uppercase;background:rgba(6,5,4,.75);padding:2px 5px}
   /* lobby "starting map" grid — same cards, laid out in a wrapping row (host-editable) */
   #lobby-maps{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:4px}
-  #lobby-maps .vc{width:132px;padding-bottom:12px}
-  #lobby-maps .vc .vpreview{height:62px}
+  #lobby-maps .vc{width:140px;height:82px}
   #lobby-maps.readonly .vc{cursor:default}
   #lobby-maps.readonly .vc:hover{border-color:var(--line);transform:none}
   #lobby-maps.readonly .vc:not(.sel){opacity:.6}
@@ -430,7 +433,7 @@
      reserved band matches the vote panel's height (+gap); the scoreboard scrolls inside
      what's left, so the two never overlap even on short screens. */
   body.voting #scoreboard{top:max(10px,env(safe-area-inset-top));transform:translateX(-50%);
-    max-height:calc(100dvh - 250px)}
+    max-height:calc(100dvh - 190px)}
 
   /* ═══ responsive / small-screen scaling ═══ */
   .screen h1{font-size:clamp(34px,9vw,64px);letter-spacing:clamp(6px,2vw,14px)}
@@ -474,11 +477,9 @@
        (top-docked) scoreboard on short landscape phones */
     #vote .vh{margin-bottom:4px}
     #vote-cards{gap:8px}
-    .vc{width:128px;padding-bottom:16px}
-    .vc .vpreview{height:44px}
-    .vc .vt{display:none}
-    .vc .vcount{font-size:16px;margin-top:6px}
-    body.voting #scoreboard{max-height:calc(100dvh - 190px)}
+    .vc{width:130px;height:70px}
+    .vc .vname{font-size:12px;padding:12px 8px 6px}
+    body.voting #scoreboard{max-height:calc(100dvh - 150px)}
     /* settings overlay: trim the vertical rhythm so the whole panel fits without a long scroll */
     .set-title{font-size:18px;letter-spacing:4px;margin-bottom:2px}
     .set-toggle{margin-top:12px}
