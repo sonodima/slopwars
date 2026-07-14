@@ -20,7 +20,7 @@ import {
   DEFAULT_MAP, loadMapPool, mapById, mapMetas, mapPreviews, pickVotedMap, randomMapId, ROTATION, tallyVotes,
 } from "./maps";
 import { KeyAction, weaponSlot } from "./keybinds";
-import { HE_DAMAGE, HE_RADIUS, MOL_RADIUS, MOL_TICK_DMG, NadeKind, Projectiles } from "./nades";
+import { FLASH_RADIUS, HE_DAMAGE, HE_RADIUS, MOL_RADIUS, MOL_TICK_DMG, NadeKind, Projectiles } from "./nades";
 import { Net } from "./net";
 import { PhysicsWorld, type PropSim } from "./physics";
 import { PhysxProps, createGameEngine } from "./physxprops";
@@ -28,16 +28,17 @@ import { Input, PlayerBody } from "./player";
 import { RemotePlayer } from "./remote";
 import { MODEL_LOAD_COUNT, buildProp, instantiate, loadModels, propHuntPool } from "./models";
 import {
-  BOT_TUNING, DEFAULT_CONFIG, GamePhase, GameSnapshot, INTERMISSION, MatchConfig, MAX_HP, ModeId, pickBotWeapon,
+  BOT_TUNING, DEFAULT_CONFIG, GamePhase, GameSnapshot, INTERMISSION, MatchConfig, MAX_HP, ModeId,
   MOVE_BACK_FACTOR, MOVE_STRAFE_FACTOR, Msg,
   PICKUP_HEAL, PICKUP_RADIUS, PICKUP_RESPAWN, Platform, PlayerState, POWERUPS, POWERUP_INTERVAL,
   POWERUP_RADIUS, PowerupKind, QUAD_MULT, RAPID_MULT, SPEED_MULT, TICK_RATE,
-  MOVE, Vec3, WEAPONS, WeaponDef, WeaponId, DeathCause, deathCauseLabel, LOADOUT, clamp, rand, randomPowerup,
+  MOVE, Vec3, WEAPONS, WeaponDef, WeaponId, DeathCause, deathCauseLabel, clamp, rand, randomPowerup,
 } from "./types";
 import {
   DEFAULT_MODE, GUNGAME_FINAL, MODES, PROPHUNT_PREP, ROLE_HIDE, ROLE_SEEK,
   TEAM_COLORS, TEAM_NAMES, seekerCount, tierWeapon,
 } from "./modes";
+import { CLASSES, ClassId, classById, randomClass } from "./classes";
 import { Voice } from "./voice";
 import { NpcChat, Relation, initNpcChat } from "./npcchat";
 import { TouchControls } from "./touch";
@@ -391,6 +392,8 @@ class Game {
     this.nades.onIgnite = (p, dur) => { const r = this.relAudio(p); sfx.fire(dur, r.pan, r.dist); };
     this.nades.onExplode = (c, _owner, local) => { if (local) this.explodeDamage(c); };
     this.nades.onFireTick = (c, _owner, local) => { if (local) this.fireTickDamage(c); };
+    this.nades.onFlash = (p) => this.onFlashDetonate(p);
+    this.nades.onSmoke = (p) => { const r = this.relAudio(p); sfx.nadeBounce(r.pan, r.dist); };
 
     window.addEventListener("beforeunload", (e) => {
       // warn before an accidental navigation/close mid-match (skipped on an
@@ -519,7 +522,8 @@ class Game {
     document.addEventListener("keydown", (e) => {
       // Esc toggles settings (works from the menu too); chat handles its own Esc
       if (e.code === "Escape") {
-        if (this.settings.isOpen()) this.settings.close();
+        if (this.hud.loadoutOpen()) this.hud.closeLoadout();
+        else if (this.settings.isOpen()) this.settings.close();
         else if (this.inGame && !this.hud.chatOpen) this.openSettings();
         return;
       }
@@ -544,8 +548,9 @@ class Game {
       }
       this.keys.add(e.code);
       if (action === "reload") this.localReload();
+      if (action === "loadout") { this.toggleLoadout(); return; }
       const wi = weaponSlot(action);
-      if (wi >= 0 && this.alive && this.canSwitchWeapon()) { this.ws.select(LOADOUT[wi]); this.applyScopeFov(); }
+      if (wi >= 0 && this.alive && this.canSwitchWeapon()) { this.ws.slot(wi); this.applyScopeFov(); }
     });
     document.addEventListener("keyup", (e) => {
       if (this.settings.keyActionFor(e.code) === "scoreboard") this.sbOpen = false;
@@ -803,20 +808,37 @@ class Game {
   applyLoadout(): void {
     this.myRole = this.teams[this.net.myId] ?? ROLE_SEEK;
     this.updateCombatUI();
+    this.syncWeaponLockUI();
     if (this.mode === "gungame") { this.applyTier(this.tiers[this.net.myId] ?? 0); return; }
     if (this.mode === "prophunt" && this.myRole === ROLE_HIDE) {
       // hider: an unarmed prop — no viewmodel, no weapon
       this.refreshSelfDisguise();
+      this.ws.setLoadout(["knife"]);
       this.ws.showViewmodel(false);
       this.ws.select("knife");
       this.applyScopeFov();
+      this.touch.setLoadout(this.ws.loadout);
+      this.refreshAmmoHud();
       return;
     }
     this.ws.showViewmodel(this.inGame);
-    // re-equip whatever was held at death (nades are refilled by now, so a thrown-empty
-    // weapon is valid again); fall back to the rifle on first spawn / if unavailable.
-    const w = this.lastWeapon && this.ws.available(this.lastWeapon) ? this.lastWeapon : "ak47";
+    // apply the player's chosen class kit, then re-equip whatever was held at death if it's
+    // still part of the kit (nades are refilled by now); otherwise draw the class's primary.
+    const cls = classById(this.settings.state.loadoutClass);
+    this.ws.setLoadout(cls.loadout);
+    this.touch.setLoadout(this.ws.loadout);
+    const w = this.lastWeapon && cls.loadout.includes(this.lastWeapon) && this.ws.available(this.lastWeapon)
+      ? this.lastWeapon : cls.loadout[0];
     this.ws.select(w);
+    this.applyScopeFov();
+    this.refreshAmmoHud();
+  }
+
+  /** reflect whether weapon-switching is locked (gungame, or prop-hunt hider) on the body,
+   *  which drives the mobile HUD: the on-screen weapon strip is pointless when you can't
+   *  switch, so CSS hides #tc-weapons for `body.weplock`. */
+  syncWeaponLockUI(): void {
+    document.body.classList.toggle("weplock", this.inGame && !this.canSwitchWeapon());
   }
 
   /** show/hide combat controls: Prop-Hunt hiders are unarmed props */
@@ -828,11 +850,13 @@ class Game {
   /** gungame: lock the local player to their current tier's weapon (full ammo) */
   applyTier(tier: number): void {
     const w = tierWeapon(tier);
-    const d = WEAPONS[w];
-    if (!d.melee) this.ws.ammo[w] = { mag: d.mag, reserve: d.reserve < 0 ? -1 : d.reserve };
+    // gungame locks the whole inventory to the current tier weapon (full ammo), so cycling /
+    // the weapon strip only ever see the one gun.
+    this.ws.setLoadout([w]);
     this.ws.showViewmodel(this.inGame);
     this.ws.select(w);
     this.applyScopeFov();
+    this.touch.setLoadout(this.ws.loadout);
     this.refreshAmmoHud();
   }
 
@@ -963,6 +987,9 @@ class Game {
     document.getElementById("btn-gear")!.addEventListener("click", () => this.openSettings());
     document.getElementById("tc-settings")!.addEventListener("pointerdown", (e) => {
       e.preventDefault(); e.stopPropagation(); this.openSettings();
+    });
+    document.getElementById("tc-loadout")!.addEventListener("pointerdown", (e) => {
+      e.preventDefault(); e.stopPropagation(); this.toggleLoadout();
     });
     document.getElementById("set-leave")!.addEventListener("click", () => this.leaveToMenu());
 
@@ -1096,7 +1123,7 @@ class Game {
       if (this.ws.def().scope && this.alive) { this.ws.setScope(!this.ws.scoped); this.applyScopeFov(); }
     };
     t.onReload = () => { if (this.alive) this.localReload(); };
-    t.onWeapon = (i) => { if (this.alive && this.canSwitchWeapon()) { this.ws.select(LOADOUT[i]); this.applyScopeFov(); } };
+    t.onWeapon = (i) => { if (this.alive && this.canSwitchWeapon()) { this.ws.slot(i); this.applyScopeFov(); } };
     t.onChat = () => { this.keys.clear(); this.fireHeld = false; this.hud.openChat(); };
     t.onMic = () => {
       if (this.voice.micOk) { this.voice.setMuted(!this.voice.muted); this.hud.voice(this.voice.muted ? "muted" : "on"); }
@@ -1161,7 +1188,7 @@ class Game {
       if (this.alive && this.canSwitchWeapon()) { this.ws.cycle(dir); this.applyScopeFov(); }
     };
     g.onWeaponSelect = (i) => {
-      if (this.alive && this.canSwitchWeapon()) { this.ws.select(LOADOUT[i]); this.applyScopeFov(); }
+      if (this.alive && this.canSwitchWeapon()) { this.ws.slot(i); this.applyScopeFov(); }
     };
     g.onMic = () => {
       if (this.voice.micOk) { this.voice.setMuted(!this.voice.muted); this.hud.voice(this.voice.muted ? "muted" : "on"); }
@@ -1602,22 +1629,28 @@ class Game {
     const o: Vec3 = { x: this.body.pos.x, y: this.body.eyeY, z: this.body.pos.z };
     const pitch = this.body.pitch + this.ws.recoilPitch;
     const cp = Math.cos(pitch);
-    let d: Vec3 = { x: -Math.sin(this.body.yaw) * cp, y: Math.sin(pitch), z: -Math.cos(this.body.yaw) * cp };
-    // spread
-    if (spread > 0) {
-      d = { x: d.x + rand(-spread, spread), y: d.y + rand(-spread, spread), z: d.z + rand(-spread, spread) };
-      const l = Math.hypot(d.x, d.y, d.z);
-      d.x /= l; d.y /= l; d.z /= l;
-    }
+    const base: Vec3 = { x: -Math.sin(this.body.yaw) * cp, y: Math.sin(pitch), z: -Math.cos(this.body.yaw) * cp };
 
-    this.broadcastShot(o, d, def.id);
+    this.broadcastShot(o, base, def.id);
     // start the local player's tracer at the gun muzzle so it reads as leaving the gun.
     // In third person the first-person viewmodel is hidden (its muzzle sits at the camera,
     // which would draw the tracer from the corner) — use the third-person avatar's muzzle.
     const muzzle = this.thirdPersonActive()
       ? (this.selfOperator?.gunMuzzle() ?? undefined)
       : (this.ws.muzzleWorld() ?? undefined);
-    this.resolveRay(o, d, def, 1, this.net.myId, true, 0, 0, muzzle);
+
+    // a shotgun fires a cluster of pellets in one trigger pull; every other weapon is a
+    // single ray. Each pellet gets its own randomized spread within the cone.
+    const pellets = Math.max(1, def.pellets ?? 1);
+    for (let i = 0; i < pellets; i++) {
+      let d = base;
+      if (spread > 0) {
+        d = { x: base.x + rand(-spread, spread), y: base.y + rand(-spread, spread), z: base.z + rand(-spread, spread) };
+        const l = Math.hypot(d.x, d.y, d.z);
+        d = { x: d.x / l, y: d.y / l, z: d.z / l };
+      }
+      this.resolveRay(o, d, def, 1, this.net.myId, true, 0, 0, muzzle);
+    }
   }
 
   /** trace one segment; may recurse once through a wall (wallbang). `tracerFrom` overrides
@@ -1748,7 +1781,13 @@ class Game {
       // (keep the gungame/prophunt weapon lock). Immediate so the HUD never shows a 0-ammo nade.
       if (this.ws.ammo[kind].mag <= 0 && this.ws.current === kind) {
         if (this.mode === "gungame") this.applyTier(this.tiers[this.net.myId] ?? 0);
-        else if (this.canSwitchWeapon()) { this.ws.select("ak47"); this.applyScopeFov(); }
+        else if (this.canSwitchWeapon()) {
+          // fall back to the best real gun in the current class kit (primary first), not a
+          // hardcoded rifle that may not be in this loadout.
+          const next = this.ws.loadout.find((w) => w !== kind && !WEAPONS[w].throwable && this.ws.available(w)) ?? this.ws.loadout[0];
+          this.ws.select(next);
+          this.applyScopeFov();
+        }
       }
     };
     window.setTimeout(release, THROW_WINDUP_MS);
@@ -1771,6 +1810,38 @@ class Game {
       this.reportHit(t.id, dmg, false, cause);
     }
   }
+
+  /** a flashbang detonated at `c` — blind the local player by range, view angle and line
+   *  of sight (each client computes its own; the flash carries no damage). Facing the burst
+   *  from close range is a near-total whiteout; peripheral / distant / walled-off flashes
+   *  only nick the edges. Prop-Hunt hiders are never flashed (they have no combat HUD). */
+  onFlashDetonate(c: Vec3): void {
+    if (!this.alive || !this.inGame || this.isHider()) return;
+    const eye: Vec3 = { x: this.body.pos.x, y: this.body.eyeY, z: this.body.pos.z };
+    const dx = c.x - eye.x, dy = c.y - eye.y, dz = c.z - eye.z;
+    const dist = Math.hypot(dx, dy, dz);
+    if (dist > FLASH_RADIUS) return;
+    // blocked by a wall → no blind (the flash has to reach the eye)
+    const dir: Vec3 = { x: dx / (dist || 1), y: dy / (dist || 1), z: dz / (dist || 1) };
+    const wall = this.map.raycast(eye, dir, dist - 0.2);
+    if (wall && wall.dist < dist - 0.2) return;
+    // how centred the burst is in view: dot(look, dirToFlash) in [-1,1]. Facing it → 1.
+    const look = this.body.aimDir();
+    const dot = look.x * dir.x + look.y * dir.y + look.z * dir.z;
+    const viewFactor = clamp(0.25 + 0.75 * ((dot + 1) / 2), 0.25, 1); // behind still nicks 0.25
+    const rangeFactor = 1 - dist / FLASH_RADIUS;
+    const intensity = clamp(rangeFactor * viewFactor, 0, 1);
+    if (intensity < 0.03) return;
+    this.hud.blind(intensity);
+    // brief ear-ring: muffle the mix while fully blinded, then restore
+    if (intensity > 0.35) {
+      sfx.muffle(true);
+      window.setTimeout(() => { if (!this.deathMuffled()) sfx.muffle(false); }, 400 + intensity * 1200);
+    }
+  }
+
+  /** true while the death-cam muffle should stay on (don't let a flash's ring-out clear it) */
+  private deathMuffled(): boolean { return !this.alive && this.inGame; }
 
   fireTickDamage(c: Vec3): void {
     const targets: { id: string; p: Vec3 }[] = this.alive ? [{ id: this.net.myId, p: this.body.pos }] : [];
@@ -2150,9 +2221,8 @@ class Game {
       bot.wanderYaw = bot.body.yaw; bot.lastHp = MAX_HP; bot.dodgeLockCd = 0;
       bot.reloadCd = 0; bot.switchCd = 0;
       if (this.mode !== "gungame") { // fresh loadout each life
-        const primary = pickBotWeapon();
-        bot.arsenal = [...new Set<WeaponId>([primary, "usp", "knife"])];
-        bot.weapon = primary; bot.mag = WEAPONS[primary].mag;
+        bot.arsenal = this.botArsenal();
+        bot.weapon = bot.arsenal[0]; bot.mag = WEAPONS[bot.weapon].mag;
       }
     }
     const m: Msg = { t: "spawn", id, p: [sp.p.x, sp.p.y, sp.p.z], yaw: sp.yaw };
@@ -2318,7 +2388,7 @@ class Game {
     this.inGame = false;
     if (this.selfAvatar) this.selfAvatar.isActive = false;
     if (this.selfOperator) this.selfOperator.entity.isActive = false;
-    document.body.classList.remove("hider");
+    document.body.classList.remove("hider", "weplock");
     this.releasePointerLock();
     this.spectateId = null;
     this.hud.spectate(null);
@@ -2973,6 +3043,28 @@ class Game {
     this.hud.onMode = (id) => this.setMode(id);
     this.hud.onCfg = (patch) => this.setCfg(patch);
     this.hud.onHome = () => this.leaveToMenu();
+    this.hud.onClass = (id) => this.chooseClass(id);
+  }
+
+  /** persist a class pick (lobby row or in-game overlay). It applies on the next spawn —
+   *  nudge the player if they changed it mid-life so the unchanged current kit isn't a bug. */
+  chooseClass(id: string): void {
+    if (this.settings.state.loadoutClass === id) return;
+    this.settings.setLoadoutClass(id);
+    if (this.inGame && this.alive && this.mode !== "gungame" && !this.isHider()) {
+      this.hud.banner(`${CLASSES[id as ClassId]?.name ?? "Loadout"} · applies on next spawn`, 1800);
+    }
+  }
+
+  /** open/close the in-game loadout (class) overlay. Releases pointer lock while open so the
+   *  mouse can click the cards (mirrors the settings overlay); Esc / Done closes it. */
+  toggleLoadout(): void {
+    if (this.hud.loadoutOpen()) { this.hud.closeLoadout(); return; }
+    if (this.settings.isOpen()) this.settings.close();
+    this.releasePointerLock();
+    this.keys.clear();
+    this.fireHeld = false;
+    this.hud.openLoadout(this.settings.state.loadoutClass);
   }
 
   /** host: change a match rule, mirror to guests, re-apply live physics */
@@ -3007,8 +3099,8 @@ class Game {
       const body = new PlayerBody(this.map);
       body.gravityScale = this.cfg.gravity;
       body.teleport({ x: rand(-6, 6), y: 4, z: rand(-6, 6) }, rand(0, 360));
-      const primary = pickBotWeapon();
-      const arsenal = [...new Set<WeaponId>([primary, "usp", "knife"])]; // everyone keeps a sidearm + knife
+      const arsenal = this.botArsenal();
+      const primary = arsenal[0];
       this.bots.set(id, {
         id, body, weapon: primary, arsenal, mag: WEAPONS[primary].mag, reloadCd: 0, switchCd: 0,
         fireCd: 0, burstCd: 0, retargetCd: 0, targetId: null, strafe: 1, strafeCd: 0,
@@ -3349,9 +3441,22 @@ class Game {
     }
   }
 
+  /** a bot's gun arsenal for a life: the non-throwable weapons of a random class (so bots
+   *  wield the full roster — SMGs, shotgun, M4, luger…), always with a sidearm + knife so
+   *  range-based swapping and the close-quarters reload fallback keep working. The primary
+   *  stays first, which is what the bot spawns holding. */
+  botArsenal(): WeaponId[] {
+    const set = new Set<WeaponId>(CLASSES[randomClass()].loadout.filter((w) => !WEAPONS[w].throwable));
+    set.add("usp"); set.add("knife");
+    return [...set];
+  }
+
   botDealDamage(bot: BotAI, def: WeaponDef, wid: WeaponId, hs: boolean): void {
     if (!bot.targetId) return;
     let dmg = def.damage * 0.5 * BOT_TUNING[this.cfg.difficulty].dmg;
+    // a shotgun's `damage` is per-pellet; a landed bot shot connects with roughly half the
+    // pellet spread, so scale up or the shotgun would be near-harmless in a bot's hands.
+    if (def.pellets && def.pellets > 1) dmg *= def.pellets * 0.5;
     if (hs) dmg *= def.headMult;
     this.hostApplyHit(bot.id, bot.targetId, Math.max(1, Math.round(dmg)), hs, wid);
   }
@@ -3385,6 +3490,7 @@ class Game {
     // host's round-1 map picker (guests see it read-only). The shown selection defaults to
     // the rotation default until the host picks, so what's highlighted is what round 1 uses.
     this.hud.lobbyMaps(mapMetas(), this.mapPreviewMap(), this.cfg.startMap ?? DEFAULT_MAP, this.net.isHost);
+    this.hud.lobbyClasses(this.settings.state.loadoutClass);
     this.hud.setOffline(this.net.offline);
     this.refreshLobbyAvatars();
   }
@@ -3446,7 +3552,7 @@ class Game {
     this.ws.showViewmodel(false);
     if (this.selfAvatar) this.selfAvatar.isActive = false;
     if (this.selfOperator) this.selfOperator.entity.isActive = false;
-    document.body.classList.remove("hider");
+    document.body.classList.remove("hider", "weplock");
     this.refreshLobbyAvatars();
   }
 
@@ -3539,7 +3645,7 @@ class Game {
     const a = this.ws.ammo[this.ws.current];
     this.hud.ammo(this.ws.current, a.mag, a.reserve, this.ws.reloading > 0);
     this.touch.setWeapon(this.ws.current);
-    this.touch.setAvailable(LOADOUT.map((id) => this.ws.available(id))); // drop spent throwables from the strip
+    this.touch.setAvailable(this.ws.loadout.map((id) => this.ws.available(id))); // drop spent throwables from the strip
   }
 }
 

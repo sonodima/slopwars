@@ -4,16 +4,19 @@ import {
 } from "@galacean/engine";
 import { GameMap } from "./map";
 import { buildParticles } from "./particles";
-import { Vec3, rand } from "./types";
+import { Vec3, rand, ThrowableKind } from "./types";
 import { GameModels, instantiate, modelMetaOf } from "./models";
 import { MaterialLibrary, shadeModelSlots } from "./materials";
 
-export type NadeKind = "he" | "mol";
+export type NadeKind = ThrowableKind;
 
 /** the catalog model each thrown projectile is rendered as — the SAME models the
  *  player holds for that weapon, so the grenade you throw is the grenade in your hand.
- *  A missing model falls back to a plain coloured sphere so throwing never breaks. */
-const NADE_MODEL: Record<NadeKind, string> = { he: "wep_frag", mol: "wep_molotov" };
+ *  A missing model falls back to a plain coloured sphere so throwing never breaks.
+ *  flash/smoke reuse the frag mesh until their dedicated CC0 models are committed. */
+const NADE_MODEL: Record<NadeKind, string> = {
+  he: "wep_frag", mol: "wep_molotov", flash: "wep_frag", smoke: "wep_frag",
+};
 
 export const HE_RADIUS = 7;
 export const HE_DAMAGE = 92;
@@ -22,6 +25,19 @@ export const MOL_RADIUS = 3.2;
 export const MOL_DURATION = 6.5;
 export const MOL_TICK = 0.5;
 export const MOL_TICK_DMG = 12;
+// flashbang: airburst on a short fuse; the blinding intensity is computed per-client from
+// range + how much the burst is in view (see main.ts onFlash), so there's no damage here.
+export const FLASH_RADIUS = 15;
+export const FLASH_FUSE = 1.4;
+// smoke: deploys where it lands and sits for a while as a vision-blocking cloud (visual —
+// no damage, no bot vision occlusion). Longer + wider than a molotov puddle.
+export const SMOKE_RADIUS = 4.2;
+export const SMOKE_FUSE = 1.6;
+export const SMOKE_DURATION = 15;
+
+/** fuse (s) each throwable detonates on. mol keeps a long fuse — it usually breaks on its
+ *  first solid bounce well before this — while flash/smoke air/ground-burst on a short one. */
+const FUSE: Record<NadeKind, number> = { he: HE_FUSE, mol: 5, flash: FLASH_FUSE, smoke: SMOKE_FUSE };
 
 const R = 0.12; // projectile radius
 const STEP = 1 / 60;
@@ -57,9 +73,14 @@ export class Projectiles {
   onBreak: ((p: Vec3) => void) | null = null;
   onBoom: ((p: Vec3) => void) | null = null;
   onIgnite: ((p: Vec3, dur: number) => void) | null = null;
+  /** a flashbang detonated at `p` — every client near it computes its own blindness */
+  onFlash: ((p: Vec3) => void) | null = null;
+  /** a smoke grenade deployed at `p` (for its pop sfx) */
+  onSmoke: ((p: Vec3) => void) | null = null;
 
   private nades: Nade[] = [];
   private fires: Fire[] = [];
+  private smokes: { until: number; root: Entity }[] = [];
   private fx: Fx[] = [];
   private root: Entity;
   private acc = 0;
@@ -72,6 +93,7 @@ export class Projectiles {
   private mHe: UnlitMaterial;
   private mMol: UnlitMaterial;
   private mFlash: UnlitMaterial;
+  private mFlashRing: UnlitMaterial;
   private mSmoke: UnlitMaterial;
   private mFlame: UnlitMaterial;
   private mFlame2: UnlitMaterial;
@@ -88,6 +110,7 @@ export class Projectiles {
     this.mHe = this.unlit(0.12, 0.16, 0.1);
     this.mMol = this.unlit(0.7, 0.4, 0.12);
     this.mFlash = this.unlit(7, 3.6, 0.9);
+    this.mFlashRing = this.unlit(5, 5, 6); // cold-white halo for the flashbang burst
     this.mSmoke = this.unlit(0.32, 0.3, 0.27);
     this.mFlame = this.unlit(4.5, 1.6, 0.25);
     this.mFlame2 = this.unlit(5, 3, 0.5);
@@ -159,7 +182,7 @@ export class Projectiles {
     this.nades.push({
       kind, owner, local,
       pos: { ...o }, vel: { ...v },
-      fuse: kind === "he" ? HE_FUSE : 5, life: 0,
+      fuse: FUSE[kind], life: 0,
       entity, spin: rand(0, 6),
     });
   }
@@ -176,7 +199,17 @@ export class Projectiles {
       n.entity.transform.setRotation(n.spin * 57, n.spin * 40, 0);
     }
     this.updateFires(now);
+    this.updateSmokes(now);
     this.updateFx(dt);
+  }
+
+  private updateSmokes(now: number): void {
+    for (let i = this.smokes.length - 1; i >= 0; i--) {
+      if (now >= this.smokes[i].until) {
+        this.smokes[i].root.destroy();
+        this.smokes.splice(i, 1);
+      }
+    }
   }
 
   private stepNades(now: number): void {
@@ -202,12 +235,13 @@ export class Projectiles {
 
       const speed = Math.hypot(n.vel.x, n.vel.y, n.vel.z);
       if (bounced) {
+        // molotov + smoke deploy where they first hit; flash/he keep bouncing to their fuse
         if (n.kind === "mol") { this.breakMol(n, now); this.nades.splice(i, 1); continue; }
+        if (n.kind === "smoke") { this.deploySmoke(n, now); this.nades.splice(i, 1); continue; }
         if (speed > 2.5) this.onBounce?.(n.pos);
       }
       if (n.fuse <= 0 || n.life > 8) {
-        if (n.kind === "he") this.explodeHE(n);
-        else this.breakMol(n, now);
+        this.detonate(n, now);
         this.nades.splice(i, 1);
       }
     }
@@ -224,11 +258,70 @@ export class Projectiles {
     return false;
   }
 
+  /** a projectile reached its fuse — resolve it by kind */
+  private detonate(n: Nade, now: number): void {
+    switch (n.kind) {
+      case "he": this.explodeHE(n); break;
+      case "flash": this.explodeFlash(n); break;
+      case "smoke": this.deploySmoke(n, now); break;
+      default: this.breakMol(n, now); break; // mol
+    }
+  }
+
   // ── HE ──
   private explodeHE(n: Nade): void {
     n.entity.destroy();
     this.explodeFx(n.pos);
     this.onExplode?.(n.pos, n.owner, n.local);
+  }
+
+  // ── flashbang ──
+  private explodeFlash(n: Nade): void {
+    n.entity.destroy();
+    this.flashFx(n.pos);
+    this.onFlash?.(n.pos); // every client works out its own blindness from view + range
+  }
+
+  /** a bright white airburst: a brief HDR flash sphere + a strong (short-lived) light,
+   *  reusing the pooled FX spheres and the shared blast light. No smoke/embers. */
+  flashFx(c: Vec3): void {
+    this.addFx(this.acquireSphere(this.mFlash, 0.9, 12), c, 0.14, 16);   // white-hot core
+    this.addFx(this.acquireSphere(this.mFlashRing, 0.5, 10), c, 0.22, 22); // expanding halo
+    this.boomLightE.transform.setPosition(c.x, c.y + 0.4, c.z);
+    this.boomLight.color = new Color(2.2, 2.2, 2.4, 1); // cold white
+    this.boomLight.distance = 22;
+    this.boomLightE.isActive = true;
+    const tok = ++this.boomToken;
+    window.setTimeout(() => {
+      if (tok !== this.boomToken) return;
+      this.boomLightE.isActive = false;
+      this.boomLight.color = new Color(1.5, 0.95, 0.45, 1); // restore the warm blast colour
+    }, 120);
+    // no onBoom here: a flashbang is a bang + blind, not a damaging blast — its audio +
+    // per-client blindness are handled by onFlash (see main.ts).
+  }
+
+  // ── smoke ──
+  /** deploy a vision-blocking smoke cloud where the grenade lands (grey particles + a
+   *  soft ambient light), lasting SMOKE_DURATION. Purely visual — no damage. */
+  private deploySmoke(n: Nade, now: number): void {
+    n.entity.destroy();
+    const c = { x: n.pos.x, y: this.map.floorY(n.pos.x, n.pos.z) + 0.1, z: n.pos.z };
+    this.onSmoke?.(c);
+    const root = this.root.createChild("smoke");
+    // a fast initial billow that settles into a dense, slow-churning dome. `world:true`
+    // leaves the puff where it was emitted so the cloud fills a volume rather than trailing.
+    buildParticles(this.engine, root, c.x, c.y + 0.2, c.z, {
+      rate: 46, lifetime: SMOKE_DURATION * 0.5, speed: 0.5, size: 2.2, growth: 2.6, spread: 90,
+      gravity: -0.02, color: [0.78, 0.78, 0.8], opacity: 0.62, additive: false, world: true,
+      emitRadius: SMOKE_RADIUS * 0.7,
+    });
+    const le = root.createChild("l");
+    le.transform.setPosition(c.x, c.y + 1.2, c.z);
+    const light = le.addComponent(PointLight);
+    light.color = new Color(0.5, 0.5, 0.55, 1);
+    light.distance = SMOKE_RADIUS * 2.2;
+    this.smokes.push({ until: now + SMOKE_DURATION, root });
   }
 
   /** explosion visuals + boom at a point (grenade or barrel); no damage/authority */

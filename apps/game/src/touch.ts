@@ -2,13 +2,14 @@
 // Only active in "touch mode" (see main.ts detection). Desktop mouse + keyboard
 // behaviour is untouched: these listeners live on dedicated overlay elements and
 // feed the exact same game state the keyboard/mouse paths do.
-import { LOADOUT, WEAPONS } from "./types";
+import { LOADOUT, WeaponId, WEAPONS } from "./types";
 
 const $ = (id: string): HTMLElement => document.getElementById(id)!;
 
 // short viewmodel-strip labels for the loadout slots
 const WEP_SHORT: Record<string, string> = {
-  knife: "KNF", usp: "USP", ak47: "AK", awp: "AWP", he: "HE", mol: "MOL",
+  knife: "KNF", usp: "USP", luger: "LUG", ak47: "AK", m4a1: "M4", suomi: "KP",
+  grease: "M3", shotgun: "SG", awp: "AWP", he: "HE", mol: "MOL", flash: "FLS", smoke: "SMK",
 };
 
 export class TouchControls {
@@ -41,6 +42,7 @@ export class TouchControls {
   private lookY = 0;
   private fireId = -1;
   private wepEls: HTMLElement[] = [];
+  private loadout: WeaponId[] = [...LOADOUT];
   private built = false;
 
   /** wire up DOM listeners + build the weapon strip (call once) */
@@ -78,11 +80,18 @@ export class TouchControls {
     this.wepEls.forEach((el, i) => { el.style.display = avail[i] ? "" : "none"; });
   }
 
+  /** rebuild the weapon strip to match the active class kit (called when the loadout
+   *  changes). Slots map 1:1 onto `ids`, so tapping slot i selects ids[i]. */
+  setLoadout(ids: WeaponId[]): void {
+    this.loadout = ids.length ? [...ids] : [...LOADOUT];
+    if (this.built) this.buildWeapons();
+  }
+
   private buildWeapons(): void {
     const strip = $("tc-weapons");
     strip.innerHTML = "";
     this.wepEls = [];
-    LOADOUT.forEach((id, i) => {
+    this.loadout.forEach((id, i) => {
       const b = document.createElement("button");
       b.className = "tc-wep";
       b.dataset.wep = id;

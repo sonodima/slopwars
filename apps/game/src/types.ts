@@ -119,11 +119,23 @@ export function randomPowerup(): PowerupKind {
   return "speed";
 }
 
-export type WeaponId = "knife" | "usp" | "ak47" | "awp" | "he" | "mol";
+export type WeaponId =
+  | "knife" | "usp" | "ak47" | "awp" | "he" | "mol"
+  | "m4a1" | "shotgun" | "grease" | "suomi" | "luger" | "flash" | "smoke";
+
+/** Loadout slot a weapon occupies. Drives the class system (one pick per slot) and the
+ *  order weapons appear on the HUD / weapon wheel. `utility` holds throwables (a class may
+ *  carry more than one), everything else is a single pick. */
+export type WeaponCategory = "melee" | "secondary" | "primary" | "utility";
+
+/** the throwable weapons — the subset of WeaponId that spawns a projectile. Shared by the
+ *  projectile system and the net protocol so a thrown grenade replicates to every peer. */
+export type ThrowableKind = "he" | "mol" | "flash" | "smoke";
 
 export interface WeaponDef {
   id: WeaponId;
   name: string;
+  category: WeaponCategory;
   damage: number;
   headMult: number;
   rpm: number;
@@ -138,6 +150,7 @@ export interface WeaponDef {
   falloff: [number, number, number]; // [startDist, endDist, minFactor]
   range: number;
   moveFactor: number;
+  pellets?: number; // >1 = one trigger pull fires this many spread rays (shotgun)
   scope?: boolean;
   melee?: boolean;
   throwable?: boolean;
@@ -146,37 +159,80 @@ export interface WeaponDef {
 
 export const WEAPONS: Record<WeaponId, WeaponDef> = {
   knife: {
-    id: "knife", name: "Knife", damage: 55, headMult: 1.4, rpm: 150, mag: -1,
+    id: "knife", name: "Knife", category: "melee", damage: 55, headMult: 1.4, rpm: 150, mag: -1,
     reserve: -1, reloadTime: 0, spread: 0, spreadMove: 0, recoil: 0,
     penetration: 0, penDamageKeep: 0, falloff: [999, 1000, 1], range: 2.3, moveFactor: 1.12, melee: true, auto: false,
   },
   usp: {
-    id: "usp", name: "USP-S", damage: 34, headMult: 4, rpm: 352, mag: 12,
+    id: "usp", name: "USP-S", category: "secondary", damage: 34, headMult: 4, rpm: 352, mag: 12,
     reserve: 48, reloadTime: 2.0, spread: 0.006, spreadMove: 0.02, recoil: 0.9,
     penetration: 0.28, penDamageKeep: 0.5, falloff: [14, 45, 0.55], range: 400, moveFactor: 1.0, auto: false,
   },
+  luger: {
+    id: "luger", name: "Luger P08", category: "secondary", damage: 30, headMult: 4, rpm: 400, mag: 8,
+    reserve: 48, reloadTime: 1.9, spread: 0.007, spreadMove: 0.022, recoil: 1.0,
+    penetration: 0.25, penDamageKeep: 0.5, falloff: [13, 42, 0.52], range: 380, moveFactor: 1.0, auto: false,
+  },
   ak47: {
-    id: "ak47", name: "AK-47", damage: 34, headMult: 4, rpm: 600, mag: 30,
+    id: "ak47", name: "AK-47", category: "primary", damage: 34, headMult: 4, rpm: 600, mag: 30,
     reserve: 90, reloadTime: 2.4, spread: 0.008, spreadMove: 0.045, recoil: 1.35,
     penetration: 0.45, penDamageKeep: 0.62, falloff: [20, 60, 0.6], range: 800, moveFactor: 0.92, auto: true,
   },
+  m4a1: {
+    id: "m4a1", name: "M4A1", category: "primary", damage: 30, headMult: 4, rpm: 666, mag: 30,
+    reserve: 90, reloadTime: 2.6, spread: 0.006, spreadMove: 0.04, recoil: 1.05,
+    penetration: 0.4, penDamageKeep: 0.6, falloff: [22, 64, 0.62], range: 800, moveFactor: 0.93, auto: true,
+  },
+  suomi: {
+    id: "suomi", name: "Suomi KP/-31", category: "primary", damage: 22, headMult: 3, rpm: 750, mag: 36,
+    reserve: 108, reloadTime: 2.8, spread: 0.016, spreadMove: 0.06, recoil: 0.8,
+    penetration: 0.18, penDamageKeep: 0.4, falloff: [10, 34, 0.45], range: 260, moveFactor: 1.04, auto: true,
+  },
+  grease: {
+    id: "grease", name: "M3 Grease Gun", category: "primary", damage: 26, headMult: 3, rpm: 450, mag: 30,
+    reserve: 90, reloadTime: 2.6, spread: 0.014, spreadMove: 0.05, recoil: 0.9,
+    penetration: 0.2, penDamageKeep: 0.45, falloff: [12, 40, 0.5], range: 300, moveFactor: 1.02, auto: true,
+  },
+  shotgun: {
+    id: "shotgun", name: "Shotgun", category: "primary", damage: 11, headMult: 1.6, rpm: 70, mag: 6,
+    reserve: 24, reloadTime: 3.4, spread: 0.09, spreadMove: 0.05, recoil: 3.0,
+    penetration: 0, penDamageKeep: 0, falloff: [6, 22, 0.25], range: 45, moveFactor: 0.9, pellets: 8, auto: false,
+  },
   awp: {
-    id: "awp", name: "AWP", damage: 112, headMult: 2.4, rpm: 41, mag: 5,
+    id: "awp", name: "AWP", category: "primary", damage: 112, headMult: 2.4, rpm: 41, mag: 5,
     reserve: 15, reloadTime: 3.6, spread: 0.05, spreadMove: 0.08, recoil: 3.2,
     penetration: 0.7, penDamageKeep: 0.75, falloff: [45, 130, 0.82], range: 1200, moveFactor: 0.82, scope: true, auto: false,
   },
   he: {
-    id: "he", name: "HE Grenade", damage: 92, headMult: 1, rpm: 55, mag: 2,
+    id: "he", name: "HE Grenade", category: "utility", damage: 92, headMult: 1, rpm: 55, mag: 2,
     reserve: 0, reloadTime: 0, spread: 0, spreadMove: 0, recoil: 0,
     penetration: 0, penDamageKeep: 0, falloff: [999, 1000, 1], range: 0, moveFactor: 1.05, throwable: true, auto: false,
   },
   mol: {
-    id: "mol", name: "Molotov", damage: 12, headMult: 1, rpm: 55, mag: 1,
+    id: "mol", name: "Molotov", category: "utility", damage: 12, headMult: 1, rpm: 55, mag: 1,
+    reserve: 0, reloadTime: 0, spread: 0, spreadMove: 0, recoil: 0,
+    penetration: 0, penDamageKeep: 0, falloff: [999, 1000, 1], range: 0, moveFactor: 1.05, throwable: true, auto: false,
+  },
+  flash: {
+    id: "flash", name: "Flashbang", category: "utility", damage: 0, headMult: 1, rpm: 55, mag: 2,
+    reserve: 0, reloadTime: 0, spread: 0, spreadMove: 0, recoil: 0,
+    penetration: 0, penDamageKeep: 0, falloff: [999, 1000, 1], range: 0, moveFactor: 1.05, throwable: true, auto: false,
+  },
+  smoke: {
+    id: "smoke", name: "Smoke Grenade", category: "utility", damage: 0, headMult: 1, rpm: 55, mag: 1,
     reserve: 0, reloadTime: 0, spread: 0, spreadMove: 0, recoil: 0,
     penetration: 0, penDamageKeep: 0, falloff: [999, 1000, 1], range: 0, moveFactor: 1.05, throwable: true, auto: false,
   },
 };
 
+/** every weapon that exists, in canonical order (viewmodels + weapon-wheel ordering).
+ *  A player's *active* inventory is a per-class subset — see classes.ts / WeaponSystem. */
+export const ALL_WEAPONS: WeaponId[] = [
+  "knife", "usp", "luger", "ak47", "m4a1", "suomi", "grease", "shotgun", "awp", "he", "mol", "flash", "smoke",
+];
+
+/** the default inventory used before a class is applied (and by the gungame ladder /
+ *  bots as a safe fallback). Kept to the classic six so nothing that reads it breaks. */
 export const LOADOUT: WeaponId[] = ["knife", "usp", "ak47", "awp", "he", "mol"];
 
 /** what killed a player: a weapon, or an environmental cause (an exploding barrel).
@@ -243,7 +299,7 @@ export type Msg =
   | { t: "game"; g: GameSnapshot }
   | { t: "start" }
   | { t: "chat"; id: string; txt: string }
-  | { t: "nade"; id: string; k: "he" | "mol"; o: [number, number, number]; v: [number, number, number] }
+  | { t: "nade"; id: string; k: ThrowableKind; o: [number, number, number]; v: [number, number, number] }
   | { t: "heal"; v: string; hp: number }
   | { t: "pkup"; i: number }
   | { t: "bhit"; i: number; dmg: number } // guest → host: damaged barrel i

@@ -2,6 +2,7 @@
 import { BOT_LEVELS, BotLevel, CFG_BOUNDS, DeathCause, deathCauseLabel, GameSnapshot, MatchConfig, ModeId, Platform, PlayerInfo, WEAPONS, WeaponId } from "./types";
 import { MapMeta } from "./maps/schema";
 import { MODES, MODE_LIST } from "./modes";
+import { CLASSES, CLASS_LIST, ClassDef } from "./classes";
 
 const $ = (id: string): HTMLElement => document.getElementById(id)!;
 
@@ -38,6 +39,8 @@ export class Hud {
   onMode: ((mode: ModeId) => void) | null = null;
   onCfg: ((patch: Partial<MatchConfig>) => void) | null = null;
   onHome: (() => void) | null = null;
+  /** player picked a loadout class (lobby row or in-game overlay) */
+  onClass: ((id: string) => void) | null = null;
   /** first-run consent: user chose whether to download the on-device NPC-AI model. */
   onAiConsent: ((accept: boolean) => void) | null = null;
 
@@ -74,6 +77,9 @@ export class Hud {
         this.closeChat();
       } else if (e.code === "Escape") this.closeChat();
     });
+
+    $("loadout-done").onclick = () => this.closeLoadout();
+    $("loadout").addEventListener("pointerdown", (e) => { if (e.target === $("loadout")) this.closeLoadout(); });
 
     $("ai-dl-x").onclick = () => this.hideAiDownload();
     $("ai-consent-yes").onclick = () => { this.hideAiConsent(); this.onAiConsent?.(true); };
@@ -416,6 +422,40 @@ export class Hud {
     }
   }
 
+  // ── loadout class picker (lobby row + in-game overlay share one card renderer) ──
+  /** one class card: name, blurb, and the weapon kit it grants. */
+  private static classCard(c: ClassDef, selectedId: string): string {
+    const kit = c.loadout.map((w) => WEAPONS[w].name).join(" · ");
+    return `<div class="mode-card class-card${c.id === selectedId ? " on" : ""}" data-class="${c.id}">` +
+      `<div class="mn">${esc(c.name)}</div><div class="mb">${esc(c.blurb)}</div>` +
+      `<span class="kit">${esc(kit)}</span></div>`;
+  }
+
+  /** render class cards into `containerId`, marking `selectedId` and wiring clicks. */
+  private renderClassCards(containerId: string, selectedId: string): void {
+    const el = $(containerId);
+    el.innerHTML = CLASS_LIST.map((id) => Hud.classCard(CLASSES[id], selectedId)).join("");
+    for (const c of Array.from(el.children)) {
+      c.addEventListener("click", () => {
+        const id = (c as HTMLElement).dataset.class!;
+        this.onClass?.(id);
+        // reflect the pick immediately (both surfaces) without a full re-render
+        for (const s of Array.from(el.children)) s.classList.toggle("on", (s as HTMLElement).dataset.class === id);
+      });
+    }
+  }
+
+  /** lobby: the always-visible class row */
+  lobbyClasses(selectedId: string): void { this.renderClassCards("lobby-class", selectedId); }
+
+  /** in-game overlay: pick a class mid-match (applies on next spawn) */
+  openLoadout(selectedId: string): void {
+    this.renderClassCards("loadout-cards", selectedId);
+    $("loadout").classList.remove("hidden");
+  }
+  closeLoadout(): void { $("loadout").classList.add("hidden"); }
+  loadoutOpen(): boolean { return !$("loadout").classList.contains("hidden"); }
+
   /** top-center team score (TDM sides / Prop Hunt seeker-vs-hider). null hides. */
   teamScoreHud(a: { name: string; score: number; color: number } | null, b?: { name: string; score: number; color: number }): void {
     const el = $("hud-teams");
@@ -483,6 +523,22 @@ export class Hud {
   damageFlash(): void {
     $("dmg-vignette").classList.remove("hidden");
     this.dmgTtl = 0.25;
+  }
+
+  /** flashbang whiteout: snap the overlay to `intensity` (0..1) then fade it out over a
+   *  duration that scales with how hard you were flashed. Re-flashing takes the stronger of
+   *  the two so a second nade can't read as *less* blinding than the first. */
+  blind(intensity: number): void {
+    const e = $("flash-blind");
+    const cur = parseFloat(e.style.opacity || "0") || 0;
+    const v = Math.max(cur, Math.min(1, intensity));
+    const dur = 0.6 + v * 3.4; // seconds to clear
+    e.classList.remove("hidden");
+    e.style.transition = "none";
+    e.style.opacity = String(v);
+    void e.offsetWidth; // reflow so the fade starts from the snapped value
+    e.style.transition = `opacity ${dur}s ease-out`;
+    e.style.opacity = "0";
   }
 
   scoreboard(visible: boolean, players: PlayerInfo[], scores: GameSnapshot["scores"], myId: string, platforms: Record<string, Platform> = {}): void {
