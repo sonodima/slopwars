@@ -185,6 +185,7 @@
   #hitmarker.hs::before,#hitmarker.hs::after{background:var(--red)}
 
   #dmg-vignette{position:absolute;inset:0;background:radial-gradient(ellipse at center,transparent 55%,rgba(200,30,20,.45) 100%)}
+  #flash-blind{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none;z-index:9}
   #scope{position:absolute;inset:0;background:radial-gradient(circle at center,transparent 0 33vmin,rgba(0,0,0,.985) calc(33vmin + 2px))}
   #scope::before{content:"";position:absolute;left:50%;top:0;width:1.5px;height:100%;background:rgba(0,0,0,.9);transform:translateX(-50%)}
   #scope::after{content:"";position:absolute;top:50%;left:0;height:1.5px;width:100%;background:rgba(0,0,0,.9);transform:translateY(-50%)}
@@ -502,6 +503,11 @@
   .mode-card.readonly:hover{border-color:var(--line)}
   .mode-card .mn{font-size:13px;letter-spacing:2px;color:var(--sand);text-transform:uppercase;font-weight:700}
   .mode-card .mb{font-size:9px;letter-spacing:.3px;color:#8d8471;margin-top:3px;line-height:1.35}
+  /* class / loadout picker (reuses .mode-card visuals; adds a weapon-kit line) */
+  #lobby-class{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:4px}
+  #loadout-cards{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0 16px}
+  .class-card .kit{display:block;font-family:var(--mono);font-size:9px;color:var(--sand-dim);margin-top:5px;letter-spacing:.4px;line-height:1.4}
+  @media (max-width:560px){#loadout-cards{grid-template-columns:1fr}}
   /* host match-rules: compact 2-column grid so it fits without much scroll */
   #lobby-rules{margin-top:4px}
   .rules-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 14px}
@@ -699,6 +705,10 @@
      weapon picker + fire cluster so they don't float on top of the board */
   body.sb-open #tc-weapons,body.sb-open #tc-actions{display:none!important}
 
+  /* weapon-switching is locked (Gun Game — one gun per tier; or a prop-hunt prop), so the
+     on-screen weapon strip is useless clutter on mobile — hide it. */
+  body.weplock #tc-weapons{display:none!important}
+
   /* Prop-Hunt hiders are unarmed props: hide all combat UI + weapon HUD */
   body.hider #scr-game .hud-br{display:none}
   body.hider #tc-fire,body.hider #tc-scope,body.hider #tc-reload,body.hider #tc-weapons{display:none!important}
@@ -814,6 +824,8 @@
       <div id="lobby-offline" class="hidden">No connection to the lobby server — no one can join. You can still play a bots-only match.</div>
       <label>game mode</label>
       <div id="lobby-mode"></div>
+      <label>your class <span class="set-sub">weapon kit you respawn with (FFA / TDM)</span></label>
+      <div id="lobby-class"></div>
       <label id="lobby-maps-label">starting map <span class="set-sub" id="lobby-maps-hint">host picks · then vote each round</span></label>
       <div id="lobby-maps"></div>
       <button id="lobby-adv-toggle" class="ghost adv-toggle hidden" type="button">Match settings ▾</button>
@@ -833,6 +845,7 @@
 <!-- ═══ IN-GAME HUD ═══ -->
 <div id="scr-game" class="screen hidden">
   <div id="dmg-vignette" class="hidden"></div>
+  <div id="flash-blind" class="hidden"></div>
   <div id="scope" class="hidden"></div>
   <div id="crosshair" class="hidden"><i class="t"></i><i class="r"></i><i class="b"></i><i class="l"></i></div>
   <div id="hitmarker" class="hidden"></div>
@@ -878,6 +891,7 @@
     </div>
     <div id="tc-util">
       <button class="tcb" id="tc-scores" title="scoreboard">▤</button>
+      <button class="tcb" id="tc-loadout" title="loadout / class">🎖</button>
       <button class="tcb" id="tc-chat" title="chat">💬</button>
       <button class="tcb" id="tc-mic" title="mic">🎙</button>
       <button class="tcb" id="tc-settings" title="settings">⚙</button>
@@ -909,6 +923,16 @@
       <button id="btn-again">Play again</button>
       <button id="btn-home" class="ghost">Home</button>
     </div>
+  </div>
+</div>
+
+<!-- ═══ LOADOUT / CLASS OVERLAY (in-match; applies on next spawn) ═══ -->
+<div id="loadout" class="screen hidden">
+  <div class="panel set-panel">
+    <h3>choose class</h3>
+    <div class="set-sub" id="loadout-hint">your kit applies on the next spawn</div>
+    <div id="loadout-cards"></div>
+    <button id="loadout-done">Done</button>
   </div>
 </div>
 

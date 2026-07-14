@@ -116,6 +116,22 @@
 ### 3.1 Visuals
 - **Current State:** Placeholder models in use.
 - **Target:** Replace with finalized, high-quality weapon models.
+- **Roster:** knife, USP, Luger, AK-47, M4A1, Suomi KP, M3 Grease Gun, Shotgun, AWP,
+  plus throwables (HE, Molotov, Flashbang, Smoke). The new CC0 "Guns & Explosives"
+  weapons (M4A1 / Shotgun / Grease / Suomi / Luger / Flashbang / Smoke) are wired up but
+  **reuse an existing mesh as a placeholder viewmodel** until their dedicated glTF is
+  committed — drop a `public/assets/models/wep_<name>/` folder and point
+  `WEAPON_MODEL` (`weapons.ts`) / `NADE_MODEL` (`nades.ts`) at it; nothing else changes.
+
+### 3.3 Weapon Economy — Class System (shipped)
+- **Decision:** a **Krunker-style class system**, not a CS-style buy economy. The game
+  runs *timed* rounds with instant / short-delay respawns, so there are no eliminations to
+  hang per-round money and a freeze/buy phase on. Instead each player picks a preset **class**
+  (primary / secondary / melee / utility) in the lobby (`your class` row) or mid-match via
+  the **Loadout** overlay (`L` / 🎖 touch button), and respawns with that kit every life.
+- Classes live in `classes.ts` (`CLASSES`); adding one is a single entry. Bots roll a random
+  class each life. Applies to FFA / TDM / Prop-Hunt seekers; Gun Game keeps its own weapon
+  ladder and Prop-Hunt hiders stay unarmed.
 
 ### 3.2 Audio
 - **Reload Sounds:** Unique reload SFX per weapon class.

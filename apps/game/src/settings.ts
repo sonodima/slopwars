@@ -21,6 +21,7 @@ export interface SettingsState {
   aiChat: boolean; // host-only: run the on-device LLM for NPC trash-talk (Chrome built-in AI)
   aiPrompted: boolean; // whether we've already asked to download the model (gates the boot consent)
   name: string; // persisted callsign
+  loadoutClass: string; // chosen loadout class id (classes.ts) — applied each FFA/TDM spawn
   keys: Partial<Record<KeyAction, string>>; // keyboard rebindings (over DEFAULT_KEYS)
   pads: Partial<Record<PadAction, number>>; // gamepad button rebindings (over DEFAULT_PADS)
 }
@@ -33,7 +34,7 @@ const KEY = "slopwars.settings";
 // nothing on mouse+keyboard, so there's no downside to shipping it enabled.
 const DEFAULTS: SettingsState = {
   quality: "high", sensitivity: 1, padSensitivity: 1, invertY: false, fov: 75, aimAssist: true,
-  showStats: true, aiChat: false, aiPrompted: false, name: "", keys: {}, pads: {},
+  showStats: true, aiChat: false, aiPrompted: false, name: "", loadoutClass: "assault", keys: {}, pads: {},
 };
 
 function load(): SettingsState {
@@ -191,6 +192,12 @@ export class Settings {
    *  as answered so it never auto-shows again, and fires onChange like any other edit. */
   setAiChat(on: boolean): void {
     this.set({ aiChat: on, aiPrompted: true });
+  }
+
+  /** persist the chosen loadout class (classes.ts id). Fires onChange so the player's
+   *  live weapon system + HUD can re-apply the kit. */
+  setLoadoutClass(id: string): void {
+    this.set({ loadoutClass: id });
   }
 
   /** persist an edited callsign (trimmed to 16 chars, never blank in storage) */

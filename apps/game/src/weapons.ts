@@ -6,36 +6,57 @@ import {
 import { sfx } from "./audio";
 import { GameModels, instantiate, modelMetaOf } from "./models";
 import { MaterialLibrary, shadeModelSlots } from "./materials";
-import { Vec3, WEAPONS, WeaponDef, WeaponId, LOADOUT, clamp } from "./types";
+import { Vec3, WEAPONS, WeaponDef, WeaponId, ALL_WEAPONS, LOADOUT, clamp } from "./types";
 import { modelAnchor, type ModelMeta } from "@slopwars/shared";
 
 interface Ammo { mag: number; reserve: number }
 
-// The model each weapon slot is held as — the ONLY weapon-specific model data in code.
+// The model each weapon is held as — the ONLY weapon-specific model data in code.
 // These are ordinary geometry-only models (CC0 "Guns & Explosives" + "Melee Weapons"
 // packs, 3dmodelscc0): they carry their own library materials (meta.materials) and
 // their held pose (meta.scale), authored in the editor exactly like any other model —
 // so there are no per-weapon offsets/rotations here. The muzzle flash + shot origin come
 // from each model's `muzzle` anchor (also authored in the editor).
+//
+// The weapons added from the CC0 "Guns & Explosives" pack (m4a1, shotgun, grease, suomi,
+// luger, flash, smoke) don't have their dedicated glTF committed yet, so they reuse the
+// closest existing model as a placeholder viewmodel — drop a `wep_<name>` model folder in
+// and point the entry at it to give a weapon its own mesh, no other code change needed.
 const WEAPON_MODEL: Record<WeaponId, string> = {
   knife: "wep_knife",
   usp: "wep_makarov",
+  luger: "wep_makarov",   // placeholder → dedicated wep_luger
   ak47: "wep_ak47",
+  m4a1: "wep_ak47",       // placeholder → dedicated wep_m4a1
+  suomi: "wep_ak47",      // placeholder → dedicated wep_suomi
+  grease: "wep_ak47",     // placeholder → dedicated wep_grease
+  shotgun: "wep_ak47",    // placeholder → dedicated wep_shotgun
   awp: "wep_sniper",
   he: "wep_frag",
   mol: "wep_molotov",
+  flash: "wep_frag",      // placeholder → dedicated wep_flashbang
+  smoke: "wep_frag",      // placeholder → dedicated wep_smoke
 };
+
+/** a full ammo table for every weapon, seeded from each def's mag/reserve. Throwables
+ *  start at their `mag` count with no reserve; melee is the sentinel -1/-1. */
+function ammoFromDefs(): Record<WeaponId, Ammo> {
+  const out = {} as Record<WeaponId, Ammo>;
+  for (const id of ALL_WEAPONS) {
+    const d = WEAPONS[id];
+    out[id] = d.melee
+      ? { mag: -1, reserve: -1 }
+      : { mag: d.mag, reserve: d.reserve < 0 ? -1 : d.reserve };
+  }
+  return out;
+}
 
 export class WeaponSystem {
   current: WeaponId = "ak47";
-  ammo: Record<WeaponId, Ammo> = {
-    knife: { mag: -1, reserve: -1 },
-    usp: { mag: 12, reserve: 48 },
-    ak47: { mag: 30, reserve: 90 },
-    awp: { mag: 5, reserve: 15 },
-    he: { mag: 2, reserve: -1 },
-    mol: { mag: 1, reserve: -1 },
-  };
+  /** the player's active inventory (a class subset of ALL_WEAPONS). Weapon-slot keys and
+   *  the weapon wheel operate over this, not the global weapon list — see setLoadout. */
+  loadout: WeaponId[] = [...LOADOUT];
+  ammo: Record<WeaponId, Ammo> = ammoFromDefs();
   reloading = 0; // time left
   cooldown = 0;
   scoped = false;
@@ -78,6 +99,25 @@ export class WeaponSystem {
     return WEAPONS[w].throwable ? this.ammo[w].mag > 0 : true;
   }
 
+  /** swap the active inventory to a class kit (or any weapon subset). Ammo for the new
+   *  weapons is topped up, the first entry is drawn, and any weapon not in the kit is
+   *  simply inactive. Order defines the weapon-slot key mapping + wheel order. */
+  setLoadout(ids: WeaponId[]): void {
+    this.loadout = ids.filter((id) => WEAPONS[id]);
+    if (!this.loadout.length) this.loadout = [...LOADOUT];
+    for (const id of this.loadout) {
+      const d = WEAPONS[id];
+      if (!d.melee) this.ammo[id] = { mag: d.mag, reserve: d.reserve < 0 ? -1 : d.reserve };
+    }
+    this.select(this.loadout[0]);
+  }
+
+  /** select the weapon in loadout slot `i` (0-based), if it exists + is available */
+  slot(i: number): void {
+    const w = this.loadout[i];
+    if (w) this.select(w);
+  }
+
   select(w: WeaponId): void {
     if (!this.available(w)) return; // can't equip a spent throwable
     this.current = w;
@@ -85,7 +125,7 @@ export class WeaponSystem {
     this.cooldown = Math.max(this.cooldown, 0.25);
     this.drawTimer = 0.25;
     this.setScope(false);
-    for (const id of LOADOUT) { const e = this.models[id]; if (e) e.isActive = id === w; }
+    for (const id of ALL_WEAPONS) { const e = this.models[id]; if (e) e.isActive = id === w; }
     // seat the muzzle flash at this weapon's barrel tip (its `muzzle` anchor)
     const mz = this.muzzles[w];
     if (mz) this.flash.transform.setPosition(mz.x, mz.y, mz.z);
@@ -126,11 +166,12 @@ export class WeaponSystem {
   }
 
   cycle(dir: number): void {
-    const n = LOADOUT.length;
-    let i = LOADOUT.indexOf(this.current);
+    const n = this.loadout.length;
+    if (!n) return;
+    let i = this.loadout.indexOf(this.current);
     for (let k = 0; k < n; k++) { // skip spent throwables so scroll never lands on an empty slot
       i = (i + dir + n) % n;
-      if (this.available(LOADOUT[i])) { this.select(LOADOUT[i]); return; }
+      if (this.available(this.loadout[i])) { this.select(this.loadout[i]); return; }
     }
   }
 
@@ -218,7 +259,7 @@ export class WeaponSystem {
     // Each weapon is an ordinary model, seated at the hand by its own meta scale (the
     // model's authored orientation already faces forward). Setting modelFolders lets
     // applyModelMaterials shade them with their library materials, like a placed prop.
-    for (const id of LOADOUT) {
+    for (const id of ALL_WEAPONS) {
       const folder = WEAPON_MODEL[id];
       const m = instantiate(this.src[folder]);
       if (!m) { console.warn("[weapon] model missing:", folder); continue; }
