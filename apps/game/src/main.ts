@@ -38,7 +38,7 @@ import {
   DEFAULT_MODE, GUNGAME_FINAL, MODES, PROPHUNT_PREP, ROLE_HIDE, ROLE_SEEK,
   TEAM_COLORS, TEAM_NAMES, seekerCount, tierWeapon,
 } from "./modes";
-import { CLASSES, ClassId, classById, randomClass } from "./classes";
+import { CLASSES, CLASS_LIST, ClassId, classById, randomClass } from "./classes";
 import { Voice } from "./voice";
 import { NpcChat, Relation, initNpcChat } from "./npcchat";
 import { TouchControls } from "./touch";
@@ -433,6 +433,7 @@ class Game {
     // theme music starts on first user gesture (autoplay policy)
     window.addEventListener("pointerdown", () => {
       sfx.unlock();
+      sfx.preload(); // warm combat/feedback samples so the first shot / blast doesn't decode mid-action
       if (!this.inGame) sfx.startTheme();
     }, { once: true });
 
@@ -484,8 +485,9 @@ class Game {
         // Pressing Esc exits pointer lock *and* the browser swallows that Escape
         // keydown, so the pause menu can never open from the keydown handler while
         // locked. Open it here on any in-game unlock (Esc / alt-tab). Skipped while
-        // leaving, or when it's already open.
-        if (!this.locked && !this.leaving && !this.settings.isOpen()) this.openSettings();
+        // leaving, or when a menu already owns the unlock (settings, or the loadout /
+        // class overlay — which releases the pointer on purpose so its cards are clickable).
+        if (!this.locked && !this.leaving && !this.settings.isOpen() && !this.hud.loadoutOpen()) this.openSettings();
       }
     });
     canvas.addEventListener("click", () => {
@@ -529,6 +531,12 @@ class Game {
       }
       if (!this.inGame) return;
       if (this.hud.chatOpen) return; // chat input handles its own keys
+      // while dead, the number keys pick your NEXT class off the respawn strip (deploys on
+      // respawn). Handled before the weapon-slot path since those are alive-only.
+      if (!this.alive && this.classPickable()) {
+        const m = /^(?:Digit|Numpad)([1-9])$/.exec(e.code);
+        if (m && Number(m[1]) <= CLASS_LIST.length) { this.chooseClassSlot(Number(m[1]) - 1); return; }
+      }
       const action = this.settings.keyActionFor(e.code); // remappable → action, or null
       if (action === "scoreboard") { e.preventDefault(); this.sbOpen = true; }
       if (!this.locked) return;
@@ -2948,6 +2956,8 @@ class Game {
         this.lastWeapon = this.ws.current; // remember it so respawn re-equips the same gun
         this.selfOperator?.markDead(m.hs === 1); // pick the death variant before syncDeath
         this.respawnAt = performance.now() / 1000 + MODES[this.mode].respawn;
+        // surface the "choose your next class" strip on the death screen (deploys on respawn)
+        this.hud.respawnDeploy(this.classPickable(), this.settings.state.loadoutClass);
         sfx.death(); // clear cue, before the death cam muffles the bus
         this.startDeathCam();
         this.hud.crosshair(false);
@@ -3046,12 +3056,28 @@ class Game {
     this.hud.onClass = (id) => this.chooseClass(id);
   }
 
-  /** persist a class pick (lobby row or in-game overlay). It applies on the next spawn —
-   *  nudge the player if they changed it mid-life so the unchanged current kit isn't a bug. */
+  /** whether the local player gets to pick a class this life: true for FFA/TDM/Prop-Hunt
+   *  seekers (anyone who respawns with a class kit), false for Gun Game (weapon is set by
+   *  tier) and Prop-Hunt hiders (an unarmed prop). Drives the death-screen class strip. */
+  classPickable(): boolean {
+    return this.inGame && this.mode !== "gungame" && !this.isHider();
+  }
+
+  /** pick the Nth class in CLASS_LIST (death-screen number keys / touch strip). */
+  chooseClassSlot(i: number): void {
+    const id = CLASS_LIST[i];
+    if (id) this.chooseClass(id);
+  }
+
+  /** persist a class pick (in-game overlay or death-screen strip). It applies on the next
+   *  spawn — nudge a *live* player who changed it mid-life so the unchanged current kit
+   *  doesn't read as a bug; a dead player already sees the strip's highlight + "deploys on
+   *  respawn" note, so it stays quiet. Reflects the pick on every open class surface. */
   chooseClass(id: string): void {
     if (this.settings.state.loadoutClass === id) return;
     this.settings.setLoadoutClass(id);
-    if (this.inGame && this.alive && this.mode !== "gungame" && !this.isHider()) {
+    this.hud.markClass(id);
+    if (this.inGame && this.alive && this.classPickable()) {
       this.hud.banner(`${CLASSES[id as ClassId]?.name ?? "Loadout"} · applies on next spawn`, 1800);
     }
   }
@@ -3490,7 +3516,6 @@ class Game {
     // host's round-1 map picker (guests see it read-only). The shown selection defaults to
     // the rotation default until the host picks, so what's highlighted is what round 1 uses.
     this.hud.lobbyMaps(mapMetas(), this.mapPreviewMap(), this.cfg.startMap ?? DEFAULT_MAP, this.net.isHost);
-    this.hud.lobbyClasses(this.settings.state.loadoutClass);
     this.hud.setOffline(this.net.offline);
     this.refreshLobbyAvatars();
   }
