@@ -422,33 +422,48 @@ export class Hud {
     }
   }
 
-  // ── loadout class picker (lobby row + in-game overlay share one card renderer) ──
-  /** one class card: name, blurb, and the weapon kit it grants. */
-  private static classCard(c: ClassDef, selectedId: string): string {
+  // ── loadout class picker (in-game overlay + death-screen strip share one renderer) ──
+  /** one class card: name, blurb, and the weapon kit it grants. `n` (1-based) prints a
+   *  slot number so the death-screen strip can advertise its number-key shortcut. */
+  private static classCard(c: ClassDef, selectedId: string, n = 0): string {
     const kit = c.loadout.map((w) => WEAPONS[w].name).join(" · ");
+    const key = n ? `<span class="ck">${n}</span>` : "";
     return `<div class="mode-card class-card${c.id === selectedId ? " on" : ""}" data-class="${c.id}">` +
-      `<div class="mn">${esc(c.name)}</div><div class="mb">${esc(c.blurb)}</div>` +
+      `${key}<div class="mn">${esc(c.name)}</div><div class="mb">${esc(c.blurb)}</div>` +
       `<span class="kit">${esc(kit)}</span></div>`;
   }
 
-  /** render class cards into `containerId`, marking `selectedId` and wiring clicks. */
-  private renderClassCards(containerId: string, selectedId: string): void {
+  /** render class cards into `containerId`, marking `selectedId` and wiring clicks.
+   *  `numbered` prints 1..N slot badges (used by the death-screen strip). */
+  private renderClassCards(containerId: string, selectedId: string, numbered = false): void {
     const el = $(containerId);
-    el.innerHTML = CLASS_LIST.map((id) => Hud.classCard(CLASSES[id], selectedId)).join("");
+    el.innerHTML = CLASS_LIST.map((id, i) => Hud.classCard(CLASSES[id], selectedId, numbered ? i + 1 : 0)).join("");
     for (const c of Array.from(el.children)) {
-      c.addEventListener("click", () => {
-        const id = (c as HTMLElement).dataset.class!;
-        this.onClass?.(id);
-        // reflect the pick immediately (both surfaces) without a full re-render
-        for (const s of Array.from(el.children)) s.classList.toggle("on", (s as HTMLElement).dataset.class === id);
-      });
+      c.addEventListener("click", () => this.pickClass((c as HTMLElement).dataset.class!));
     }
   }
 
-  /** lobby: the always-visible class row */
-  lobbyClasses(selectedId: string): void { this.renderClassCards("lobby-class", selectedId); }
+  /** commit a class pick from either surface and reflect it on both without a re-render. */
+  private pickClass(id: string): void {
+    this.onClass?.(id);
+    this.markClass(id);
+  }
 
-  /** in-game overlay: pick a class mid-match (applies on next spawn) */
+  /** highlight `id` across every class surface currently in the DOM (overlay + strip),
+   *  so a pick made on one shows up on the other. */
+  markClass(id: string): void {
+    for (const containerId of ["loadout-cards", "respawn-classes"]) {
+      const el = document.getElementById(containerId);
+      if (!el) continue;
+      for (const s of Array.from(el.children)) s.classList.toggle("on", (s as HTMLElement).dataset.class === id);
+    }
+  }
+
+  /** death/respawn screen: the compact "choose your next class" strip (deploys on respawn).
+   *  Rendered once when the player dies; number badges advertise the 1..N desktop shortcut. */
+  respawnClasses(selectedId: string): void { this.renderClassCards("respawn-classes", selectedId, true); }
+
+  /** in-game overlay: pick a class mid-match while alive (applies on next spawn) */
   openLoadout(selectedId: string): void {
     this.renderClassCards("loadout-cards", selectedId);
     $("loadout").classList.remove("hidden");
@@ -569,6 +584,15 @@ export class Hud {
     const e = $("respawn");
     e.classList.toggle("hidden", t === null);
     if (t !== null) $("respawn-t").textContent = Math.ceil(t).toString();
+  }
+
+  /** show/hide the death-screen "choose your class" strip and (when shown) render it with
+   *  the current pick highlighted. Hidden for modes without a class choice (Gun Game tiers,
+   *  Prop-Hunt hiders). Rendered once per death; the overlay itself is toggled by
+   *  respawnOverlay each frame. */
+  respawnDeploy(show: boolean, selectedId: string): void {
+    $("respawn-deploy").classList.toggle("hidden", !show);
+    if (show) this.respawnClasses(selectedId);
   }
 
   /** spectator banner for a no-respawn player (Prop-Hunt hider). `name` = who's being

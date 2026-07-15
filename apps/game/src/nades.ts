@@ -359,7 +359,14 @@ export class Projectiles {
       [this.mFlash, 1.2, 12], [this.mFlame2, 0.7, 12], [this.mFlame, 0.5, 10],
       [this.mSmoke, 0.5, 6], [this.mHe, 0.12, 8], [this.mMol, 0.12, 8],
     ];
-    const spheres = combos.map(([m, r, seg]) => {
+    // Warm each material/segment shader combo AND pre-fill the FX-sphere pool to a full
+    // blast's worth (explodeFx spawns ~25: flash + fireball + 12 smoke + 10 embers). Without
+    // this the pool held only 6 after prewarm, so the FIRST barrel/grenade blast still
+    // allocated ~19 entities + renderers mid-explosion — the brief freeze on the first blast.
+    // These render underground for a few frames, then release straight back into the pool.
+    const POOL_WARM = 26;
+    const spheres = Array.from({ length: POOL_WARM }, (_, i) => {
+      const [m, r, seg] = combos[i % combos.length];
       const e = this.acquireSphere(m, r, seg);
       e.transform.setPosition(c.x, c.y, c.z);
       return e;

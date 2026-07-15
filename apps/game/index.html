@@ -193,9 +193,22 @@
   #banner{position:absolute;top:24%;left:50%;transform:translateX(-50%);font-size:19px;letter-spacing:5px;
     text-transform:uppercase;color:var(--sand);background:var(--panel);border:1px solid var(--line);
     padding:9px 26px;white-space:nowrap;text-align:center}
-  #respawn{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;padding:0 0 10vh 0;pointer-events:none}
+  #respawn{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:22px;padding:max(16px,env(safe-area-inset-top)) 12px max(16px,env(safe-area-inset-bottom));pointer-events:none}
   #respawn .d{font-size:16px;letter-spacing:6px;color:var(--sand);text-transform:uppercase;opacity:.8}
-  #respawn-t{font-size:72px;font-weight:700;font-family:var(--mono);color:#f0e8d5;line-height:1}
+  #respawn-t{font-size:64px;font-weight:700;font-family:var(--mono);color:#f0e8d5;line-height:1}
+  .respawn-count{display:flex;flex-direction:column;align-items:center;gap:4px}
+  /* ── death-screen "choose your class" strip (deploys on respawn) ── */
+  #respawn-deploy{display:flex;flex-direction:column;align-items:center;gap:8px;max-width:min(760px,96vw);pointer-events:none}
+  .rd-title{font-size:13px;letter-spacing:5px;text-transform:uppercase;color:var(--sand);font-weight:700}
+  .rd-sub{font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--sand-dim)}
+  #respawn-classes{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;pointer-events:auto;
+    max-width:96vw;padding:2px}
+  #respawn-classes .class-card{position:relative;width:134px;padding:9px 11px 10px;
+    background:rgba(10,9,6,.78);cursor:pointer}
+  #respawn-classes .class-card .ck{position:absolute;top:6px;right:8px;font-family:var(--mono);font-size:10px;
+    color:var(--sand-dim);opacity:.8}
+  #respawn-classes .class-card.on .ck{color:#3a2f12;opacity:1}
   #spectate{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;padding:12vh 0 0 0;pointer-events:none}
   #spectate .d{font-size:13px;letter-spacing:6px;color:var(--sand);text-transform:uppercase;opacity:.7}
   #spectate-n{font-size:28px;font-weight:700;font-family:var(--font);color:#f0e8d5;line-height:1.2}
@@ -455,9 +468,22 @@
     .panel input{font-size:15px;padding:9px 11px}
     button{padding:11px 16px;font-size:12px;margin-top:12px}
     #lobby-code{margin:4px 0 12px}
-    /* scoreboard + settings: shrink to match the main/lobby panels */
-    #scoreboard{width:min(420px,94vw);padding:14px 16px 16px}
-    .set-title{font-size:19px;letter-spacing:4px}
+    /* scoreboard + settings share the lobby/menu panel's width + compact rhythm on phones */
+    #scoreboard{width:min(420px,92vw);padding:14px 16px 16px}
+    #scoreboard h3{letter-spacing:4px;margin-bottom:3px}
+    #scoreboard .lb-row{font-size:13px;padding:7px 5px}
+    .set-panel{width:min(440px,92vw);min-width:0}
+    .set-title{font-size:18px;letter-spacing:4px;margin-bottom:4px}
+    /* trim the settings' vertical bulk so it reads at the same scale as the lobby */
+    .set-toggle{margin-top:12px;font-size:10px}
+    .seg button{padding:9px 5px;font-size:11px}
+    .set-note{font-size:9px;margin-top:7px;line-height:1.5}
+    .rng{height:20px;margin:6px 0 2px}
+    .bind-row{font-size:11px}
+    .bind-key{padding:5px 10px;min-width:66px;font-size:11px}
+    #set-controls-toggle{margin-top:12px}
+    #set-done{margin-top:16px}
+    #set-leave{margin-top:12px}
   }
   /* short landscape (phones held sideways): tighten vertical rhythm + allow scroll */
   @media (max-height:520px){
@@ -483,10 +509,19 @@
     body.voting #scoreboard{max-height:calc(100dvh - 150px)}
     /* settings overlay: trim the vertical rhythm so the whole panel fits without a long scroll */
     .set-title{font-size:18px;letter-spacing:4px;margin-bottom:2px}
-    .set-toggle{margin-top:12px}
+    .set-toggle{margin-top:10px;font-size:10px}
+    .seg button{padding:8px 5px;font-size:11px}
+    .set-note{font-size:9px;margin-top:6px;line-height:1.5}
+    .rng{height:20px;margin:6px 0 2px}
     #set-done{margin-top:14px}
     #set-leave{margin-top:12px}
     #set-aichat-note{margin-top:6px}
+    /* death-screen class strip: keep it to a single tidy row on short landscape phones */
+    #respawn{gap:10px}
+    .rd-title{font-size:10px;letter-spacing:2px}
+    .rd-sub{font-size:8px}
+    #respawn-classes .class-card{width:104px;padding:6px 8px 7px}
+    body.touch #respawn-t{font-size:34px}
   }
   /* keyboard hints are desktop-only; show a touch primer instead */
   .touch-only{display:none}
@@ -504,7 +539,6 @@
   .mode-card .mn{font-size:13px;letter-spacing:2px;color:var(--sand);text-transform:uppercase;font-weight:700}
   .mode-card .mb{font-size:9px;letter-spacing:.3px;color:#8d8471;margin-top:3px;line-height:1.35}
   /* class / loadout picker (reuses .mode-card visuals; adds a weapon-kit line) */
-  #lobby-class{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:4px}
   #loadout-cards{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0 16px}
   .class-card .kit{display:block;font-family:var(--mono);font-size:9px;color:var(--sand-dim);margin-top:5px;letter-spacing:.4px;line-height:1.4}
   @media (max-width:560px){#loadout-cards{grid-template-columns:1fr}}
@@ -681,9 +715,13 @@
   body.touch #hud-weapon{font-size:10px;letter-spacing:2px}
   /* respawn counter: shrink + centre vertically on mobile so it clears the bottom
      weapon strip / touch controls instead of overlapping them */
-  body.touch #respawn{justify-content:center;padding:0}
-  body.touch #respawn .d{font-size:12px;letter-spacing:4px}
-  body.touch #respawn-t{font-size:44px}
+  body.touch #respawn{justify-content:center;gap:14px}
+  body.touch #respawn .d{font-size:11px;letter-spacing:4px}
+  body.touch #respawn-t{font-size:40px}
+  body.touch .rd-title{font-size:11px;letter-spacing:3px}
+  body.touch #respawn-classes{gap:6px}
+  body.touch #respawn-classes .class-card{width:118px;padding:7px 9px 8px}
+  body.touch #respawn-classes .class-card .mb{display:none} /* drop the blurb on phones — keep the kit line */
   body.touch #spectate{padding-top:9vh}
   body.touch #spectate-n{font-size:20px}
   body.touch #stats{top:calc(max(10px,env(safe-area-inset-top)) + 42px);left:max(10px,env(safe-area-inset-left));font-size:9px}
@@ -704,6 +742,9 @@
   /* while the scoreboard is open (round-end interlude or held), clear the on-screen
      weapon picker + fire cluster so they don't float on top of the board */
   body.sb-open #tc-weapons,body.sb-open #tc-actions{display:none!important}
+  /* while dead (respawn "choose your class" screen), clear the movement/fire/weapon
+     thumbs — you can't act, and it keeps the centred class strip free of overlap */
+  body.touch.dead #tc-weapons,body.touch.dead #tc-actions,body.touch.dead #tc-move{display:none!important}
 
   /* weapon-switching is locked (Gun Game — one gun per tier; or a prop-hunt prop), so the
      on-screen weapon strip is useless clutter on mobile — hide it. */
@@ -824,8 +865,6 @@
       <div id="lobby-offline" class="hidden">No connection to the lobby server — no one can join. You can still play a bots-only match.</div>
       <label>game mode</label>
       <div id="lobby-mode"></div>
-      <label>your class <span class="set-sub">weapon kit you respawn with (FFA / TDM)</span></label>
-      <div id="lobby-class"></div>
       <label id="lobby-maps-label">starting map <span class="set-sub" id="lobby-maps-hint">host picks · then vote each round</span></label>
       <div id="lobby-maps"></div>
       <button id="lobby-adv-toggle" class="ghost adv-toggle hidden" type="button">Match settings ▾</button>
@@ -870,7 +909,14 @@
   </div>
   <div id="banner" class="hidden"></div>
   <div id="vote" class="hidden"><div class="vh">vote next map</div><div id="vote-cards"></div></div>
-  <div id="respawn" class="hidden"><div class="d">respawn in</div><div id="respawn-t">3</div></div>
+  <div id="respawn" class="hidden">
+    <div id="respawn-deploy">
+      <div class="rd-title">choose your class</div>
+      <div class="rd-sub">deploys on respawn · <span class="kbd-only">press 1–5</span><span class="touch-only">tap a class</span></div>
+      <div id="respawn-classes"></div>
+    </div>
+    <div class="respawn-count"><div class="d">respawn in</div><div id="respawn-t">3</div></div>
+  </div>
   <div id="spectate" class="hidden"><div class="d">spectating</div><div id="spectate-n"></div></div>
   <div id="click-to-play" class="hidden">click to play</div>
 

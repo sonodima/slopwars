@@ -59,6 +59,20 @@ class Sfx {
 
   unlock(): void { this.ac(); }
 
+  /** Warm the sample cache up front (fetch + off-thread decode) so the FIRST shot,
+   *  barrel/grenade blast, hit-marker, etc. don't fetch+decode mid-action — a common
+   *  source of the brief hitch (or silent first shot) when a sound plays for the first
+   *  time. Decoding happens off the main thread, so this never blocks gameplay; music /
+   *  water loops are left to their own lazy loaders (they start moments later anyway). */
+  preload(): void {
+    const warm: SampleName[] = [
+      "knife", "usp", "ak47", "awp", "boom", "shatter", "fire",
+      "hit", "headshot", "jumpStart", "jumpEnd", "step1", "step2", "deathScreen",
+      "roundStart", "roundEnd",
+    ];
+    for (const n of warm) void this.buf(n).catch(() => { /* a missing sample just stays lazy */ });
+  }
+
   private buf(name: SampleName): Promise<AudioBuffer> {
     const cached = this.buffers.get(name);
     if (cached) return Promise.resolve(cached);
