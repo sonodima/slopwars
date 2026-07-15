@@ -39,7 +39,7 @@ export class Hud {
   onMode: ((mode: ModeId) => void) | null = null;
   onCfg: ((patch: Partial<MatchConfig>) => void) | null = null;
   onHome: (() => void) | null = null;
-  /** player picked a loadout class (lobby row or in-game overlay) */
+  /** player picked a class off the death-screen strip (deploys on respawn) */
   onClass: ((id: string) => void) | null = null;
   /** first-run consent: user chose whether to download the on-device NPC-AI model. */
   onAiConsent: ((accept: boolean) => void) | null = null;
@@ -78,9 +78,6 @@ export class Hud {
       } else if (e.code === "Escape") this.closeChat();
     });
 
-    $("loadout-done").onclick = () => this.closeLoadout();
-    $("loadout").addEventListener("pointerdown", (e) => { if (e.target === $("loadout")) this.closeLoadout(); });
-
     $("ai-dl-x").onclick = () => this.hideAiDownload();
     $("ai-consent-yes").onclick = () => { this.hideAiConsent(); this.onAiConsent?.(true); };
     $("ai-consent-no").onclick = () => { this.hideAiConsent(); this.onAiConsent?.(false); };
@@ -112,7 +109,7 @@ export class Hud {
 
   voice(state: "on" | "muted" | "off"): void {
     const e = $("voice");
-    e.textContent = state === "on" ? "🎙 voice on · V" : state === "muted" ? "🎙 muted · V" : "🎙 no mic";
+    e.textContent = state === "on" ? "🎙 voice on · V" : state === "muted" ? "🎙 muted · V" : "🎙 voice off · V";
     e.classList.toggle("off", state !== "on");
     // touch: the standalone indicator is hidden; reflect state on the mic button
     const mic = document.getElementById("tc-mic");
@@ -422,7 +419,7 @@ export class Hud {
     }
   }
 
-  // ── loadout class picker (in-game overlay + death-screen strip share one renderer) ──
+  // ── loadout class picker (death-screen strip) ──
   /** one class card: name, blurb, and the weapon kit it grants. `n` (1-based) prints a
    *  slot number so the death-screen strip can advertise its number-key shortcut. */
   private static classCard(c: ClassDef, selectedId: string, n = 0): string {
@@ -449,27 +446,17 @@ export class Hud {
     this.markClass(id);
   }
 
-  /** highlight `id` across every class surface currently in the DOM (overlay + strip),
-   *  so a pick made on one shows up on the other. */
+  /** highlight `id` on the death-screen class strip (the only class surface), so a pick
+   *  made with the number keys shows up on the cards too. */
   markClass(id: string): void {
-    for (const containerId of ["loadout-cards", "respawn-classes"]) {
-      const el = document.getElementById(containerId);
-      if (!el) continue;
-      for (const s of Array.from(el.children)) s.classList.toggle("on", (s as HTMLElement).dataset.class === id);
-    }
+    const el = document.getElementById("respawn-classes");
+    if (!el) return;
+    for (const s of Array.from(el.children)) s.classList.toggle("on", (s as HTMLElement).dataset.class === id);
   }
 
   /** death/respawn screen: the compact "choose your next class" strip (deploys on respawn).
    *  Rendered once when the player dies; number badges advertise the 1..N desktop shortcut. */
   respawnClasses(selectedId: string): void { this.renderClassCards("respawn-classes", selectedId, true); }
-
-  /** in-game overlay: pick a class mid-match while alive (applies on next spawn) */
-  openLoadout(selectedId: string): void {
-    this.renderClassCards("loadout-cards", selectedId);
-    $("loadout").classList.remove("hidden");
-  }
-  closeLoadout(): void { $("loadout").classList.add("hidden"); }
-  loadoutOpen(): boolean { return !$("loadout").classList.contains("hidden"); }
 
   /** top-center team score (TDM sides / Prop Hunt seeker-vs-hider). null hides. */
   teamScoreHud(a: { name: string; score: number; color: number } | null, b?: { name: string; score: number; color: number }): void {

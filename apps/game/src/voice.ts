@@ -4,16 +4,26 @@ import Peer, { MediaConnection } from "peerjs";
 export class Voice {
   micOk = false;
   muted = false;
+  /** voice is opt-in: `false` until the player turns it on (nothing is acquired before then,
+   *  so iOS never enters its "record"/in-call audio session — the source of crackling output
+   *  and the on-screen call indicator when the mic is held). */
+  active = false;
 
   private ctx: AudioContext | null = null;
   private mine: MediaStream | null = null;
   private peer: Peer | null = null;
+  private callBound = false;
   private toPid: (realId: string) => string = (s) => s;
+  private conns = new Set<MediaConnection>();
   private nodes = new Map<string, { gain: GainNode; pan: StereoPannerNode; el: HTMLAudioElement }>();
 
+  /** turn voice ON: acquire the mic and join the media mesh. No-op if already active. Only
+   *  called when the player explicitly enables voice — never automatically — so a player who
+   *  never touches the mic never grabs it (clean audio + no call indicator, esp. on iOS). */
   async start(peer: Peer, toPid: (realId: string) => string): Promise<boolean> {
     this.peer = peer;
     this.toPid = toPid;
+    this.active = true;
     this.ctx = this.ctx ?? new AudioContext();
     if (this.ctx.state === "suspended") void this.ctx.resume();
     try {
@@ -25,11 +35,30 @@ export class Voice {
       // no mic → send silence, still hear others
       this.mine = this.ctx.createMediaStreamDestination().stream;
     }
-    peer.on("call", (c) => {
-      c.answer(this.mine!);
-      this.attach(c);
-    });
+    // bind the inbound-call answerer exactly once for this peer (re-enabling voice reuses it)
+    if (!this.callBound) {
+      this.callBound = true;
+      peer.on("call", (c) => {
+        if (!this.active || !this.mine) return; // ignore calls while voice is off
+        c.answer(this.mine);
+        this.attach(c);
+      });
+    }
     return this.micOk;
+  }
+
+  /** turn voice OFF: stop + release the mic (this is what lets iOS leave its record/call
+   *  session — muting a still-live track does not), tear down every media connection, and
+   *  drop all remote audio. Re-enabling calls start() again from scratch. */
+  stop(): void {
+    this.active = false;
+    this.micOk = false;
+    this.muted = false;
+    this.mine?.getTracks().forEach((t) => t.stop());
+    this.mine = null;
+    for (const c of this.conns) { try { c.close(); } catch { /* already closed */ } }
+    this.conns.clear();
+    for (const pid of [...this.nodes.keys()]) this.drop(pid);
   }
 
   /** place outbound call to a peer's real PeerJS id */
@@ -39,6 +68,7 @@ export class Voice {
   }
 
   private attach(c: MediaConnection): void {
+    this.conns.add(c);
     c.on("stream", (stream) => {
       const pid = this.toPid(c.peer);
       this.drop(pid);
@@ -55,8 +85,8 @@ export class Voice {
       src.connect(gain).connect(pan).connect(ctx.destination);
       this.nodes.set(pid, { gain, pan, el });
     });
-    c.on("close", () => this.drop(this.toPid(c.peer)));
-    c.on("error", () => this.drop(this.toPid(c.peer)));
+    c.on("close", () => { this.conns.delete(c); this.drop(this.toPid(c.peer)); });
+    c.on("error", () => { this.conns.delete(c); this.drop(this.toPid(c.peer)); });
   }
 
   drop(pid: string): void {

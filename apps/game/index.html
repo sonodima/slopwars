@@ -538,10 +538,8 @@
   .mode-card.readonly:hover{border-color:var(--line)}
   .mode-card .mn{font-size:13px;letter-spacing:2px;color:var(--sand);text-transform:uppercase;font-weight:700}
   .mode-card .mb{font-size:9px;letter-spacing:.3px;color:#8d8471;margin-top:3px;line-height:1.35}
-  /* class / loadout picker (reuses .mode-card visuals; adds a weapon-kit line) */
-  #loadout-cards{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0 16px}
+  /* class cards (death-screen strip) — reuse .mode-card visuals + a weapon-kit line */
   .class-card .kit{display:block;font-family:var(--mono);font-size:9px;color:var(--sand-dim);margin-top:5px;letter-spacing:.4px;line-height:1.4}
-  @media (max-width:560px){#loadout-cards{grid-template-columns:1fr}}
   /* host match-rules: compact 2-column grid so it fits without much scroll */
   #lobby-rules{margin-top:4px}
   .rules-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 14px}
@@ -898,7 +896,7 @@
   <div id="killfeed"></div>
   <div id="chatfeed"></div>
   <div id="chat-bar" class="hidden"><span>›</span><input id="chat-inp" maxlength="120" spellcheck="false"></div>
-  <div id="voice" class="off">🎙 no mic</div>
+  <div id="voice" class="off">🎙 voice off · V</div>
   <div class="hud-bl"><span id="hud-hp">100</span><span class="u">hp</span></div>
   <div class="hud-br"><div id="hud-weapon">AK-47</div><div id="hud-ammo">30 / 90</div></div>
   <div id="scoreboard" class="hidden">
@@ -937,7 +935,6 @@
     </div>
     <div id="tc-util">
       <button class="tcb" id="tc-scores" title="scoreboard">▤</button>
-      <button class="tcb" id="tc-loadout" title="loadout / class">🎖</button>
       <button class="tcb" id="tc-chat" title="chat">💬</button>
       <button class="tcb" id="tc-mic" title="mic">🎙</button>
       <button class="tcb" id="tc-settings" title="settings">⚙</button>
@@ -972,15 +969,8 @@
   </div>
 </div>
 
-<!-- ═══ LOADOUT / CLASS OVERLAY (in-match; applies on next spawn) ═══ -->
-<div id="loadout" class="screen hidden">
-  <div class="panel set-panel">
-    <h3>choose class</h3>
-    <div class="set-sub" id="loadout-hint">your kit applies on the next spawn</div>
-    <div id="loadout-cards"></div>
-    <button id="loadout-done">Done</button>
-  </div>
-</div>
+<!-- class selection lives on the respawn screen (see #respawn-classes) — there is no
+     separate in-match class overlay; you pick your next kit while waiting to respawn. -->
 
 <!-- ═══ SETTINGS OVERLAY ═══ -->
 <button id="btn-gear" title="settings" aria-label="settings">⚙</button>
