@@ -8,7 +8,7 @@
 
 export type KeyAction =
   | "forward" | "back" | "left" | "right" | "jump" | "sprint"
-  | "reload" | "chat" | "mic" | "scoreboard" | "loadout"
+  | "reload" | "chat" | "mic" | "scoreboard"
   | "weapon1" | "weapon2" | "weapon3" | "weapon4" | "weapon5" | "weapon6";
 
 export type PadAction =
@@ -27,7 +27,6 @@ export const KEY_ACTIONS: BindDef<KeyAction>[] = [
   { action: "sprint", label: "Sprint" },
   { action: "reload", label: "Reload" },
   { action: "scoreboard", label: "Scoreboard (hold)" },
-  { action: "loadout", label: "Loadout / class" },
   { action: "chat", label: "Chat" },
   { action: "mic", label: "Toggle mic" },
   { action: "weapon1", label: "Weapon 1 · knife" },
@@ -40,7 +39,7 @@ export const KEY_ACTIONS: BindDef<KeyAction>[] = [
 
 export const DEFAULT_KEYS: Record<KeyAction, string> = {
   forward: "KeyW", back: "KeyS", left: "KeyA", right: "KeyD", jump: "Space", sprint: "ShiftLeft",
-  reload: "KeyR", chat: "KeyT", mic: "KeyV", scoreboard: "Tab", loadout: "KeyL",
+  reload: "KeyR", chat: "KeyT", mic: "KeyV", scoreboard: "Tab",
   weapon1: "Digit1", weapon2: "Digit2", weapon3: "Digit3", weapon4: "Digit4", weapon5: "Digit5", weapon6: "Digit6",
 };
 

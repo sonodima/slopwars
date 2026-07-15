@@ -485,9 +485,8 @@ class Game {
         // Pressing Esc exits pointer lock *and* the browser swallows that Escape
         // keydown, so the pause menu can never open from the keydown handler while
         // locked. Open it here on any in-game unlock (Esc / alt-tab). Skipped while
-        // leaving, or when a menu already owns the unlock (settings, or the loadout /
-        // class overlay — which releases the pointer on purpose so its cards are clickable).
-        if (!this.locked && !this.leaving && !this.settings.isOpen() && !this.hud.loadoutOpen()) this.openSettings();
+        // leaving, or when it's already open.
+        if (!this.locked && !this.leaving && !this.settings.isOpen()) this.openSettings();
       }
     });
     canvas.addEventListener("click", () => {
@@ -524,8 +523,7 @@ class Game {
     document.addEventListener("keydown", (e) => {
       // Esc toggles settings (works from the menu too); chat handles its own Esc
       if (e.code === "Escape") {
-        if (this.hud.loadoutOpen()) this.hud.closeLoadout();
-        else if (this.settings.isOpen()) this.settings.close();
+        if (this.settings.isOpen()) this.settings.close();
         else if (this.inGame && !this.hud.chatOpen) this.openSettings();
         return;
       }
@@ -548,15 +546,11 @@ class Game {
         return;
       }
       if (action === "mic") {
-        if (this.voice.micOk) {
-          this.voice.setMuted(!this.voice.muted);
-          this.hud.voice(this.voice.muted ? "muted" : "on");
-        }
+        this.toggleVoice();
         return;
       }
       this.keys.add(e.code);
       if (action === "reload") this.localReload();
-      if (action === "loadout") { this.toggleLoadout(); return; }
       const wi = weaponSlot(action);
       if (wi >= 0 && this.alive && this.canSwitchWeapon()) { this.ws.slot(wi); this.applyScopeFov(); }
     });
@@ -996,9 +990,6 @@ class Game {
     document.getElementById("tc-settings")!.addEventListener("pointerdown", (e) => {
       e.preventDefault(); e.stopPropagation(); this.openSettings();
     });
-    document.getElementById("tc-loadout")!.addEventListener("pointerdown", (e) => {
-      e.preventDefault(); e.stopPropagation(); this.toggleLoadout();
-    });
     document.getElementById("set-leave")!.addEventListener("click", () => this.leaveToMenu());
 
     // callsign: set on the first (menu) screen, persisted across reloads
@@ -1133,9 +1124,7 @@ class Game {
     t.onReload = () => { if (this.alive) this.localReload(); };
     t.onWeapon = (i) => { if (this.alive && this.canSwitchWeapon()) { this.ws.slot(i); this.applyScopeFov(); } };
     t.onChat = () => { this.keys.clear(); this.fireHeld = false; this.hud.openChat(); };
-    t.onMic = () => {
-      if (this.voice.micOk) { this.voice.setMuted(!this.voice.muted); this.hud.voice(this.voice.muted ? "muted" : "on"); }
-    };
+    t.onMic = () => this.toggleVoice();
     t.build();
 
     // Adapt to the input device: switch to virtual controls the moment a touch
@@ -1198,9 +1187,7 @@ class Game {
     g.onWeaponSelect = (i) => {
       if (this.alive && this.canSwitchWeapon()) { this.ws.slot(i); this.applyScopeFov(); }
     };
-    g.onMic = () => {
-      if (this.voice.micOk) { this.voice.setMuted(!this.voice.muted); this.hud.voice(this.voice.muted ? "muted" : "on"); }
-    };
+    g.onMic = () => this.toggleVoice();
     g.onPause = () => { if (this.settings.isOpen()) this.settings.close(); else this.openSettings(); };
     // menu navigation (only fires while gamepad.mode === "menu"; see the tick loop)
     g.onNavigate = (dir) => this.menuMove(dir);
@@ -2757,7 +2744,7 @@ class Game {
         else { this.hud.show("lobby"); this.enterLobby(); }
         this.hud.connecting(false);
         this.announcePlatform(); // tell the host (→ everyone) our current input device
-        this.startVoice();
+        // voice is opt-in (press the mic key/button) — never auto-acquire the mic
         break;
       }
       case "pjoin": {
@@ -3012,7 +2999,7 @@ class Game {
         this.refreshLobby();
         this.hud.show("lobby");
         this.enterLobby();
-        this.startVoice();
+        // voice is opt-in (press the mic key/button) — never auto-acquire the mic
       };
       this.net.host(name);
     };
@@ -3080,17 +3067,6 @@ class Game {
     if (this.inGame && this.alive && this.classPickable()) {
       this.hud.banner(`${CLASSES[id as ClassId]?.name ?? "Loadout"} · applies on next spawn`, 1800);
     }
-  }
-
-  /** open/close the in-game loadout (class) overlay. Releases pointer lock while open so the
-   *  mouse can click the cards (mirrors the settings overlay); Esc / Done closes it. */
-  toggleLoadout(): void {
-    if (this.hud.loadoutOpen()) { this.hud.closeLoadout(); return; }
-    if (this.settings.isOpen()) this.settings.close();
-    this.releasePointerLock();
-    this.keys.clear();
-    this.fireHeld = false;
-    this.hud.openLoadout(this.settings.state.loadoutClass);
   }
 
   /** host: change a match rule, mirror to guests, re-apply live physics */
@@ -3633,6 +3609,16 @@ class Game {
     const sway = Math.sin(now * 0.4) * 1.6;
     this.camEntity.transform.setPosition(sway, 2.8, 2.0);
     this.camEntity.transform.lookAt(this.lobbyTarget, this.worldUp);
+  }
+
+  /** mic key/button: toggle proximity voice. Turning it ON acquires the mic + joins the
+   *  media mesh; turning it OFF fully releases the mic (required for iOS to leave its
+   *  call/record audio session — the cause of crackling output + the on-screen call
+   *  indicator). Voice is never auto-started, so a player who never presses this keeps a
+   *  clean, mic-free session. */
+  toggleVoice(): void {
+    if (this.voice.active) { this.voice.stop(); this.hud.voice("off"); return; }
+    this.startVoice();
   }
 
   startVoice(): void {
