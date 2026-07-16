@@ -1450,11 +1450,15 @@ class Game {
     this.navFocusEl = el;
     el.classList.add("gp-focus");
     el.scrollIntoView({ block: "nearest" });
+    // hand the control to the reticle so the pad gets the same animated lock-on
+    // brackets the mouse gets on hover
+    cursor.lockTo(el);
   }
 
   private clearNav(): void {
     this.navFocusEl?.classList.remove("gp-focus");
     this.navFocusEl = null;
+    cursor.lockTo(null);
   }
 
   /** move the focus ring by `dir` (−1 up / +1 down), wrapping; first press just reveals it */

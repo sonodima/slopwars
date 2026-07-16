@@ -6,6 +6,10 @@
 //
 // It hides itself whenever the pointer isn't the thing driving the UI — pointer lock
 // (in-match look), touch, or gamepad — so it never fights the crosshair or the sticks.
+//
+// A gamepad has no pointer, but it does have a focused control, so `lockTo()` lets menu
+// navigation borrow the lock-on brackets on their own: the reticle body and trail stay
+// dark, and only the frame flies between controls as the focus moves.
 
 const HOLO = "155,236,255";       // --holo, as an rgb triplet for per-ghost alpha
 const HOLO_HOT = "215,248,255";   // near-white core for the hot center
@@ -44,6 +48,8 @@ export class Cursor {
 
   /** the control the brackets frame (resolved from rawEl — see resolveHover) */
   private hoverEl: Element | null = null;
+  /** the gamepad-focused control, when a pad is driving the menus (see lockTo) */
+  private navEl: Element | null = null;
   /** the last raw event target, purely to detect when a re-resolve is needed */
   private rawEl: Element | null = null;
   /** true while the overlay is intentionally dark (see blanked()) — latched so the
@@ -52,6 +58,9 @@ export class Cursor {
   /** the animated frame the corner brackets sit on: springs from a small box around the
    *  pointer out to the hovered element's rect, so a hover reads as acquiring a target */
   private box = { x0: 0, y0: 0, x1: 0, y1: 0 };
+  /** whether `box` holds a frame worth sliding *from* — false means snap straight to the
+   *  target rather than sweeping in from wherever the box was last left */
+  private hadBox = false;
 
   constructor() {
     this.canvas = document.createElement("canvas");
@@ -74,19 +83,38 @@ export class Cursor {
 
   /** true when the reticle should be drawing: a fine pointer exists, it has actually
    *  moved, and nothing else (lock / touch / gamepad) owns the pointer */
-  private active(): boolean {
+  private pointerActive(): boolean {
     if (!this.seen) return false;
     if (document.pointerLockElement) return false;
     if (document.body.classList.contains("touch") || document.body.classList.contains("gamepad")) return false;
     return matchMedia("(pointer:fine)").matches;
   }
 
+  /** true when the overlay has anything to draw at all — a live pointer, or a gamepad
+   *  focus to frame */
+  private active(): boolean {
+    return this.pointerActive() || (!!this.navEl && this.navEl.isConnected);
+  }
+
+  /** Point the lock-on brackets at a gamepad-focused control (or `null` to drop them).
+   *  Only the frame is drawn in this mode — there's no pointer to put a reticle on. */
+  lockTo(el: Element | null): void {
+    if (el === this.navEl) return;
+    if (el) this.snap = 1;         // acquiring a control flashes, the same way a hover does
+    else this.hadBox = false;      // focus dropped — the next acquire starts fresh
+    this.navEl = el;
+    this.sync();
+  }
+
   /** reconciles the running state with `active()` — toggles the body class that hides
    *  the native cursor, and starts / stops the rAF loop so an idle menu costs nothing */
   private sync(): void {
     const on = this.active();
-    document.body.classList.toggle("cursor-fx", on);
-    if (on && !this.raf) this.raf = requestAnimationFrame(this.tick);
+    // only a live *pointer* hides the native cursor: in gamepad mode there's no arrow on
+    // screen to hide, and latching the class would strip `cursor:pointer` from every
+    // control the moment a pad woke up.
+    document.body.classList.toggle("cursor-fx", this.pointerActive());
+    if (on && !this.raf) { this.last = performance.now(); this.raf = requestAnimationFrame(this.tick); }
     if (!on && this.raf) { cancelAnimationFrame(this.raf); this.raf = 0; this.clear(); }
   }
 
@@ -149,14 +177,21 @@ export class Cursor {
   /** the element rect the brackets should frame, or null to fall back to a small box
    *  around the pointer */
   private lockRect(): DOMRect | null {
-    const el = this.hoverEl;
-    if (this.shape !== "hover" || !el || !el.isConnected) return null;
+    const nav = this.navMode();
+    const el = nav ? this.navEl : this.hoverEl;
+    if (!nav && this.shape !== "hover") return null;
+    if (!el || !el.isConnected) return null;
     const r = el.getBoundingClientRect();
     if (r.width < 2 || r.height < 2) return null;
     // full-bleed hit areas (#click-to-play is inset:0) would frame the whole viewport —
     // that reads as a border, not a lock
     if (r.width > innerWidth * 0.7 && r.height > innerHeight * 0.7) return null;
     return r;
+  }
+
+  /** the pad owns the UI: frame the focused control, and draw nothing else */
+  private navMode(): boolean {
+    return !this.pointerActive() && !!this.navEl && this.navEl.isConnected;
   }
 
   private last = performance.now();
@@ -176,8 +211,10 @@ export class Cursor {
     }
     this.blank = false;
 
+    const nav = this.navMode();
+
     // ── springs ──
-    const wantLock = this.shape === "hover" ? 1 : 0;
+    const wantLock = nav || this.shape === "hover" ? 1 : 0;
     this.lock += (wantLock - this.lock) * Math.min(dt * 14, 1);
     this.pulse = Math.min(this.pulse + dt * 3.4, 1);
     this.snap = Math.max(this.snap - dt * 4.5, 0);
@@ -186,26 +223,67 @@ export class Cursor {
     // The rect is re-read every frame rather than cached on hover: menus scroll, panels
     // animate in, and a stale rect would leave the brackets framing empty space.
     const r = this.lockRect();
+    // a pad-focused control that scrolled out of the DOM leaves nothing to frame
+    if (nav && !r) { this.clear(); return; }
     const R = this.radius();
     const tx0 = r ? r.left - 4 : this.x - (R + 8), ty0 = r ? r.top - 4 : this.y - (R + 8);
     const tx1 = r ? r.right + 4 : this.x + (R + 8), ty1 = r ? r.bottom + 4 : this.y + (R + 8);
     // with nothing locked the frame just rides the pointer (k=1), so the next hover
-    // launches the brackets from the reticle instead of sliding in from a stale corner
-    const k = this.lock < 0.02 ? 1 : Math.min(dt * 16, 1);
+    // launches the brackets from the reticle instead of sliding in from a stale corner.
+    // The pad's first focus of a session has no previous frame to slide from either.
+    const k = this.lock < 0.02 || (nav && !this.hadBox) ? 1 : Math.min(dt * 16, 1);
     this.box.x0 += (tx0 - this.box.x0) * k; this.box.y0 += (ty0 - this.box.y0) * k;
     this.box.x1 += (tx1 - this.box.x1) * k; this.box.y1 += (ty1 - this.box.y1) * k;
+    this.hadBox = true;
 
-    // ── trail ──
-    this.ghosts.push({ x: this.x, y: this.y, t: now });
-    while (this.ghosts.length > GHOSTS || (this.ghosts.length && now - this.ghosts[0].t > GHOST_MS)) this.ghosts.shift();
+    // ── trail ── (pointer only — there's no pointer path to streak in nav mode)
+    if (!nav) {
+      this.ghosts.push({ x: this.x, y: this.y, t: now });
+      while (this.ghosts.length > GHOSTS || (this.ghosts.length && now - this.ghosts[0].t > GHOST_MS)) this.ghosts.shift();
+    }
 
-    this.draw(now);
+    this.draw(now, nav);
   };
 
-  private draw(now: number): void {
+  /** every stroke is laid down twice — a dark backing, then the holo line over it. The
+   *  palette is light, and the primary CTAs are filled with it, so a plain cyan stroke
+   *  disappears on its own buttons; the ink outline keeps it readable on both the dark
+   *  chrome and the light fills. */
+  private dual(path: () => void, alpha: number, w: number): void {
+    const c = this.ctx;
+    c.shadowBlur = 0;
+    c.strokeStyle = `rgba(5,9,12,${alpha * 0.65})`;
+    c.lineWidth = w + 2;
+    path(); c.stroke();
+    c.shadowColor = `rgba(120,214,255,${0.65 + this.lock * 0.3})`;
+    c.shadowBlur = 9;
+    c.strokeStyle = `rgba(${HOLO},${alpha})`;
+    c.lineWidth = w;
+    path(); c.stroke();
+  }
+
+  /** the corner brackets clamped to `box` — the shared "target acquired" read, whether
+   *  the target came from a hover or from gamepad focus */
+  private drawBrackets(): void {
+    if (this.lock <= 0.01) return;
+    const c = this.ctx, b = this.box;
+    // arms scale with the frame but never overrun a short edge (a 22px-tall slider
+    // would otherwise get brackets that meet in the middle and read as a full box)
+    const arm = Math.max(3.5, Math.min(14, Math.min(b.x1 - b.x0, b.y1 - b.y0) * 0.26));
+    this.dual(() => {
+      c.beginPath();
+      c.moveTo(b.x0, b.y0 + arm); c.lineTo(b.x0, b.y0); c.lineTo(b.x0 + arm, b.y0); // ┌
+      c.moveTo(b.x1 - arm, b.y0); c.lineTo(b.x1, b.y0); c.lineTo(b.x1, b.y0 + arm); // ┐
+      c.moveTo(b.x1, b.y1 - arm); c.lineTo(b.x1, b.y1); c.lineTo(b.x1 - arm, b.y1); // ┘
+      c.moveTo(b.x0 + arm, b.y1); c.lineTo(b.x0, b.y1); c.lineTo(b.x0, b.y1 - arm); // └
+    }, this.lock * (0.85 + this.snap * 0.15), 1.5 + this.snap * 1.2);
+  }
+
+  private draw(now: number, nav: boolean): void {
     const c = this.ctx;
     this.clear();
     c.save();
+    if (nav) { this.drawBrackets(); c.restore(); return; }
     // the trail is light on a dark UI — additive keeps overlapping ghosts glowing
     // rather than muddying into flat fill
     c.globalCompositeOperation = "lighter";
@@ -260,21 +338,7 @@ export class Cursor {
       c.globalCompositeOperation = "source-over";
     }
 
-    // every stroke is laid down twice — a dark backing, then the holo line over it.
-    // The palette is light, and the primary CTAs are filled with it, so a plain cyan
-    // reticle disappears on its own buttons; the ink outline keeps it readable on
-    // both the dark chrome and the light fills.
-    const dual = (path: () => void, alpha: number, w: number) => {
-      c.shadowBlur = 0;
-      c.strokeStyle = `rgba(5,9,12,${alpha * 0.65})`;
-      c.lineWidth = w + 2;
-      path(); c.stroke();
-      c.shadowColor = `rgba(120,214,255,${0.65 + this.lock * 0.3})`;
-      c.shadowBlur = 9;
-      c.strokeStyle = `rgba(${HOLO},${alpha})`;
-      c.lineWidth = w;
-      path(); c.stroke();
-    };
+    const dual = (path: () => void, alpha: number, w: number) => this.dual(path, alpha, w);
 
     if (this.shape === "text") {
       // text fields get an I-beam in the same holo language — bar + serif caps
@@ -290,19 +354,7 @@ export class Cursor {
 
       // ── lock-on brackets: they fly off the reticle and clamp to the hovered
       //    element's corners, so hovering reads as the visor acquiring a target ──
-      if (this.lock > 0.01) {
-        const b = this.box;
-        // arms scale with the frame but never overrun a short edge (a 22px-tall slider
-        // would otherwise get brackets that meet in the middle and read as a full box)
-        const arm = Math.max(3.5, Math.min(14, Math.min(b.x1 - b.x0, b.y1 - b.y0) * 0.26));
-        dual(() => {
-          c.beginPath();
-          c.moveTo(b.x0, b.y0 + arm); c.lineTo(b.x0, b.y0); c.lineTo(b.x0 + arm, b.y0); // ┌
-          c.moveTo(b.x1 - arm, b.y0); c.lineTo(b.x1, b.y0); c.lineTo(b.x1, b.y0 + arm); // ┐
-          c.moveTo(b.x1, b.y1 - arm); c.lineTo(b.x1, b.y1); c.lineTo(b.x1 - arm, b.y1); // ┘
-          c.moveTo(b.x0 + arm, b.y1); c.lineTo(b.x0, b.y1); c.lineTo(b.x0, b.y1 - arm); // └
-        }, this.lock * (0.85 + this.snap * 0.15), 1.5 + this.snap * 1.2);
-      }
+      this.drawBrackets();
 
       // ── ticks: N/E/S/W hairlines, the idle silhouette's read at a glance. They
       //    retract into the body as the brackets take over the hover read. ──

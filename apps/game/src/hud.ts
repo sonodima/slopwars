@@ -804,15 +804,15 @@ export class Hud {
   private hudRoot: HTMLElement | null = document.getElementById("hud-parallax");
   /** drift the whole in-game HUD chrome with the player's look, for a floating holographic
    *  parallax. `vx`/`vy` are the smoothed per-frame look deltas (yaw/pitch, in rad); the
-   *  chrome leans into the turn (same direction as the camera pan) so it reads as a heads-up
-   *  layer riding the view. Reduced-motion users get no drift — the stylesheet zeroes the
-   *  transform regardless of these vars. */
+   *  chrome leans into the turn horizontally, but counter to the pitch (look up and it sinks)
+   *  so it reads as a heads-up layer lagging behind the view. Reduced-motion users get no
+   *  drift — the stylesheet zeroes the transform regardless of these vars. */
   parallax(vx: number, vy: number): void {
     const el = this.hudRoot;
     if (!el) return;
     const K = 260, MAX = 18; // px per rad/frame, clamped so a fast flick can't fling it far
     const px = Math.max(-MAX, Math.min(MAX, vx * K));
-    const py = Math.max(-MAX, Math.min(MAX, -vy * K));
+    const py = Math.max(-MAX, Math.min(MAX, vy * K));
     el.style.setProperty("--hud-px", `${px.toFixed(1)}px`);
     el.style.setProperty("--hud-py", `${py.toFixed(1)}px`);
   }
