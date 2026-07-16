@@ -490,8 +490,13 @@ export class Hud {
 
   // ── in-game ──
   hp(v: number): void {
+    const low = v <= 30;
     $("hud-hp").textContent = String(Math.max(0, Math.ceil(v)));
-    $("hud-hp").classList.toggle("low", v <= 30);
+    $("hud-hp").classList.toggle("low", low);
+    // holographic energy bar along the HP panel's bottom edge (0..1 of MAX_HP = 100)
+    const bar = $("hud-hp-bar");
+    bar.style.setProperty("--hp", `${Math.max(0, Math.min(1, v / 100))}`);
+    bar.classList.toggle("low", low);
   }
 
   ammo(w: WeaponId, mag: number, reserve: number, reloading: boolean): void {
@@ -711,16 +716,17 @@ export class Hud {
   }
 
   private hudRoot: HTMLElement | null = document.getElementById("hud-parallax");
-  /** drift the whole in-game HUD chrome opposite to the player's look, for a floating
-   *  holographic parallax. `vx`/`vy` are the smoothed per-frame look deltas (yaw/pitch, in
-   *  rad); the sign is inverted here so the chrome lags behind the turn. Reduced-motion
-   *  users get no drift — the stylesheet zeroes the transform regardless of these vars. */
+  /** drift the whole in-game HUD chrome with the player's look, for a floating holographic
+   *  parallax. `vx`/`vy` are the smoothed per-frame look deltas (yaw/pitch, in rad); the
+   *  chrome leans into the turn (same direction as the camera pan) so it reads as a heads-up
+   *  layer riding the view. Reduced-motion users get no drift — the stylesheet zeroes the
+   *  transform regardless of these vars. */
   parallax(vx: number, vy: number): void {
     const el = this.hudRoot;
     if (!el) return;
-    const K = 240, MAX = 15; // px per rad/frame, clamped so a fast flick can't fling it far
-    const px = Math.max(-MAX, Math.min(MAX, -vx * K));
-    const py = Math.max(-MAX, Math.min(MAX, vy * K));
+    const K = 260, MAX = 18; // px per rad/frame, clamped so a fast flick can't fling it far
+    const px = Math.max(-MAX, Math.min(MAX, vx * K));
+    const py = Math.max(-MAX, Math.min(MAX, -vy * K));
     el.style.setProperty("--hud-px", `${px.toFixed(1)}px`);
     el.style.setProperty("--hud-py", `${py.toFixed(1)}px`);
   }
