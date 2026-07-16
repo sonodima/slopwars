@@ -4,6 +4,7 @@ import {
   PrimitiveMesh, Quaternion, UnlitMaterial, Vector3,
 } from "@galacean/engine";
 import { sfx } from "./audio";
+import { AmmoTag } from "./ammotag";
 import { GameModels, instantiate, modelMetaOf } from "./models";
 import { MaterialLibrary, shadeModelSlots } from "./materials";
 import { Vec3, WEAPONS, WeaponDef, WeaponId, ALL_WEAPONS, LOADOUT, clamp } from "./types";
@@ -79,6 +80,7 @@ export class WeaponSystem {
   private muzzles: Partial<Record<WeaponId, Vector3>> = {};
   private bobT = 0;
   private src!: GameModels;
+  private ammoTag!: AmmoTag; // diegetic weapon-mounted ammo counter (child of the viewmodel)
 
   onShoot: ((def: WeaponDef, spread: number) => void) | null = null;
   onAmmoChange: (() => void) | null = null;
@@ -88,6 +90,7 @@ export class WeaponSystem {
     this.vm = cameraEntity.createChild("viewmodel");
     this.buildModels();
     this.buildFlash();
+    this.ammoTag = new AmmoTag(engine, this.vm);
     this.select("ak47");
   }
 
@@ -251,6 +254,10 @@ export class WeaponSystem {
       this.flashTtl -= dt;
       if (this.flashTtl <= 0) { this.flash.isActive = false; this.flashLight.enabled = false; }
     }
+
+    // keep the weapon-mounted ammo counter in step (it redraws only when the readout changes)
+    const d = this.def(), a = this.ammo[this.current];
+    this.ammoTag.set(d.name, a.mag, a.reserve, this.reloading > 0, !!d.melee, !!d.throwable, d.mag);
   }
 
   // ─── visuals ────────────────────────────────────────────────────────────────
