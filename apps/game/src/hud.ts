@@ -3,6 +3,7 @@ import { BOT_LEVELS, BotLevel, CFG_BOUNDS, DeathCause, deathCauseLabel, GameSnap
 import { MapMeta } from "./maps/schema";
 import { MODES, MODE_LIST } from "./modes";
 import { CLASSES, CLASS_LIST, ClassDef } from "./classes";
+import { syncRange } from "./range";
 
 const $ = (id: string): HTMLElement => document.getElementById(id)!;
 
@@ -381,7 +382,7 @@ export class Hud {
   private syncRules(cfg: MatchConfig): void {
     const set = (key: string, value: number, disp: string): void => {
       const inp = document.getElementById(`rule-${key}`) as HTMLInputElement | null;
-      if (inp && document.activeElement !== inp) inp.value = String(value);
+      if (inp && document.activeElement !== inp) { inp.value = String(value); syncRange(inp); }
       const lbl = document.getElementById(`rule-${key}-v`);
       if (lbl) lbl.textContent = disp;
     };
@@ -489,14 +490,26 @@ export class Hud {
   }
 
   // ── in-game ──
+  /** Health is shown diegetically, not as a number: a blood vignette creeps in as HP
+   *  drops and the scene desaturates toward B/W. Death (v ≤ 0) hands the visuals to the
+   *  body.dead CSS (full-grayscale death cinematic) and clears the low-HP state. */
   hp(v: number): void {
-    const low = v <= 30;
-    $("hud-hp").textContent = String(Math.max(0, Math.ceil(v)));
-    $("hud-hp").classList.toggle("low", low);
-    // holographic energy bar along the HP panel's bottom edge (0..1 of MAX_HP = 100)
-    const bar = $("hud-hp-bar");
-    bar.style.setProperty("--hp", `${Math.max(0, Math.min(1, v / 100))}`);
-    bar.classList.toggle("low", low);
+    const missing = Math.max(0, Math.min(1, 1 - v / 100));
+    // blood: visible from the first hit, aggressive near death; parked while dead
+    $("blood-vignette").style.opacity = v <= 0 ? "0" : Math.pow(missing, 1.35).toFixed(3);
+    // B/W: kicks in below ~65 HP, up to 85% desaturation on the brink. Inline filter
+    // would override the body.dead full-grayscale rule, so clear it when dead/full.
+    const gray = v > 0 ? Math.max(0, Math.min(1, (65 - v) / 65)) * 0.85 : 0;
+    $("game-canvas").style.filter = gray > 0.01 ? `grayscale(${gray.toFixed(3)})` : "";
+  }
+
+  private ammoPanelOn: boolean | null = null;
+  /** bottom-right weapon/ammo panel: shown only in third person (first person reads
+   *  ammo off the weapon-mounted holo readout instead) */
+  ammoPanel(on: boolean): void {
+    if (on === this.ammoPanelOn) return;
+    this.ammoPanelOn = on;
+    document.querySelector(".hud-br")?.classList.toggle("hidden", !on);
   }
 
   ammo(w: WeaponId, mag: number, reserve: number, reloading: boolean): void {
@@ -507,7 +520,7 @@ export class Hud {
   timer(phase: string, round: number, t: number, rounds = 4): void {
     const m = Math.floor(t / 60), s = Math.floor(t % 60);
     $("hud-time").textContent = `${m}:${s.toString().padStart(2, "0")}`;
-    $("hud-round").textContent = phase === "inter" ? "next round…" : `round ${round}/${rounds}`;
+    $("hud-round").textContent = phase === "inter" ? "next round…" : phase === "deploy" ? "get ready" : `round ${round}/${rounds}`;
   }
 
   kill(killer: string, victim: string, w: DeathCause, hs: boolean): void {
@@ -532,19 +545,23 @@ export class Hud {
     this.dmgTtl = 0.25;
   }
 
-  /** flashbang whiteout: snap the overlay to `intensity` (0..1) then fade it out over a
-   *  duration that scales with how hard you were flashed. Re-flashing takes the stronger of
-   *  the two so a second nade can't read as *less* blinding than the first. */
+  /** flashbang whiteout: snap the overlay to `intensity` (0..1), HOLD it solid for a
+   *  beat (a hard flash keeps you fully blind for a couple of seconds, not just a bright
+   *  frame), then fade it out over a duration that scales with how hard you were flashed.
+   *  Re-flashing takes the stronger of the two (read from the *live* animated opacity)
+   *  so a second nade can't read as *less* blinding than the first. */
   blind(intensity: number): void {
     const e = $("flash-blind");
-    const cur = parseFloat(e.style.opacity || "0") || 0;
+    const cur = parseFloat(getComputedStyle(e).opacity) || 0;
     const v = Math.max(cur, Math.min(1, intensity));
-    const dur = 0.6 + v * 3.4; // seconds to clear
+    const hold = v > 0.45 ? (v - 0.45) * 4.5 : 0; // up to ~2.5s of solid white on a direct look
+    const dur = 0.8 + v * 3.7;                    // then the fade itself (up to ~4.5s)
     e.classList.remove("hidden");
     e.style.transition = "none";
     e.style.opacity = String(v);
     void e.offsetWidth; // reflow so the fade starts from the snapped value
-    e.style.transition = `opacity ${dur}s ease-out`;
+    // ease-in keeps the screen mostly washed out through the first half of the fade
+    e.style.transition = `opacity ${dur}s ease-in ${hold}s`;
     e.style.opacity = "0";
   }
 
@@ -576,6 +593,27 @@ export class Hud {
     const e = $("respawn");
     e.classList.toggle("hidden", t === null);
     if (t !== null) $("respawn-t").textContent = Math.ceil(t).toString();
+  }
+
+  private deployMode = false;
+  /** pre-round deploy overlay (match/round start): reuses the death screen's class strip +
+   *  countdown, with the label flipped to "round starts in". Driven per-frame while the
+   *  deploy phase runs (so a stray respawnOverlay(null) from the initial spawn burst can't
+   *  permanently hide it); null restores the overlay to its respawn wording and hides it. */
+  deployOverlay(t: number | null): void {
+    if (t === null) {
+      if (!this.deployMode) return; // don't touch the overlay when a real death owns it
+      this.deployMode = false;
+      $("respawn").classList.add("hidden");
+      $("respawn-label").textContent = "respawn in";
+      $("rd-sub-when").textContent = "deploys on respawn";
+      return;
+    }
+    this.deployMode = true;
+    $("respawn").classList.remove("hidden");
+    $("respawn-label").textContent = "round starts in";
+    $("rd-sub-when").textContent = "deploys now"; // a pick during the freeze applies immediately
+    $("respawn-t").textContent = Math.max(1, Math.ceil(t)).toString();
   }
 
   /** show/hide the death-screen "choose your class" strip and (when shown) render it with
@@ -666,7 +704,55 @@ export class Hud {
 
   stats(html: string): void { $("stats").innerHTML = html; }
 
-  scope(on: boolean): void { $("scope").classList.toggle("hidden", !on); }
+  // ── frame-time graph (perf HUD): scrolling bars, one per frame, so drops/stutter
+  //    read as visible spikes instead of hiding inside a smoothed fps average ──
+  private perfCtx: CanvasRenderingContext2D | null = null;
+  private perfBuf = new Float32Array(120); // last N frame times (ms), ring buffer
+  private perfIdx = 0;
+  private static readonly PERF_W = 150;
+  private static readonly PERF_H = 40;
+  private static readonly PERF_RANGE_MS = 40; // full graph height = 40 ms (25 fps)
+
+  /** push one frame time (ms) and redraw the graph. Called per-frame while visible. */
+  perfSample(ms: number): void {
+    if (!this.perfCtx) {
+      const canvas = $("perf-graph") as HTMLCanvasElement;
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      canvas.width = Hud.PERF_W * dpr;
+      canvas.height = Hud.PERF_H * dpr;
+      this.perfCtx = canvas.getContext("2d");
+      this.perfCtx?.scale(dpr, dpr);
+      if (!this.perfCtx) return;
+    }
+    const ctx = this.perfCtx;
+    this.perfBuf[this.perfIdx] = ms;
+    this.perfIdx = (this.perfIdx + 1) % this.perfBuf.length;
+
+    const W = Hud.PERF_W, H = Hud.PERF_H, n = this.perfBuf.length;
+    const yOf = (t: number): number => H - (Math.min(t, Hud.PERF_RANGE_MS) / Hud.PERF_RANGE_MS) * H;
+    ctx.clearRect(0, 0, W, H);
+    // budget reference lines: 60 fps (16.7 ms) and 30 fps (33.3 ms)
+    ctx.fillStyle = "rgba(155,236,255,.28)";
+    ctx.fillRect(0, yOf(1000 / 60), W, 1);
+    ctx.fillStyle = "rgba(255,106,90,.35)";
+    ctx.fillRect(0, yOf(1000 / 30), W, 1);
+    // bars, oldest → newest left to right; colored by how blown the frame budget is
+    const bw = W / n;
+    for (let i = 0; i < n; i++) {
+      const v = this.perfBuf[(this.perfIdx + i) % n];
+      if (v <= 0) continue;
+      const y = yOf(v);
+      ctx.fillStyle = v > 34 ? "#ff6a5a" : v > 20 ? "#e5c05a" : "rgba(155,236,255,.7)";
+      ctx.fillRect(i * bw, y, Math.max(bw - 0.4, 0.5), H - y);
+    }
+  }
+
+  scope(on: boolean): void {
+    $("scope").classList.toggle("hidden", !on);
+    // clip world-anchored nametags to the scope's circular window while ADS — a name
+    // floating over the black scope border reads as a wallhack (see index.html CSS)
+    document.body.classList.toggle("scoped", on);
+  }
   crosshair(on: boolean): void { $("crosshair").classList.toggle("hidden", !on); }
   clickToPlay(on: boolean): void { $("click-to-play").classList.toggle("hidden", !on); }
 
