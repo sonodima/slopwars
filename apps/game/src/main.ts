@@ -231,6 +231,12 @@ class Game {
   myHp = MAX_HP;
   alive = true;
   respawnAt = 0;
+  // holographic HUD parallax: smoothed look velocity (rad/frame) + last look angles, so
+  // the HUD chrome drifts opposite to where the player is looking (a floating-hologram feel)
+  private hudLookVX = 0;
+  private hudLookVY = 0;
+  private hudPrevYaw = 0;
+  private hudPrevPitch = 0;
   private deathTime = 0;                // wall-clock seconds at death (orbit phase)
   private deathYaw = 0;                 // facing at death (orbit start angle)
   private deathLookTarget = new Vector3();
@@ -1561,6 +1567,17 @@ class Game {
         this.gameAcc += dt;
         this.hostClock(dt);
       }
+
+      // holographic HUD parallax — drift the chrome opposite to the player's look. Driven
+      // from the change in yaw/pitch each frame (works for mouse, gamepad, touch + aim
+      // assist alike), smoothed so it eases back to centre when the look settles.
+      let dyaw = this.body.yaw - this.hudPrevYaw;
+      if (dyaw > Math.PI) dyaw -= 2 * Math.PI; else if (dyaw < -Math.PI) dyaw += 2 * Math.PI;
+      const dpit = this.body.pitch - this.hudPrevPitch;
+      this.hudPrevYaw = this.body.yaw; this.hudPrevPitch = this.body.pitch;
+      this.hudLookVX += (dyaw - this.hudLookVX) * 0.18;
+      this.hudLookVY += (dpit - this.hudLookVY) * 0.18;
+      this.hud.parallax(this.hudLookVX, this.hudLookVY);
 
       this.hud.timer(this.phase, this.round, this.timeLeft, this.cfg.rounds);
       this.hud.scoreboard(this.sbOpen || this.phase === "inter", this.net.players, this.scores, this.net.myId, this.platforms);
@@ -3569,6 +3586,19 @@ class Game {
    *  fires on every match-rule edit too, and those don't touch the roster. */
   refreshLobbyAvatars(): void {
     if (!this.lobbyStageRoot) return;
+    // The lobby stage stands the whole roster in a row at world-centre (z = -6). It must
+    // ONLY exist while the 3D lobby view is up: refreshLobby() also fires on every roster
+    // change mid-match (onHello / pjoin / pleave when someone joins or leaves), so without
+    // this guard a player joining mid-game would line the entire roster up in the middle of
+    // the live map. When not in the lobby view, tear any stale row down and bail.
+    if (!this.lobbyView) {
+      if (this.lobbyAvatars.size) {
+        for (const e of this.lobbyAvatars.values()) e.destroy();
+        this.lobbyAvatars.clear();
+        this.lobbyAvatarSig = "";
+      }
+      return;
+    }
     const players = this.net.players;
     const sig = players.map((p) => `${p.id}:${p.color}`).join(",");
     if (sig === this.lobbyAvatarSig && this.lobbyAvatars.size === players.length) return;
