@@ -710,6 +710,21 @@ export class Hud {
       `<span class="c-k">${s.k}</span><span class="c-d">${s.d}</span><span class="c-r">${ratio}</span></div>`;
   }
 
+  private hudRoot: HTMLElement | null = document.getElementById("hud-parallax");
+  /** drift the whole in-game HUD chrome opposite to the player's look, for a floating
+   *  holographic parallax. `vx`/`vy` are the smoothed per-frame look deltas (yaw/pitch, in
+   *  rad); the sign is inverted here so the chrome lags behind the turn. Reduced-motion
+   *  users get no drift — the stylesheet zeroes the transform regardless of these vars. */
+  parallax(vx: number, vy: number): void {
+    const el = this.hudRoot;
+    if (!el) return;
+    const K = 240, MAX = 15; // px per rad/frame, clamped so a fast flick can't fling it far
+    const px = Math.max(-MAX, Math.min(MAX, -vx * K));
+    const py = Math.max(-MAX, Math.min(MAX, vy * K));
+    el.style.setProperty("--hud-px", `${px.toFixed(1)}px`);
+    el.style.setProperty("--hud-py", `${py.toFixed(1)}px`);
+  }
+
   update(dt: number): void {
     if (this.hitTtl > 0) { this.hitTtl -= dt; if (this.hitTtl <= 0) $("hitmarker").classList.add("hidden"); }
     if (this.dmgTtl > 0) { this.dmgTtl -= dt; if (this.dmgTtl <= 0) $("dmg-vignette").classList.add("hidden"); }

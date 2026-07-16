@@ -19,6 +19,9 @@
   :root{
     --sand:#d8b878; --sand-dim:#a68b58; --ink:#0d0c0a; --panel:rgba(16,14,10,.88);
     --line:rgba(216,184,120,.28); --red:#e0483a; --green:#8fbf4d;
+    /* holographic HUD accents — a cool cyan visor tone layered over the warm sand type */
+    --holo:#8fe6ff; --holo-dim:#63c6e0; --holo-line:rgba(143,230,255,.34);
+    --holo-glow:rgba(120,214,255,.45);
     --font:"Bahnschrift","DIN Alternate","Franklin Gothic Medium","Arial Narrow",Arial,sans-serif;
     --mono:"Consolas","JetBrains Mono",monospace;
   }
@@ -127,17 +130,52 @@
 
   /* ── in-game hud ── */
   #scr-game{z-index:10;pointer-events:none;background:none}
-  .hud-bl{position:absolute;left:26px;bottom:22px;display:flex;align-items:baseline;gap:8px}
-  #hud-hp{font-size:52px;font-weight:700;color:#f0e8d5;text-shadow:0 2px 8px rgba(0,0,0,.8)}
-  #hud-hp.low{color:var(--red)}
-  .hud-bl .u{font-size:12px;letter-spacing:3px;color:var(--sand-dim);text-transform:uppercase}
-  .hud-br{position:absolute;right:26px;bottom:22px;text-align:right}
-  #hud-weapon{font-size:13px;letter-spacing:4px;color:var(--sand-dim);text-transform:uppercase}
-  #hud-ammo{font-size:42px;font-weight:700;font-family:var(--mono);color:#f0e8d5;text-shadow:0 2px 8px rgba(0,0,0,.8)}
+
+  /* ═══ holographic HUD modules ═══
+     The core readouts (timer · HP · ammo) sit in angled "glass" panels with a cyan
+     holographic edge, faint scanlines and a soft glow — a tactical-visor look layered
+     over the sand type. #hud-parallax drifts the whole chrome opposite to the player's
+     look for a floating-hologram parallax (see Hud.parallax; zeroed under reduced-motion). */
+  #hud-parallax{position:absolute;inset:0;pointer-events:none;will-change:transform;
+    transform:translate(var(--hud-px,0px),var(--hud-py,0px))}
+  .holo-mod{position:relative;isolation:isolate;
+    background:linear-gradient(155deg,rgba(12,26,32,.5),rgba(8,12,14,.26));
+    border:1px solid var(--holo-line);
+    box-shadow:0 0 20px rgba(80,190,235,.13),inset 0 0 22px rgba(120,214,255,.05);
+    -webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px);
+    /* chamfered top-right + bottom-left corners — reads as a piece of kit, not a plain box */
+    clip-path:polygon(0 0,calc(100% - 13px) 0,100% 13px,100% 100%,13px 100%,0 calc(100% - 13px));
+    animation:holo-flicker 7s steps(1,end) infinite}
+  /* scanline film across the panel */
+  .holo-mod::before{content:"";position:absolute;inset:0;pointer-events:none;z-index:-1;
+    background:repeating-linear-gradient(0deg,rgba(143,230,255,.05) 0 1px,transparent 1px 3px);
+    mix-blend-mode:screen;opacity:.75}
+  /* bright cyan tick along the top edge */
+  .holo-mod::after{content:"";position:absolute;left:10px;right:22px;top:0;height:1px;pointer-events:none;
+    background:linear-gradient(90deg,transparent,var(--holo),transparent);
+    box-shadow:0 0 8px var(--holo-glow)}
+  /* subtle intermittent hologram flicker (kept faint so readouts never become hard to read) */
+  @keyframes holo-flicker{0%,89%,100%{opacity:1}90%{opacity:.9}91%{opacity:1}96%{opacity:.94}97%{opacity:1}}
+
+  .hud-bl{position:absolute;left:26px;bottom:22px;display:flex;align-items:baseline;gap:9px;
+    padding:9px 20px 11px}
+  #hud-hp{font-size:52px;font-weight:700;color:#f4ecda;line-height:.95;
+    text-shadow:0 0 14px var(--holo-glow),0 2px 8px rgba(0,0,0,.85)}
+  #hud-hp.low{color:var(--red);text-shadow:0 0 16px rgba(224,72,58,.6),0 2px 8px rgba(0,0,0,.85)}
+  .hud-bl .u{font-size:11px;letter-spacing:3px;color:var(--holo-dim);text-transform:uppercase}
+  .hud-br{position:absolute;right:26px;bottom:22px;text-align:right;padding:9px 22px 11px}
+  #hud-weapon{font-size:12px;letter-spacing:4px;color:var(--holo-dim);text-transform:uppercase}
+  #hud-ammo{font-size:42px;font-weight:700;font-family:var(--mono);color:#f4ecda;line-height:.95;
+    text-shadow:0 0 14px var(--holo-glow),0 2px 8px rgba(0,0,0,.85)}
   .hud-top{position:absolute;top:16px;left:50%;transform:translateX(-50%);text-align:center;
-    background:var(--panel);border:1px solid var(--line);padding:6px 26px}
-  #hud-time{font-family:var(--mono);font-size:26px;font-weight:700;color:#f0e8d5}
-  #hud-round{font-size:9px;letter-spacing:3px;color:var(--sand-dim);text-transform:uppercase}
+    padding:7px 30px 8px}
+  #hud-time{font-family:var(--mono);font-size:26px;font-weight:700;color:#f4ecda;
+    text-shadow:0 0 12px var(--holo-glow)}
+  #hud-round{font-size:9px;letter-spacing:3px;color:var(--holo-dim);text-transform:uppercase}
+  @media (prefers-reduced-motion:reduce){
+    #hud-parallax{transform:none}
+    .holo-mod{animation:none}
+  }
   #killfeed{position:absolute;top:44px;right:20px;text-align:right;font-size:13px}
   .kf{background:rgba(10,9,6,.75);border-right:2px solid var(--sand);padding:5px 10px;margin-bottom:5px;letter-spacing:.5px}
   .kf b{color:var(--sand)}
@@ -886,7 +924,11 @@
   <div id="scope" class="hidden"></div>
   <div id="crosshair" class="hidden"><i class="t"></i><i class="r"></i><i class="b"></i><i class="l"></i></div>
   <div id="hitmarker" class="hidden"></div>
-  <div class="hud-top"><div id="hud-time">4:00</div><div id="hud-round">round 1/4</div></div>
+  <!-- holographic HUD chrome — drifts as one layer, opposite to the player's look
+       (see Hud.parallax). Gameplay-critical / full-screen overlays (crosshair, scope,
+       vignettes, scoreboard, respawn, touch controls) stay OUTSIDE so they never drift. -->
+  <div id="hud-parallax">
+  <div class="hud-top holo-mod"><div id="hud-time">4:00</div><div id="hud-round">round 1/4</div></div>
   <div id="hud-teams" class="hidden"></div>
   <div id="hud-role" class="hidden"></div>
   <div id="hud-tier" class="hidden"></div>
@@ -895,10 +937,14 @@
   <div id="game-code"></div>
   <div id="killfeed"></div>
   <div id="chatfeed"></div>
-  <div id="chat-bar" class="hidden"><span>›</span><input id="chat-inp" maxlength="120" spellcheck="false"></div>
   <div id="voice" class="off">🎙 voice off · V</div>
-  <div class="hud-bl"><span id="hud-hp">100</span><span class="u">hp</span></div>
-  <div class="hud-br"><div id="hud-weapon">AK-47</div><div id="hud-ammo">30 / 90</div></div>
+  <div class="hud-bl holo-mod"><span id="hud-hp">100</span><span class="u">hp</span></div>
+  <div class="hud-br holo-mod"><div id="hud-weapon">AK-47</div><div id="hud-ammo">30 / 90</div></div>
+  </div>
+  <!-- chat input lives OUTSIDE #hud-parallax: it's interactive and relies on its own
+       global z-index to stay tappable above the touch look-layer, so it must not be
+       trapped in the wrapper's transform-induced stacking context (nor drift). -->
+  <div id="chat-bar" class="hidden"><span>›</span><input id="chat-inp" maxlength="120" spellcheck="false"></div>
   <div id="scoreboard" class="hidden">
     <h3>scoreboard</h3>
     <div id="sb-code"></div>
