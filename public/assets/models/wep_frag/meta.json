@@ -2,5 +2,19 @@
   "scale": 0.02,
   "materials": {
     "FragGrenade_MasterMat": "wep_frag"
+  },
+  "anchors": {
+    "ammo": {
+      "at": [
+        -2.6,
+        2.25,
+        -0.75
+      ],
+      "rot": [
+        76,
+        7,
+        -3
+      ]
+    }
   }
 }

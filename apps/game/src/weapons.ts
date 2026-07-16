@@ -268,7 +268,7 @@ export class WeaponSystem {
 
     // keep the weapon-mounted ammo counter in step (it redraws only when the readout changes)
     const d = this.def(), a = this.ammo[this.current];
-    this.ammoTag.set(d.name, a.mag, a.reserve, this.reloading > 0, !!d.melee, !!d.throwable, d.mag);
+    this.ammoTag.set(a.mag, a.reserve, this.reloading > 0, !!d.melee, !!d.throwable, d.mag);
   }
 
   // ─── visuals ────────────────────────────────────────────────────────────────

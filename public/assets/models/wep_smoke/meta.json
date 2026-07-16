@@ -2,5 +2,19 @@
   "scale": 2,
   "materials": {
     "Mat": "wep_smoke"
+  },
+  "anchors": {
+    "ammo": {
+      "at": [
+        -0.026,
+        0.0225,
+        -0.0075
+      ],
+      "rot": [
+        76,
+        7,
+        -3
+      ]
+    }
   }
 }

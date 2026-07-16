@@ -3,5 +3,19 @@
   "materials": {
     "Fabric": "wep_molotov_Fabric",
     "Bottle": "MolotovBottle"
+  },
+  "anchors": {
+    "ammo": {
+      "at": [
+        -3.4667,
+        3.0,
+        -1.0
+      ],
+      "rot": [
+        76,
+        7,
+        -3
+      ]
+    }
   }
 }
