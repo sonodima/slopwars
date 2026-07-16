@@ -2,18 +2,17 @@
 // The one place that knows how to build a Galacean material from a MaterialDef.
 // Geometry references a material by *name* (an object's `mat` param); this library
 // resolves the name to its def (from the scanned catalog) and builds/caches the
-// PBRMaterial. All three kinds — `standard`, `glass`, `water` — produce a
-// PBRMaterial: glass adds transmission, water adds an animated wave normal + depth
-// attenuation (see water.ts). A water material animates because the map builder
-// attaches a WaterAnim to the entity (via `animate` below) — so *any box* with a
-// water material becomes a rippling liquid surface, no bespoke object. Textures are
+// engine material. `standard` and `glass` produce PBRMaterials (glass adds
+// transmission); `water` builds the custom water shader (see water.ts) — a fully
+// self-animating surface with real refraction + planar reflection, so *any box*
+// with a water material becomes a liquid surface, no bespoke object. Textures are
 // inputs a standard material consumes, never applied to geometry directly.
-import { Color, Engine, Entity, MeshRenderer, PBRMaterial, RefractionMode, Vector4 } from "@galacean/engine";
+import { Color, Engine, Entity, Material, MeshRenderer, PBRMaterial, RefractionMode, Vector4 } from "@galacean/engine";
 import catalog from "virtual:asset-catalog";
 import type { MaterialDef, ModelMeta, StandardMaterialDef, GlassMaterialDef, WaterMaterialDef } from "@slopwars/shared";
 import { modelSlotMaterial } from "@slopwars/shared";
 import { MapTextures, PbrSet, DEFAULT_FOLDER } from "./textures";
-import { WATER_LOOK, applyWaterLook, attachWaterAnim, type WaterLook } from "./water";
+import { WATER_LOOK, createWaterMaterial, type WaterLook } from "./water";
 
 /** the scanned material defs (file-based). The editor can pass a live override
  *  map into a MaterialLibrary so unsaved edits preview in the viewport. */
@@ -46,7 +45,7 @@ function texOf(tex: MapTextures, folder?: string): PbrSet {
 export class MaterialLibrary {
   // built materials cached by (name + per-instance tiling), so identical surfaces
   // share one material — the whole point of the abstraction (edit once, reuse).
-  private cache = new Map<string, PBRMaterial>();
+  private cache = new Map<string, Material>();
 
   /** `defs` overrides the scanned catalog (the editor passes its live, possibly
    *  unsaved, material defs so edits preview immediately); the game omits it. */
@@ -73,9 +72,9 @@ export class MaterialLibrary {
   }
 
   /** build (or fetch the cached) material for a surface at the given per-instance
-   *  tiling. Water materials bake in the wave normal + attenuation here; the caller
-   *  must also call `animate()` to make them flow. */
-  build(name: string, tu = 1, tv = 1): PBRMaterial {
+   *  tiling. Water materials are fully self-animating (see water.ts) — nothing
+   *  extra to attach. */
+  build(name: string, tu = 1, tv = 1): Material {
     const key = `${name}:${tu}:${tv}`;
     let m = this.cache.get(key);
     if (m) return m;
@@ -87,16 +86,8 @@ export class MaterialLibrary {
     return m;
   }
 
-  /** attach any per-entity animation the material needs (water ripple flow). Call
-   *  right after setMaterial with the same tiling `build()` used; no-op otherwise. */
-  animate(entity: Entity, name: string, material: PBRMaterial, tiling: number): void {
-    if (this.isWater(name)) { const L = this.waterLook(name); attachWaterAnim(entity, material, tiling, L.flow, L.waves); }
-  }
-
-  private buildWater(d: WaterMaterialDef, tiling: number): PBRMaterial {
-    const m = new PBRMaterial(this.engine);
-    applyWaterLook(this.engine, m, this.lookOf(d), tiling);
-    return m;
+  private buildWater(d: WaterMaterialDef, tiling: number): Material {
+    return createWaterMaterial(this.engine, this.lookOf(d), tiling);
   }
 
   private buildStandard(d: StandardMaterialDef, tu: number, tv: number): PBRMaterial {

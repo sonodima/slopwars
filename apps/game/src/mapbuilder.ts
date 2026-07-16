@@ -11,6 +11,7 @@ import catalog from "virtual:asset-catalog";
 import { GameModels, instantiate } from "./models";
 import { MapTextures, PbrSet, DEFAULT_FOLDER } from "./textures";
 import { MaterialLibrary, shadeModelSlots } from "./materials";
+import { WATER_LAYER } from "./water";
 import type { GroupDef, MaterialDef, ModelMeta, PhysicsProps, Tuple3 } from "@slopwars/shared";
 import { rotateEuler } from "@slopwars/shared";
 import type { AABB, GameMap } from "./map";
@@ -107,8 +108,10 @@ export class MapBuilder {
   track(e: Entity): Entity { this.map.onBuildEntity?.(this.buildIndex, e); return e; }
 
   /** cuboid mesh shaded by a named material (visual only). A `water` material makes
-   *  the box a rippling liquid surface: its UVs tile with the box's horizontal size
-   *  (so ripples keep a consistent scale) and a WaterAnim scrolls them. */
+   *  the box a self-animating liquid surface: its UVs tile with the box's horizontal
+   *  size (so ripples keep a consistent scale), it moves to the water layer (so the
+   *  reflection camera skips it) and its top plane is registered with the map so
+   *  WaterFX knows where to mirror the scene. */
   mesh(x: number, y: number, z: number, w: number, h: number, d: number, mat: string, tu = 1, tv = 1): Entity {
     const e = this.root.createChild("b");
     e.transform.setPosition(x, y, z);
@@ -120,7 +123,10 @@ export class MapBuilder {
     if (water) { const t = Math.max(1, Math.max(w, d) / 6); tuu = tvv = t; }
     const m = this.lib.build(mat, tuu, tvv);
     r.setMaterial(m);
-    if (water) this.lib.animate(e, mat, m, tuu);
+    if (water) {
+      e.layer = WATER_LAYER;
+      this.map.waterPlanes.push({ y: y + h / 2, area: w * d });
+    }
     r.castShadows = !water;   // a transparent liquid surface shouldn't cast a hard shadow
     r.receiveShadows = true;
     this.map.tris += 12;

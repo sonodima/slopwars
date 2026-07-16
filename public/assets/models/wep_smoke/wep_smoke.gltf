@@ -1,0 +1,253 @@
+{
+  "asset": {
+    "generator": "FBX2glTF v0.9.7",
+    "version": "2.0"
+  },
+  "scene": 0,
+  "buffers": [
+    {
+      "byteLength": 100412,
+      "uri": "wep_smoke.bin"
+    }
+  ],
+  "bufferViews": [
+    {
+      "buffer": 0,
+      "byteLength": 11916,
+      "byteOffset": 0,
+      "target": 34963
+    },
+    {
+      "buffer": 0,
+      "byteLength": 24312,
+      "byteOffset": 11916,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteLength": 24312,
+      "byteOffset": 36228,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteLength": 16208,
+      "byteOffset": 60540,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteLength": 4944,
+      "byteOffset": 76748,
+      "target": 34963
+    },
+    {
+      "buffer": 0,
+      "byteLength": 7020,
+      "byteOffset": 81692,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteLength": 7020,
+      "byteOffset": 88712,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteLength": 4680,
+      "byteOffset": 95732,
+      "target": 34962
+    }
+  ],
+  "scenes": [
+    {
+      "name": "Root Scene",
+      "nodes": [
+        0
+      ]
+    }
+  ],
+  "accessors": [
+    {
+      "componentType": 5123,
+      "type": "SCALAR",
+      "count": 5958,
+      "bufferView": 0,
+      "byteOffset": 0
+    },
+    {
+      "componentType": 5126,
+      "type": "VEC3",
+      "count": 2026,
+      "bufferView": 1,
+      "byteOffset": 0,
+      "min": [
+        -0.0334791541099548,
+        -0.0920905247330666,
+        -0.0405798181891441
+      ],
+      "max": [
+        0.0317883193492889,
+        0.0592585727572441,
+        0.0343557149171829
+      ]
+    },
+    {
+      "componentType": 5126,
+      "type": "VEC3",
+      "count": 2026,
+      "bufferView": 2,
+      "byteOffset": 0
+    },
+    {
+      "componentType": 5126,
+      "type": "VEC2",
+      "count": 2026,
+      "bufferView": 3,
+      "byteOffset": 0
+    },
+    {
+      "componentType": 5123,
+      "type": "SCALAR",
+      "count": 2472,
+      "bufferView": 4,
+      "byteOffset": 0
+    },
+    {
+      "componentType": 5126,
+      "type": "VEC3",
+      "count": 585,
+      "bufferView": 5,
+      "byteOffset": 0,
+      "min": [
+        -0.0159858763217926,
+        -0.0116196423768997,
+        -0.0119060399010777
+      ],
+      "max": [
+        0.0193132162094116,
+        0.00842949096113443,
+        0.0132652362808585
+      ]
+    },
+    {
+      "componentType": 5126,
+      "type": "VEC3",
+      "count": 585,
+      "bufferView": 6,
+      "byteOffset": 0
+    },
+    {
+      "componentType": 5126,
+      "type": "VEC2",
+      "count": 585,
+      "bufferView": 7,
+      "byteOffset": 0
+    }
+  ],
+  "materials": [
+    {
+      "doubleSided": true,
+      "name": "Mat",
+      "pbrMetallicRoughness": {}
+    }
+  ],
+  "meshes": [
+    {
+      "name": "SmokeGrenade",
+      "primitives": [
+        {
+          "material": 0,
+          "mode": 4,
+          "attributes": {
+            "NORMAL": 2,
+            "POSITION": 1,
+            "TEXCOORD_0": 3
+          },
+          "indices": 0
+        }
+      ]
+    },
+    {
+      "name": "Pin",
+      "primitives": [
+        {
+          "material": 0,
+          "mode": 4,
+          "attributes": {
+            "NORMAL": 6,
+            "POSITION": 5,
+            "TEXCOORD_0": 7
+          },
+          "indices": 4
+        }
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "name": "RootNode",
+      "translation": [
+        0,
+        0,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "children": [
+        1,
+        2
+      ]
+    },
+    {
+      "name": "SmokeGrenade",
+      "translation": [
+        -0.0029589650221169,
+        -0.0218688361346722,
+        0.0089733088389039
+      ],
+      "rotation": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "mesh": 0
+    },
+    {
+      "name": "Pin",
+      "translation": [
+        0.0029589650221169,
+        0.0218688361346722,
+        -0.0089733088389039
+      ],
+      "rotation": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "mesh": 1
+    }
+  ]
+}

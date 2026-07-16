@@ -26,6 +26,17 @@ export class Net {
   private hostConn: DataConnection | null = null; // guest: to host
   private opened = false; // the peer reached the signaling server (open fired)
 
+  // ── liveness ──
+  // WebRTC data-channel "close" is unreliable (a crashed tab, dropped network or
+  // backgrounded mobile browser often never fires it), which left ghost players
+  // standing frozen in the match. Both sides therefore heartbeat: guests ping every
+  // 2s (the host answers pong), and each side drops a peer it hasn't heard from.
+  private lastSeen = new Map<string, number>(); // host: guest id → last data (ms)
+  private lastFromHost = 0;                     // guest: last host data (ms)
+  private liveTimer: number | null = null;
+  private static readonly GUEST_TIMEOUT = 8000;  // host drops a silent guest (they ping @2s)
+  private static readonly HOST_TIMEOUT = 15000;  // guest gives up on a silent host
+
   onMessage: ((m: Msg, fromId: string) => void) | null = null;
   onPeerJoin: ((p: PlayerInfo) => void) | null = null;
   onPeerLeave: ((id: string) => void) | null = null;
@@ -57,9 +68,18 @@ export class Net {
       if (!this.opened) { this.goOffline(); return; }
       this.onError?.(String((e as Error).message ?? e));
     });
+    // sweep for guests that silently vanished (no clean close event)
+    this.liveTimer = window.setInterval(() => {
+      const now = Date.now();
+      for (const id of [...this.conns.keys()]) {
+        const seen = this.lastSeen.get(id) ?? now;
+        if (now - seen > Net.GUEST_TIMEOUT) this.dropGuest(id);
+      }
+    }, 2000);
     p.on("connection", (conn) => {
       conn.on("data", (raw) => {
         const m = raw as Msg;
+        this.lastSeen.set(conn.peer, Date.now());
         if (m.t === "hello") {
           const id = conn.peer;
           this.conns.set(id, conn);
@@ -92,9 +112,24 @@ export class Net {
       this.hostConn = conn;
       conn.on("open", () => {
         conn.send({ t: "hello", name: myName } satisfies Msg);
+        this.lastFromHost = Date.now();
+        // Heartbeat from a plain interval, NOT the rAF game loop: a backgrounded tab's
+        // rAF stops entirely (the host would then drop us as vanished), while interval
+        // timers keep firing at ≥1 Hz. The host answers each ping with a pong, which
+        // both feeds the HUD's RTT readout and proves the host is still alive.
+        this.liveTimer = window.setInterval(() => {
+          this.send({ t: "ping", ts: performance.now() });
+          if (Date.now() - this.lastFromHost > Net.HOST_TIMEOUT) {
+            if (this.liveTimer !== null) { clearInterval(this.liveTimer); this.liveTimer = null; }
+            this.onError?.("Lost connection to host");
+          }
+        }, 2000);
         this.onReady?.();
       });
-      conn.on("data", (raw) => this.onMessage?.(raw as Msg, "host"));
+      conn.on("data", (raw) => {
+        this.lastFromHost = Date.now();
+        this.onMessage?.(raw as Msg, "host");
+      });
       conn.on("close", () => this.onError?.("Lost connection to host"));
       conn.on("error", () => this.onError?.("Connection failed"));
     });
@@ -114,8 +149,11 @@ export class Net {
   }
 
   private dropGuest(id: string): void {
-    if (!this.conns.has(id)) return;
+    const conn = this.conns.get(id);
+    if (!conn) return;
     this.conns.delete(id);
+    this.lastSeen.delete(id);
+    try { conn.close(); } catch { /* already dead */ }
     this.players = this.players.filter((p) => p.id !== id);
     this.broadcast({ t: "pleave", id });
     this.onPeerLeave?.(id);
@@ -139,6 +177,7 @@ export class Net {
   }
 
   leave(): void {
+    if (this.liveTimer !== null) { clearInterval(this.liveTimer); this.liveTimer = null; }
     if (!this.isHost) { try { this.hostConn?.send({ t: "leave" }); } catch { /* */ } }
     this.peer?.destroy();
   }
@@ -153,7 +192,10 @@ export class Net {
   /** player id from a real PeerJS id */
   pidOf(realId: string): string { return realId === PREFIX + this.lobbyCode ? "host" : realId; }
 
-  destroy(): void { this.peer?.destroy(); }
+  destroy(): void {
+    if (this.liveTimer !== null) { clearInterval(this.liveTimer); this.liveTimer = null; }
+    this.peer?.destroy();
+  }
 }
 
 /** distinct, high-contrast player colours (assigned in join order by the host) */

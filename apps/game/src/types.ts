@@ -7,6 +7,7 @@ export const INTERP_DELAY = 0.12; // s
 export const ROUND_TIME = 240; // s
 export const ROUNDS_PER_GAME = 4;
 export const INTERMISSION = 10; // s
+export const DEPLOY_TIME = 6;   // s — pre-round freeze: everyone spawned but locked, picking a class
 export const RESPAWN_TIME = 3; // s
 export const MAX_HP = 100;
 
@@ -194,8 +195,8 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     penetration: 0.2, penDamageKeep: 0.45, falloff: [12, 40, 0.5], range: 300, moveFactor: 1.02, auto: true,
   },
   shotgun: {
-    id: "shotgun", name: "Shotgun", category: "primary", damage: 11, headMult: 1.6, rpm: 70, mag: 6,
-    reserve: 24, reloadTime: 3.4, spread: 0.09, spreadMove: 0.05, recoil: 3.0,
+    id: "shotgun", name: "Shotgun", category: "primary", damage: 40, headMult: 2, rpm: 70, mag: 6,
+    reserve: 24, reloadTime: 3.4, spread: 0.2, spreadMove: 0.05, recoil: 3.0,
     penetration: 0, penDamageKeep: 0, falloff: [6, 22, 0.25], range: 45, moveFactor: 0.9, pellets: 8, auto: false,
   },
   awp: {
@@ -265,7 +266,7 @@ export interface PlayerState {
   g?: boolean; // onGround — drives the remote's jump/fall animation (undefined → infer from motion)
 }
 
-export type GamePhase = "lobby" | "play" | "inter" | "over";
+export type GamePhase = "lobby" | "deploy" | "play" | "inter" | "over";
 
 export type ModeId = "ffa" | "tdm" | "gungame" | "prophunt";
 
