@@ -90,6 +90,9 @@ export class GameMap {
   fxRoot!: Entity;
   /** dynamic physics props (simulated by the game's PhysicsWorld; ignored by the editor) */
   dynBodies: DynBody[] = [];
+  /** top planes of every water box, registered during build — WaterFX mirrors the
+   *  scene about the biggest one (maps virtually always have a single water level). */
+  waterPlanes: { y: number; area: number }[] = [];
   tris = 0;
   root!: Entity;
   meta!: MapMeta;
@@ -116,6 +119,7 @@ export class GameMap {
     this.sounds = [];
     this.particles = [];
     this.dynBodies = [];
+    this.waterPlanes = [];
     this.tris = 0;
     this.root = parent.createChild("map");
     // the fx root persists across rebuilds (unlike the map root), so pooled emitters
@@ -129,6 +133,14 @@ export class GameMap {
     this.reusableSounds = [];
     for (const p of this.reusableParticles) { try { p.entity.destroy(); } catch { /* ignore */ } }
     this.reusableParticles = [];
+  }
+
+  /** the reflection plane for this map: the largest water surface's top Y (or null
+   *  when the map has no water — WaterFX then turns the whole system off). */
+  primaryWaterY(): number | null {
+    let best: { y: number; area: number } | null = null;
+    for (const p of this.waterPlanes) if (!best || p.area > best.area) best = p;
+    return best ? best.y : null;
   }
 
   /** claim a live emitter from the previous build matching `key`, so a rebuild reuses

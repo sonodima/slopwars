@@ -1,0 +1,451 @@
+{
+  "asset": {
+    "generator": "FBX2glTF v0.9.7",
+    "version": "2.0"
+  },
+  "scene": 0,
+  "buffers": [
+    {
+      "byteLength": 62632,
+      "uri": "wep_shotgun.bin"
+    }
+  ],
+  "bufferViews": [
+    {
+      "buffer": 0,
+      "byteLength": 9192,
+      "byteOffset": 0,
+      "target": 34963
+    },
+    {
+      "buffer": 0,
+      "byteLength": 16596,
+      "byteOffset": 9192,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteLength": 16596,
+      "byteOffset": 25788,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteLength": 11064,
+      "byteOffset": 42384,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteLength": 216,
+      "byteOffset": 53448,
+      "target": 34963
+    },
+    {
+      "buffer": 0,
+      "byteLength": 576,
+      "byteOffset": 53664,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteLength": 576,
+      "byteOffset": 54240,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteLength": 384,
+      "byteOffset": 54816,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteLength": 768,
+      "byteOffset": 55200,
+      "target": 34963
+    },
+    {
+      "buffer": 0,
+      "byteLength": 1632,
+      "byteOffset": 55968,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteLength": 1632,
+      "byteOffset": 57600,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteLength": 1088,
+      "byteOffset": 59232,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteLength": 264,
+      "byteOffset": 60320,
+      "target": 34963
+    },
+    {
+      "buffer": 0,
+      "byteLength": 768,
+      "byteOffset": 60584,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteLength": 768,
+      "byteOffset": 61352,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteLength": 512,
+      "byteOffset": 62120,
+      "target": 34962
+    }
+  ],
+  "scenes": [
+    {
+      "name": "Root Scene",
+      "nodes": [
+        0
+      ]
+    }
+  ],
+  "accessors": [
+    {
+      "componentType": 5123,
+      "type": "SCALAR",
+      "count": 4596,
+      "bufferView": 0,
+      "byteOffset": 0
+    },
+    {
+      "componentType": 5126,
+      "type": "VEC3",
+      "count": 1383,
+      "bufferView": 1,
+      "byteOffset": 0,
+      "min": [
+        -0.0218637362122536,
+        -0.189414575695992,
+        -0.405165791511536
+      ],
+      "max": [
+        0.0196703635156155,
+        0.0513390824198723,
+        0.81401914358139
+      ]
+    },
+    {
+      "componentType": 5126,
+      "type": "VEC3",
+      "count": 1383,
+      "bufferView": 2,
+      "byteOffset": 0
+    },
+    {
+      "componentType": 5126,
+      "type": "VEC2",
+      "count": 1383,
+      "bufferView": 3,
+      "byteOffset": 0
+    },
+    {
+      "componentType": 5123,
+      "type": "SCALAR",
+      "count": 108,
+      "bufferView": 4,
+      "byteOffset": 0
+    },
+    {
+      "componentType": 5126,
+      "type": "VEC3",
+      "count": 48,
+      "bufferView": 5,
+      "byteOffset": 0,
+      "min": [
+        -0.000385337683837861,
+        -0.0109054362401366,
+        -0.0387099385261536
+      ],
+      "max": [
+        0.000992346438579261,
+        0.0109054362401366,
+        0.0387099385261536
+      ]
+    },
+    {
+      "componentType": 5126,
+      "type": "VEC3",
+      "count": 48,
+      "bufferView": 6,
+      "byteOffset": 0
+    },
+    {
+      "componentType": 5126,
+      "type": "VEC2",
+      "count": 48,
+      "bufferView": 7,
+      "byteOffset": 0
+    },
+    {
+      "componentType": 5123,
+      "type": "SCALAR",
+      "count": 384,
+      "bufferView": 8,
+      "byteOffset": 0
+    },
+    {
+      "componentType": 5126,
+      "type": "VEC3",
+      "count": 136,
+      "bufferView": 9,
+      "byteOffset": 0,
+      "min": [
+        -0.028086556121707,
+        -0.0917386114597321,
+        -0.028086556121707
+      ],
+      "max": [
+        0.028086556121707,
+        0.0917386114597321,
+        0.028086556121707
+      ]
+    },
+    {
+      "componentType": 5126,
+      "type": "VEC3",
+      "count": 136,
+      "bufferView": 10,
+      "byteOffset": 0
+    },
+    {
+      "componentType": 5126,
+      "type": "VEC2",
+      "count": 136,
+      "bufferView": 11,
+      "byteOffset": 0
+    },
+    {
+      "componentType": 5123,
+      "type": "SCALAR",
+      "count": 132,
+      "bufferView": 12,
+      "byteOffset": 0
+    },
+    {
+      "componentType": 5126,
+      "type": "VEC3",
+      "count": 64,
+      "bufferView": 13,
+      "byteOffset": 0,
+      "min": [
+        -0.0016552263405174,
+        -0.0244808830320835,
+        -0.015825193375349
+      ],
+      "max": [
+        0.0016552263405174,
+        0.00896030943840742,
+        0.00810968689620495
+      ]
+    },
+    {
+      "componentType": 5126,
+      "type": "VEC3",
+      "count": 64,
+      "bufferView": 14,
+      "byteOffset": 0
+    },
+    {
+      "componentType": 5126,
+      "type": "VEC2",
+      "count": 64,
+      "bufferView": 15,
+      "byteOffset": 0
+    }
+  ],
+  "materials": [
+    {
+      "doubleSided": true,
+      "name": "Mat",
+      "pbrMetallicRoughness": {}
+    }
+  ],
+  "meshes": [
+    {
+      "name": "Shotgun",
+      "primitives": [
+        {
+          "material": 0,
+          "mode": 4,
+          "attributes": {
+            "NORMAL": 2,
+            "POSITION": 1,
+            "TEXCOORD_0": 3
+          },
+          "indices": 0
+        }
+      ]
+    },
+    {
+      "name": "Ejection_Port",
+      "primitives": [
+        {
+          "material": 0,
+          "mode": 4,
+          "attributes": {
+            "NORMAL": 6,
+            "POSITION": 5,
+            "TEXCOORD_0": 7
+          },
+          "indices": 4
+        }
+      ]
+    },
+    {
+      "name": "Fore_Stock",
+      "primitives": [
+        {
+          "material": 0,
+          "mode": 4,
+          "attributes": {
+            "NORMAL": 10,
+            "POSITION": 9,
+            "TEXCOORD_0": 11
+          },
+          "indices": 8
+        }
+      ]
+    },
+    {
+      "name": "Trigger",
+      "primitives": [
+        {
+          "material": 0,
+          "mode": 4,
+          "attributes": {
+            "NORMAL": 14,
+            "POSITION": 13,
+            "TEXCOORD_0": 15
+          },
+          "indices": 12
+        }
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "name": "RootNode",
+      "translation": [
+        0,
+        0,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "children": [
+        1
+      ]
+    },
+    {
+      "name": "Shotgun",
+      "translation": [
+        0,
+        0,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "children": [
+        2,
+        3,
+        4
+      ],
+      "mesh": 0
+    },
+    {
+      "name": "Ejection_Port",
+      "translation": [
+        0.0133188627660275,
+        0.0263475906103849,
+        0.258807092905045
+      ],
+      "rotation": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "mesh": 1
+    },
+    {
+      "name": "Fore_Stock",
+      "translation": [
+        -0.00109668634831905,
+        -0.0116358269006014,
+        -0.0560822933912277
+      ],
+      "rotation": [
+        -0.70710676908493,
+        0,
+        0,
+        0.70710676908493
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "mesh": 2
+    },
+    {
+      "name": "Trigger",
+      "translation": [
+        -0.00109668634831905,
+        -0.0356727987527847,
+        0.391837298870087
+      ],
+      "rotation": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "mesh": 3
+    }
+  ]
+}

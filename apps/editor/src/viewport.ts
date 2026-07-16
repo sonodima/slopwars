@@ -13,6 +13,7 @@ import type { MapDef, MaterialAsset, MaterialDef, ModelAsset, ModelMeta, Placeme
 import { envSunColor, groupWorldTf, invComposeTf, resolveWorld } from "@slopwars/shared";
 import { applyFogFalloff, applyPost, applyShadows } from "@game/rendersettings";
 import { GameMap } from "@game/map";
+import { WaterFX } from "@game/water";
 import { GameModels, loadModels } from "@game/models";
 import { resolveTextures, type MapTextures } from "@game/textures";
 import { mapTextureFolders, objectCategory, objectIcon } from "@game/objects";
@@ -47,6 +48,7 @@ export class Viewport {
   private camE!: Entity;
   private camera!: Camera;
   private sun!: DirectLight;
+  private waterFX!: WaterFX;
   private amb!: AmbientLight;
   private skyMat!: SkyBoxMaterial;
   private bloom!: BloomEffect;
@@ -160,6 +162,10 @@ export class Viewport {
     this.camera.enablePostProcess = true;      // bloom + tonemapping, like the game
     this.camera.msaaSamples = MSAASamples.FourX;
 
+    // planar water reflections, exactly like the game — rebuild() re-aims the
+    // plane after every map edit so water in the editor mirrors the live scene.
+    this.waterFX = WaterFX.attach(this.root, this.camera, this.sun);
+
     // post stack — its bloom/tonemapping params are set per-map from env.post
     const pp = this.root.createChild("post").addComponent(PostProcess);
     this.bloom = pp.addEffect(BloomEffect);
@@ -262,6 +268,7 @@ export class Viewport {
     this.outlineEntities = [];   // torn down with the old map root; drop stale refs
     this.map.onBuildEntity = (i, e) => { (this.objEntities[i] ??= []).push(e); };
     this.map.load(this.engine, this.root, tex, this.models, def, this.matDefs, this.modelMetas);
+    this.waterFX.setWater(this.map.primaryWaterY());  // (re)aim the planar reflections
     this.applyEnv(def);
     this.refreshHighlight();     // re-attach the selection outline to fresh entities
   }

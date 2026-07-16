@@ -5,7 +5,7 @@ import { assetUrl } from "./assets";
 import type { WeaponId } from "./types";
 
 const SAMPLES = {
-  knife: "knife.mp3", usp: "desert_eagle.mp3", ak47: "mp5.mp3", awp: "awp.mp3",
+  knife: "knife.mp3", usp: "desert_eagle.mp3", ak47: "mp5.mp3", awp: "awp.mp3", luger: "luger_p08.mp3", m4a1: "m4a1.mp3", suomi: "suomi.mp3", shotgun: "shotgun.mp3",
   boom: "bomb.mp3", shatter: "bottle_breaking.mp3", fire: "fire_loop.mp3",
   step1: "walking_rock_1.wav", step2: "walking_rock_2.wav", water: "water_loop.mp3",
   theme: "slopwars_theme_song_loop.mp3", interlude: "round_interlude.mp3",
@@ -66,7 +66,7 @@ class Sfx {
    *  water loops are left to their own lazy loaders (they start moments later anyway). */
   preload(): void {
     const warm: SampleName[] = [
-      "knife", "usp", "ak47", "awp", "boom", "shatter", "fire",
+      "knife", "usp", "ak47", "awp", "luger", "m4a1", "suomi", "shotgun", "boom", "shatter", "fire",
       "hit", "headshot", "jumpStart", "jumpEnd", "step1", "step2", "deathScreen",
       "roundStart", "roundEnd",
     ];
@@ -150,7 +150,7 @@ class Sfx {
 
   // ── weapons / combat (real samples) ──
   shot(w: WeaponId, pan = 0, dist = 0): void {
-    const map: Partial<Record<WeaponId, SampleName>> = { knife: "knife", usp: "usp", ak47: "ak47", awp: "awp" };
+    const map: Partial<Record<WeaponId, SampleName>> = { knife: "knife", usp: "usp", ak47: "ak47", awp: "awp", luger: "luger", m4a1: "m4a1", suomi: "suomi", shotgun: "shotgun" };
     const s = map[w];
     if (s) this.play(s, { pan, dist, gain: w === "awp" ? 1 : 0.85, rate: 0.96 + Math.random() * 0.08 });
   }
@@ -188,7 +188,7 @@ class Sfx {
   }
   jump(): void { this.play("jumpStart", { gain: 0.5, rate: 0.97 + Math.random() * 0.06 }); }
   land(): void { this.play("jumpEnd", { gain: 0.55, rate: 0.97 + Math.random() * 0.06 }); }
-  hitmarker(hs: boolean): void { this.play(hs ? "headshot" : "hit", { gain: hs ? 1.2 : 1.0 }); }
+  hitmarker(hs: boolean): void { this.play(hs ? "headshot" : "hit", { gain: hs ? 1.2 : 1.4 }); }
   hurt(pan: number): void { this.thump(0.12, 300, 90, 0.5, this.out(pan)); }
   death(): void { this.play("deathScreen", { gain: 1.2 }); }
   impact(pan: number, dist: number): void { this.burst(0.05, 2200, 3, 0.25, this.out(pan, dist)); }

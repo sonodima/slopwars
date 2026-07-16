@@ -9,6 +9,14 @@ import { GameModels, instantiate, modelMetaOf } from "./models";
 import { MaterialLibrary, shadeModelSlots } from "./materials";
 import { Vec3, WEAPONS, WeaponDef, WeaponId, ALL_WEAPONS, LOADOUT, clamp } from "./types";
 import { modelAnchor, type ModelMeta } from "@slopwars/shared";
+import { NO_REFLECT_LAYER } from "./water";
+
+/** move an entity subtree to the no-reflect layer — the first-person viewmodel
+ *  must not show up in water reflections (it would float above the mirrored eye). */
+function layerNoReflect(e: Entity): void {
+  e.layer = NO_REFLECT_LAYER;
+  for (const c of e.children) layerNoReflect(c);
+}
 
 interface Ammo { mag: number; reserve: number }
 
@@ -18,25 +26,20 @@ interface Ammo { mag: number; reserve: number }
 // their held pose (meta.scale), authored in the editor exactly like any other model —
 // so there are no per-weapon offsets/rotations here. The muzzle flash + shot origin come
 // from each model's `muzzle` anchor (also authored in the editor).
-//
-// The weapons added from the CC0 "Guns & Explosives" pack (m4a1, shotgun, grease, suomi,
-// luger, flash, smoke) don't have their dedicated glTF committed yet, so they reuse the
-// closest existing model as a placeholder viewmodel — drop a `wep_<name>` model folder in
-// and point the entry at it to give a weapon its own mesh, no other code change needed.
 const WEAPON_MODEL: Record<WeaponId, string> = {
   knife: "wep_knife",
   usp: "wep_makarov",
-  luger: "wep_makarov",   // placeholder → dedicated wep_luger
+  luger: "wep_luger",
   ak47: "wep_ak47",
-  m4a1: "wep_ak47",       // placeholder → dedicated wep_m4a1
-  suomi: "wep_ak47",      // placeholder → dedicated wep_suomi
-  grease: "wep_ak47",     // placeholder → dedicated wep_grease
-  shotgun: "wep_ak47",    // placeholder → dedicated wep_shotgun
+  m4a1: "wep_m4a1",
+  suomi: "wep_suomi",
+  grease: "wep_grease",
+  shotgun: "wep_shotgun",
   awp: "wep_sniper",
   he: "wep_frag",
   mol: "wep_molotov",
-  flash: "wep_frag",      // placeholder → dedicated wep_flashbang
-  smoke: "wep_frag",      // placeholder → dedicated wep_smoke
+  flash: "wep_flashbang",
+  smoke: "wep_smoke",
 };
 
 /** a full ammo table for every weapon, seeded from each def's mag/reserve. Throwables
@@ -78,6 +81,9 @@ export class WeaponSystem {
   // per-weapon muzzle point in viewmodel space (from the model's `muzzle` anchor), so
   // the flash + shot origin sit at the barrel tip. Absent → the default flash position.
   private muzzles: Partial<Record<WeaponId, Vector3>> = {};
+  // per-weapon ammo-readout mount (from the model's `ammo` anchor, scaled into viewmodel
+  // space). A weapon without one shows NO weapon-mounted ammo readout.
+  private ammoMounts: Partial<Record<WeaponId, { at: Vector3; rot?: [number, number, number] }>> = {};
   private bobT = 0;
   private src!: GameModels;
   private ammoTag!: AmmoTag; // diegetic weapon-mounted ammo counter (child of the viewmodel)
@@ -91,6 +97,7 @@ export class WeaponSystem {
     this.buildModels();
     this.buildFlash();
     this.ammoTag = new AmmoTag(engine, this.vm);
+    layerNoReflect(this.vm);   // keep the whole viewmodel out of water reflections
     this.select("ak47");
   }
 
@@ -132,6 +139,10 @@ export class WeaponSystem {
     // seat the muzzle flash at this weapon's barrel tip (its `muzzle` anchor)
     const mz = this.muzzles[w];
     if (mz) this.flash.transform.setPosition(mz.x, mz.y, mz.z);
+    // seat the ammo readout at this weapon's `ammo` anchor — or hide it entirely for a
+    // weapon that doesn't carry one (knife, throwables, uncalibrated models)
+    const am = this.ammoMounts[w];
+    this.ammoTag.mount(am ? am.at : null, am?.rot);
     sfx.draw();
     this.onAmmoChange?.();
   }
@@ -278,6 +289,16 @@ export class WeaponSystem {
       this.modelFolders[id] = folder;
       const mz = this.muzzlePoint(meta);
       if (mz) this.muzzles[id] = mz;
+      // the model's `ammo` anchor, scaled into viewmodel space like the muzzle. The
+      // anchor's rot (if authored) orients the readout; AmmoTag falls back to a default.
+      const am = modelAnchor(meta, "ammo");
+      if (am) {
+        const s = meta.scale ?? 1;
+        this.ammoMounts[id] = {
+          at: new Vector3(am.at[0] * s, am.at[1] * s, am.at[2] * s),
+          rot: am.rot ? [am.rot[0], am.rot[1], am.rot[2]] : undefined,
+        };
+      }
     }
   }
 
@@ -334,7 +355,13 @@ export class WeaponSystem {
 
 // ─── tracers + impact puffs (pooled) ─────────────────────────────────────────
 export class TracerPool {
-  private pool: { e: Entity; ttl: number }[] = [];
+  // a tracer is a short bright STREAK that flies from the muzzle to the impact point —
+  // not a static full-length beam. A beam's near end sits frozen in world space for its
+  // whole lifetime, so a running shooter visibly leaves their own tracer behind them; a
+  // travelling streak has cleared the muzzle by the next frame.
+  private static readonly SPEED = 380; // u/s — streak flight speed
+  private static readonly STREAK = 7;  // u — visible streak length
+  private pool: { e: Entity; live: boolean; head: number; len: number; from: Vec3; dir: Vec3 }[] = [];
   private puffs: { e: Entity; ttl: number }[] = [];
   private root: Entity;
   private mat: UnlitMaterial;
@@ -353,25 +380,38 @@ export class TracerPool {
     const dx = to.x - from.x, dy = to.y - from.y, dz = to.z - from.z;
     const len = Math.hypot(dx, dy, dz);
     if (len < 0.5) return;
-    let slot = this.pool.find((s) => s.ttl <= 0);
+    let slot = this.pool.find((s) => !s.live);
     if (!slot) {
       const e = this.root.createChild("tracer");
       const r = e.addComponent(MeshRenderer);
       r.mesh = PrimitiveMesh.createCuboid(this.engine, 0.02, 0.02, 1);
       r.setMaterial(this.mat);
-      slot = { e, ttl: 0 };
+      slot = { e, live: false, head: 0, len: 0, from: { x: 0, y: 0, z: 0 }, dir: { x: 0, y: 0, z: 1 } };
       this.pool.push(slot);
     }
+    slot.live = true;
+    slot.head = 0;
+    slot.len = len;
+    slot.from = { x: from.x, y: from.y, z: from.z };
+    slot.dir = { x: dx / len, y: dy / len, z: dz / len };
     const e = slot.e;
     e.isActive = true;
-    e.transform.setPosition(from.x + dx / 2, from.y + dy / 2, from.z + dz / 2);
-    e.transform.setScale(1, 1, len);
-    // orient -Z along dir
+    // orient -Z along dir (fixed for the streak's whole flight)
     const yaw = Math.atan2(-dx, -dz);
     const pitch = Math.asin(clamp(dy / len, -1, 1));
     Quaternion.rotationYawPitchRoll(yaw, pitch, 0, this.q);
     e.transform.rotationQuaternion = this.q;
-    slot.ttl = 0.06;
+    this.place(slot); // seat the (still zero-length) streak at the muzzle for frame one
+  }
+
+  /** stretch the streak between its tail and head along the flight line */
+  private place(s: { e: Entity; head: number; len: number; from: Vec3; dir: Vec3 }): void {
+    const head = Math.min(s.head, s.len);
+    const tail = Math.max(s.head - TracerPool.STREAK, 0);
+    const segLen = Math.max(head - tail, 0.05);
+    const mid = (head + tail) / 2;
+    s.e.transform.setPosition(s.from.x + s.dir.x * mid, s.from.y + s.dir.y * mid, s.from.z + s.dir.z * mid);
+    s.e.transform.setScale(1, 1, segLen);
   }
 
   impact(p: Vec3): void {
@@ -390,7 +430,12 @@ export class TracerPool {
   }
 
   update(dt: number): void {
-    for (const s of this.pool) if (s.ttl > 0) { s.ttl -= dt; if (s.ttl <= 0) s.e.isActive = false; }
+    for (const s of this.pool) {
+      if (!s.live) continue;
+      s.head += TracerPool.SPEED * dt;
+      if (s.head - TracerPool.STREAK >= s.len) { s.live = false; s.e.isActive = false; continue; }
+      this.place(s);
+    }
     for (const s of this.puffs) if (s.ttl > 0) { s.ttl -= dt; if (s.ttl <= 0) s.e.isActive = false; }
   }
 
@@ -401,7 +446,7 @@ export class TracerPool {
     this.spawn({ x: 0, y: -120, z: 2 }, { x: 0, y: -120, z: 8 });
     this.impact({ x: 0, y: -120, z: 2 });
     window.setTimeout(() => {
-      for (const s of this.pool) { s.ttl = 0; s.e.isActive = false; }
+      for (const s of this.pool) { s.live = false; s.e.isActive = false; }
       for (const s of this.puffs) { s.ttl = 0; s.e.isActive = false; }
     }, 350);
   }

@@ -7,6 +7,7 @@ import {
 } from "@galacean/engine";
 import { sfx } from "./audio";
 import { loadHDRCube, setAssetLog } from "./assets";
+import { Cursor } from "./cursor";
 import { Hud } from "./hud";
 import { GameMap } from "./map";
 import catalog from "virtual:asset-catalog";
@@ -28,7 +29,7 @@ import { Input, PlayerBody } from "./player";
 import { RemotePlayer } from "./remote";
 import { MODEL_LOAD_COUNT, buildProp, instantiate, loadModels, propHuntPool } from "./models";
 import {
-  BOT_TUNING, DEFAULT_CONFIG, GamePhase, GameSnapshot, INTERMISSION, MatchConfig, MAX_HP, ModeId,
+  BOT_TUNING, DEFAULT_CONFIG, DEPLOY_TIME, GamePhase, GameSnapshot, INTERMISSION, MatchConfig, MAX_HP, ModeId,
   MOVE_BACK_FACTOR, MOVE_STRAFE_FACTOR, Msg,
   PICKUP_HEAL, PICKUP_RADIUS, PICKUP_RESPAWN, Platform, PlayerState, POWERUPS, POWERUP_INTERVAL,
   POWERUP_RADIUS, PowerupKind, QUAD_MULT, RAPID_MULT, SPEED_MULT, TICK_RATE,
@@ -41,6 +42,7 @@ import {
 import { CLASSES, CLASS_LIST, ClassId, classById, randomClass } from "./classes";
 import { Voice } from "./voice";
 import { NpcChat, Relation, initNpcChat } from "./npcchat";
+import { WaterFX } from "./water";
 import { TouchControls } from "./touch";
 import { GamepadControls } from "./gamepad";
 import { Settings } from "./settings";
@@ -142,6 +144,7 @@ class Game {
   /** HDRI path → prefiltered cube (loaded once, reused across map switches) */
   hdriCache = new Map<string, Promise<TextureCube>>();
   sunE!: Entity;
+  waterFX!: WaterFX;
   sun!: DirectLight;
   amb!: AmbientLight;
   bloom!: BloomEffect;
@@ -204,6 +207,15 @@ class Game {
   remotes = new Map<string, RemotePlayer>();
   names = new Map<string, string>();
 
+  // world-anchored nametags floated over visible players (DOM overlay, updateNametags)
+  private tagEls = new Map<string, HTMLElement>();
+  private tagIn = new Vector3();
+  private tagOut = new Vector3();
+  // floating world-anchored damage numbers (see showDamage / updateDamageNumbers)
+  private dmgNums: { el: HTMLElement; span: HTMLElement; id: string; dmg: number; hs: boolean; born: number; p: Vec3; vx: number; vy: number; vz: number }[] = [];
+  private dmgIn = new Vector3();
+  private dmgOut = new Vector3();
+
   // 3D lobby scene (shared with the main menu — same swaying showcase camera + stage)
   lobbyView = false;
   menuView = false;            // main menu shows the same 3D backdrop as the lobby
@@ -243,6 +255,9 @@ class Game {
   private spectateId: string | null = null; // seeker being spectated (no-respawn hider)
   inGame = false;
   locked = false;
+  // we released the pointer lock ourselves on death (so the mouse can click the
+  // class strip) — suppresses the pause-menu/click-to-play unlock handling until respawn
+  private deathReleasedLock = false;
   sbOpen = false;
 
   keys = new Set<string>();        // raw pressed KeyboardEvent.code set (keyboard only)
@@ -270,7 +285,6 @@ class Game {
 
   // stats
   ping = 0;
-  pingAcc = 0;
   fpsE = 60;
   statAcc = 0;
   /** worst frame time (s) seen in the current stats window — surfaces *jank*
@@ -342,6 +356,10 @@ class Game {
     cam.enablePostProcess = true;
     cam.opaqueTextureEnabled = true;   // lets transmissive water refract the scene
     cam.msaaSamples = MSAASamples.FourX;
+
+    // planar water reflections: renders the mirrored scene each frame on maps with
+    // water (see water.ts); loadMap() points it at the map's water plane.
+    this.waterFX = WaterFX.attach(root, cam, sun);
 
     const ppE = root.createChild("post");
     const pp = ppE.addComponent(PostProcess);
@@ -480,6 +498,24 @@ class Game {
     if (this.locked && typeof document.exitPointerLock === "function") document.exitPointerLock();
   }
 
+  /** Re-acquire the pointer lock on respawn after we released it for the death-screen
+   *  class picker. Browsers allow a gesture-less relock only because the unlock came from
+   *  exitPointerLock() (not Esc); if the browser still refuses (e.g. the user pressed Esc
+   *  while dead), fall back to the click-to-play prompt instead of a dead mouse. */
+  private relockAfterDeath(): void {
+    if (!this.deathReleasedLock) return;
+    this.deathReleasedLock = false;
+    if (this.myPlatform !== "keyboard" || !this.inGame || this.locked || this.settings.isOpen()) return;
+    const canvas = document.getElementById("game-canvas") as HTMLCanvasElement | null;
+    if (!canvas || typeof canvas.requestPointerLock !== "function") return;
+    try {
+      const p = canvas.requestPointerLock() as unknown;
+      if (p instanceof Promise) p.catch(() => this.hud.clickToPlay(true));
+    } catch {
+      this.hud.clickToPlay(true);
+    }
+  }
+
   bindInput(): void {
     const canvas = document.getElementById("game-canvas") as HTMLCanvasElement;
 
@@ -487,6 +523,10 @@ class Game {
       this.locked = document.pointerLockElement === canvas;
       if (!this.locked) { this.keys.clear(); this.fireHeld = false; }
       if (this.inGame && this.myPlatform === "keyboard") {
+        // while the class strip is up (dead, or the deploy freeze), the unlock is ours
+        // (deathReleasedLock) — the cursor is free to click a class card, so no
+        // click-to-play / pause menu.
+        if (this.deathReleasedLock && (!this.alive || this.phase === "deploy")) { this.hud.clickToPlay(false); return; }
         this.hud.clickToPlay(!this.locked);
         // Pressing Esc exits pointer lock *and* the browser swallows that Escape
         // keydown, so the pause menu can never open from the keydown handler while
@@ -497,6 +537,7 @@ class Game {
     });
     canvas.addEventListener("click", () => {
       if (this.myPlatform !== "keyboard") return; // touch / gamepad drive look without pointer lock
+      if (this.deathReleasedLock && (!this.alive || this.phase === "deploy")) return; // cursor stays free for the class picker
       if (this.inGame && !this.locked) canvas.requestPointerLock();
     });
     document.getElementById("click-to-play")!.addEventListener("click", () => {
@@ -535,9 +576,9 @@ class Game {
       }
       if (!this.inGame) return;
       if (this.hud.chatOpen) return; // chat input handles its own keys
-      // while dead, the number keys pick your NEXT class off the respawn strip (deploys on
-      // respawn). Handled before the weapon-slot path since those are alive-only.
-      if (!this.alive && this.classPickable()) {
+      // while the class picker is up (dead, or the pre-round deploy freeze), the number
+      // keys pick a class off the strip. Handled before the weapon-slot path.
+      if (this.classPickerActive()) {
         const m = /^(?:Digit|Numpad)([1-9])$/.exec(e.code);
         if (m && Number(m[1]) <= CLASS_LIST.length) { this.chooseClassSlot(Number(m[1]) - 1); return; }
       }
@@ -629,6 +670,7 @@ class Game {
     // even in first-person matches. No viewmodel, no aiming (mouse-look is disabled).
     if (!this.alive) {
       this.ws.showViewmodel(false);
+      this.hud.ammoPanel(false); // death cam — no ammo readout anywhere
       if (this.selfAvatar) this.selfAvatar.isActive = false;
       if (!this.isHider()) {
         const op = this.ensureSelfOperator();
@@ -646,6 +688,9 @@ class Game {
     const third = this.thirdPersonActive();
     // viewmodel only in first-person while alive (third-person shows the world avatar)
     this.ws.showViewmodel(!third);
+    // the 2D ammo panel (bottom-right) only backs up third person — in first person the
+    // weapon-mounted holo readout is the ammo source of truth
+    this.hud.ammoPanel(third);
 
     if (!third) {
       // first person: camera at the eye, avatar hidden
@@ -700,6 +745,122 @@ class Game {
       op.setVisible(true);
       op.weapon = this.ws.current;
       op.setPose(this.body.pos, this.body.yaw, this.alive, this.body.onGround);
+    }
+  }
+
+  // ─── nametags ─────────────────────────────────────────────────────────────────
+
+  /** float each player's name over their head. Shown only when the player is alive,
+   *  not disguised (Prop-Hunt hider), on screen, within range AND actually visible —
+   *  a map raycast from the camera keeps names from leaking through walls. */
+  private static readonly NAMETAG_DIST = 55; // m — beyond this the tag is off anyway
+  updateNametags(): void {
+    const cam = this.camEntity.transform.worldPosition;
+    const tdm = this.mode === "tdm";
+    for (const r of this.remotes.values()) {
+      const el = this.tagEls.get(r.id);
+      let shown = false;
+      if (r.alive && !r.disguised) {
+        const hy = r.pos.y + 2.02; // just above the head sphere
+        const dx = r.pos.x - cam.x, dy = hy - cam.y, dz = r.pos.z - cam.z;
+        const dist = Math.hypot(dx, dy, dz);
+        if (dist > 0.7 && dist < Game.NAMETAG_DIST) {
+          this.tagIn.set(r.pos.x, hy, r.pos.z);
+          const vp = this.camera.worldToViewportPoint(this.tagIn, this.tagOut);
+          if (vp.z > 0 && vp.x >= 0 && vp.x <= 1 && vp.y >= 0 && vp.y <= 1
+              && !this.map.raycast({ x: cam.x, y: cam.y, z: cam.z }, { x: dx / dist, y: dy / dist, z: dz / dist }, dist - 0.35)
+              // smoke clouds hide names too (they're particles — invisible to the map raycast)
+              && !this.nades.smokeOccludes({ x: cam.x, y: cam.y, z: cam.z }, { x: r.pos.x, y: hy, z: r.pos.z })) {
+            const tag = el ?? this.buildTag(r.id);
+            const name = this.names.get(r.id) ?? r.name;
+            if (tag.textContent !== name) tag.textContent = name; // names are untrusted input — text only
+            const side = tdm ? this.teams[r.id] : undefined;
+            tag.style.color = side === 0 || side === 1 ? `#${TEAM_COLORS[side].toString(16).padStart(6, "0")}` : "";
+            tag.style.left = `${(vp.x * 100).toFixed(2)}%`;
+            tag.style.top = `${(vp.y * 100).toFixed(2)}%`;
+            tag.style.opacity = clamp(1.25 - dist / Game.NAMETAG_DIST, 0, 1).toFixed(2);
+            tag.style.display = "";
+            shown = true;
+          }
+        }
+      }
+      if (!shown && el) el.style.display = "none";
+    }
+    // drop tags of players that left the match
+    for (const [id, el] of this.tagEls) {
+      if (!this.remotes.has(id)) { el.remove(); this.tagEls.delete(id); }
+    }
+  }
+
+  private buildTag(id: string): HTMLElement {
+    const el = document.createElement("div");
+    el.className = "nametag";
+    document.getElementById("nametags")!.appendChild(el);
+    this.tagEls.set(id, el);
+    return el;
+  }
+
+  // ─── floating damage numbers ──────────────────────────────────────────────────
+  // World-anchored DOM labels (same projection trick as the nametags): a number pops at
+  // the hit point, arcs upward with a little lateral scatter, and fades. Rapid hits on
+  // the same victim (shotgun pellets, SMG bursts) merge into one counting number instead
+  // of a confetti of overlapping digits. Headshots read bigger and holo-red.
+
+  /** the local player dealt `dmg` to `victimId` at world point `p` */
+  showDamage(victimId: string, dmg: number, hs: boolean, p: Vec3): void {
+    const now = performance.now() / 1000;
+    const m = this.dmgNums.find((n) => n.id === victimId && now - n.born < 0.35);
+    if (m) {
+      m.dmg += dmg;
+      m.hs = m.hs || hs;
+      m.born = now;
+      m.p = { x: p.x, y: Math.max(p.y, m.p.y), z: p.z };
+      m.span.textContent = String(m.dmg);
+      m.el.classList.toggle("hs", m.hs);
+      // restart the pop punch so the growing total visibly re-hits
+      m.span.classList.remove("pop");
+      void m.span.offsetWidth;
+      m.span.classList.add("pop");
+      return;
+    }
+    const el = document.createElement("div");
+    el.className = `dmgnum${hs ? " hs" : ""}`;
+    const span = document.createElement("span");
+    span.className = "pop";
+    span.textContent = String(dmg);
+    el.appendChild(span);
+    document.getElementById("dmgnums")!.appendChild(el);
+    const ang = Math.random() * Math.PI * 2;
+    this.dmgNums.push({
+      el, span, id: victimId, dmg, hs, born: now, p: { x: p.x, y: p.y, z: p.z },
+      vx: Math.cos(ang) * 0.5, vy: 1.7, vz: Math.sin(ang) * 0.5,
+    });
+  }
+
+  /** per-frame: float the numbers up in world space, project to the viewport, fade out */
+  updateDamageNumbers(dt: number): void {
+    if (!this.dmgNums.length) return;
+    const now = performance.now() / 1000;
+    const cam = this.camEntity.transform.worldPosition;
+    for (let i = this.dmgNums.length - 1; i >= 0; i--) {
+      const n = this.dmgNums[i];
+      const age = now - n.born;
+      if (age > 0.85) { n.el.remove(); this.dmgNums.splice(i, 1); continue; }
+      // rise fast, then drift: an upward pop that eases into a float
+      n.p.x += n.vx * dt;
+      n.p.z += n.vz * dt;
+      n.p.y += n.vy * dt;
+      n.vy = Math.max(n.vy - 3.6 * dt, 0.25);
+      this.dmgIn.set(n.p.x, n.p.y, n.p.z);
+      const vp = this.camera.worldToViewportPoint(this.dmgIn, this.dmgOut);
+      if (vp.z <= 0) { n.el.style.display = "none"; continue; }
+      const dist = Math.hypot(n.p.x - cam.x, n.p.y - cam.y, n.p.z - cam.z);
+      n.el.style.display = "";
+      n.el.style.left = `${(vp.x * 100).toFixed(2)}%`;
+      n.el.style.top = `${(vp.y * 100).toFixed(2)}%`;
+      // perspective: nearby hits read big, far ones shrink (never to nothing)
+      n.el.style.setProperty("--s", clamp(1.25 - dist / 46, 0.5, 1.25).toFixed(3));
+      n.el.style.opacity = age > 0.5 ? clamp(1 - (age - 0.5) / 0.35, 0, 1).toFixed(2) : "1";
     }
   }
 
@@ -1066,7 +1227,10 @@ class Game {
   applySettings(): void {
     this.applyGraphics();
     this.applyScopeFov(); // picks up fov
-    document.getElementById("stats")!.classList.toggle("hidden", !this.settings.state.showStats);
+    const showStats = this.settings.state.showStats;
+    document.getElementById("stats")!.classList.toggle("hidden", !showStats);
+    document.getElementById("perf-graph")!.classList.toggle("hidden", !showStats);
+    document.body.classList.toggle("perfhud", showStats); // shifts #voice below the graph
     this.gamepad.binds = this.settings.padBinds(); // pick up remapped controller buttons
   }
 
@@ -1188,9 +1352,14 @@ class Game {
     };
     g.onReload = () => { if (this.alive) this.localReload(); };
     g.onWeaponCycle = (dir) => {
+      // class strip up (dead, or deploy freeze): the bumpers browse the class instead
+      if (this.classPickerActive()) { this.cycleClassPick(dir); return; }
       if (this.alive && this.canSwitchWeapon()) { this.ws.cycle(dir); this.applyScopeFov(); }
     };
     g.onWeaponSelect = (i) => {
+      // class strip up: D-pad browses classes too (i is the d-pad's weapon-slot mapping —
+      // up/left step back, down/right step forward — class slots don't map onto weapons)
+      if (this.classPickerActive()) { this.cycleClassPick(i === 2 || i === 1 ? -1 : 1); return; }
       if (this.alive && this.canSwitchWeapon()) { this.ws.slot(i); this.applyScopeFov(); }
     };
     g.onMic = () => this.toggleVoice();
@@ -1482,8 +1651,10 @@ class Game {
       // prop can shove it (and a heavy one blocks). No-op when the map has none.
       this.physics.step(dt, this.alive ? this.body : null);
 
-      // camera transform (first- or third-person)
-      const eye = this.body.eyeY;
+      // camera transform (first- or third-person). viewEyeY = eyeY minus the stair-step
+      // smoothing offset, so the camera glides up steps instead of snapping (gameplay
+      // rays — shooting, throws, aim assist — keep using the exact eyeY).
+      const eye = this.body.viewEyeY;
       const pitch = this.body.pitch + this.ws.recoilPitch;
       Quaternion.rotationYawPitchRoll(this.body.yaw, pitch, 0, this.q);
       this.camEntity.transform.rotationQuaternion = this.q;
@@ -1496,6 +1667,8 @@ class Game {
         const rel = this.relAudio(r.pos);
         this.voice.setSpatial(r.id, rel.pan, rel.dist);
       }
+      this.updateNametags();
+      this.updateDamageNumbers(dt);
 
       // ambient water loop, spatialized to the map's water source (if any)
       if (this.map.env.water) {
@@ -1536,12 +1709,8 @@ class Game {
         else { const d = POWERUPS[this.buff.kind]; this.hud.buff(d.name, d.color, left); }
       }
 
-      // ping (guest)
-      this.pingAcc += dt;
-      if (this.pingAcc >= 2) {
-        this.pingAcc = 0;
-        if (!this.net.isHost) this.net.send({ t: "ping", ts: performance.now() });
-      }
+      // (guest ping heartbeat lives in net.ts on an interval — rAF stops in a
+      // backgrounded tab, and a silent guest would be dropped by the host's sweep)
 
       // respawn overlay (or spectator label for a no-respawn hider)
       if (!this.alive) {
@@ -1554,6 +1723,9 @@ class Game {
           this.hud.respawnOverlay(t > 0 ? t : null);
         }
       }
+      // pre-round deploy freeze: drive the countdown every frame (the spawn burst at
+      // deploy start briefly hides #respawn via respawnOverlay(null) — this re-shows it)
+      if (this.phase === "deploy" && this.alive) this.hud.deployOverlay(Math.max(this.timeLeft, 0));
 
       // net send
       this.sendAcc += dt;
@@ -1592,6 +1764,9 @@ class Game {
     // stats overlay
     this.fpsE += (1 / Math.max(dt, 1e-4) - this.fpsE) * 0.08;
     this.framePeak = Math.max(this.framePeak, dt);
+    // frame-time graph: fed every frame (unlike the 0.25 s text refresh below) so
+    // single-frame drops show up as spikes
+    if (this.inGame && this.settings.state.showStats) this.hud.perfSample(dt * 1000);
     this.statAcc += dt;
     if (this.statAcc >= 0.25 && this.inGame && this.settings.state.showStats) {
       this.statAcc = 0;
@@ -1647,9 +1822,20 @@ class Game {
     // start the local player's tracer at the gun muzzle so it reads as leaving the gun.
     // In third person the first-person viewmodel is hidden (its muzzle sits at the camera,
     // which would draw the tracer from the corner) — use the third-person avatar's muzzle.
-    const muzzle = this.thirdPersonActive()
+    let muzzle = this.thirdPersonActive()
       ? (this.selfOperator?.gunMuzzle() ?? undefined)
       : (this.ws.muzzleWorld() ?? undefined);
+    // the camera (and the viewmodel riding it) is repositioned in updateSelfView AFTER
+    // this frame's input/fire step, so muzzleWorld() is one frame behind the body while
+    // moving — shift it by the camera's pending move so the tracer truly leaves the barrel.
+    if (muzzle && !this.thirdPersonActive()) {
+      const camP = this.camEntity.transform.worldPosition;
+      muzzle = {
+        x: muzzle.x + (this.body.pos.x - camP.x),
+        y: muzzle.y + (this.body.viewEyeY - camP.y),
+        z: muzzle.z + (this.body.pos.z - camP.z),
+      };
+    }
 
     // a shotgun fires a cluster of pellets in one trigger pull; every other weapon is a
     // single ray. Each pellet gets its own randomized spread within the cone.
@@ -1722,6 +1908,7 @@ class Game {
       if (localShooter) {
         this.hud.hitmarker(vHead);
         sfx.hitmarker(vHead);
+        this.showDamage(victim.id, dmg, vHead, { x: o.x + d.x * vDist, y: o.y + d.y * vDist, z: o.z + d.z * vDist });
         this.reportHit(victim.id, dmg, vHead, def.id);
       }
       return;
@@ -1819,6 +2006,7 @@ class Game {
       const wall = this.map.raycast({ x: c.x, y: c.y + 0.15, z: c.z }, dir, dist);
       if (wall && wall.dist < dist - 0.3) continue; // fully blocked
       const dmg = Math.max(1, Math.round(HE_DAMAGE * (1 - dist / HE_RADIUS)));
+      if (t.id !== this.net.myId) this.showDamage(t.id, dmg, false, tc); // self-damage shows as the blood vignette
       this.reportHit(t.id, dmg, false, cause);
     }
   }
@@ -1840,8 +2028,12 @@ class Game {
     // how centred the burst is in view: dot(look, dirToFlash) in [-1,1]. Facing it → 1.
     const look = this.body.aimDir();
     const dot = look.x * dir.x + look.y * dir.y + look.z * dir.z;
-    const viewFactor = clamp(0.25 + 0.75 * ((dot + 1) / 2), 0.25, 1); // behind still nicks 0.25
-    const rangeFactor = 1 - dist / FLASH_RADIUS;
+    // LOOKING at the burst is what blinds you: anywhere in your view cone (dot > ~0.2,
+    // i.e. within ~78°) is a full-strength flash; peripheral gets a strong sting; only
+    // having it fully behind you drops it to a graze.
+    const viewFactor = dot > 0.2 ? 1 : dot > -0.25 ? 0.6 : 0.2;
+    // range saturates hard: anything inside ~⅓ of the radius counts as point blank
+    const rangeFactor = clamp(1.55 * (1 - dist / FLASH_RADIUS), 0, 1);
     const intensity = clamp(rangeFactor * viewFactor, 0, 1);
     if (intensity < 0.03) return;
     this.hud.blind(intensity);
@@ -1860,6 +2052,7 @@ class Game {
     for (const r of this.remotes.values()) if (r.alive) targets.push({ id: r.id, p: r.pos });
     for (const t of targets) {
       if (Math.hypot(t.p.x - c.x, t.p.z - c.z) < MOL_RADIUS && Math.abs(t.p.y - c.y) < 2) {
+        if (t.id !== this.net.myId) this.showDamage(t.id, MOL_TICK_DMG, false, { x: t.p.x, y: t.p.y + 1.3, z: t.p.z });
         this.reportHit(t.id, MOL_TICK_DMG, false, "mol");
       }
     }
@@ -2221,7 +2414,8 @@ class Game {
   }
 
   hostSpawn(id: string): void {
-    if (this.phase !== "play") return;
+    // deploy counts: the round-start burst spawns everyone in during the pre-round freeze
+    if (this.phase !== "play" && this.phase !== "deploy") return;
     if (!this.net.players.some((p) => p.id === id)) return;
     const sp = this.pickSpawn();
     this.hpMap[id] = MAX_HP;
@@ -2271,11 +2465,13 @@ class Game {
         if (this.pkTimers[i] <= 0) { this.pkTimers[i] = 0; this.pkEntities[i].isActive = true; }
       }
     }
-    if (this.phase === "play" || this.phase === "inter") {
+    if (this.phase === "play" || this.phase === "inter" || this.phase === "deploy") {
       this.timeLeft -= dt;
       if (this.gameAcc >= 1) { this.gameAcc = 0; this.pushGame(); }
       if (this.timeLeft <= 0) {
-        if (this.phase === "play") {
+        if (this.phase === "deploy") {
+          this.hostBeginPlay();
+        } else if (this.phase === "play") {
           // prop hunt: whoever's left standing takes the round
           if (this.mode === "prophunt") {
             if (this.livingHiders() > 0) this.teamScore[ROLE_HIDE]++;
@@ -2312,9 +2508,11 @@ class Game {
     this.myVote = null;
     this.hud.vote(null);
 
-    this.phase = "play";
+    // pre-round deploy freeze: everyone is spawned in but locked while the class picker +
+    // countdown run; hostClock flips deploy → play (hostBeginPlay) when it expires.
+    this.phase = "deploy";
     this.round = n;
-    this.timeLeft = this.cfg.roundTime;
+    this.timeLeft = DEPLOY_TIME;
     this.applyPhysicsConfig();
     this.pkTimers = this.map.pickupSpots.map(() => 0);
     for (const e of this.pkEntities) e.isActive = true;
@@ -2325,10 +2523,18 @@ class Game {
     for (const p of this.net.players) this.hpMap[p.id] = MAX_HP;
     this.pushGame(); // sync mode/teams/tiers before spawns carry the loadout
     for (const p of this.net.players) this.hostSpawn(p.id);
-    sfx.stopInterlude();
-    const modeName = MODES[this.mode].name;
-    this.hud.banner(`${modeName} · ${this.map.meta.name} — Round ${n}`);
-    sfx.roundStart();
+    // the host mutates this.phase before pushGame, so applyGame's prevPhase diffing
+    // can't see its own transition — run the local deploy-UI hook explicitly here
+    // (guests get it from the snapshot's phase flip instead)
+    this.enterDeploy();
+  }
+
+  /** host: the deploy freeze expired — the round is live */
+  hostBeginPlay(): void {
+    this.phase = "play";
+    this.timeLeft = this.cfg.roundTime;
+    this.pushGame(); // mirrors the flip to guests
+    this.exitDeploy(true); // local UI (see hostStartRound note on prevPhase diffing)
   }
 
   /** host: (re)assign teams / roles / gungame tiers for a round */
@@ -2390,9 +2596,21 @@ class Game {
       for (let i = 0; i < this.pkEntities.length; i++) this.pkEntities[i].isActive = (g.pk[i] ?? 0) <= 0;
     }
     if (!this.net.isHost) {
+      // A guest can be parked in the lobby while the match is actually running: joining
+      // during the host's round-1 map load gets an init that still says phase "lobby"
+      // (hostStartRound flips to "play" only after its awaited loadMap), and the "start"
+      // broadcast happened before they connected. Without this, that client keeps its
+      // lobby view up — the roster row standing in the middle of the live map — forever.
+      // Any snapshot that says the match is running pulls a not-yet-entered client in.
+      if (!this.inGame && !this.leaving && (g.phase === "play" || g.phase === "inter" || g.phase === "deploy")) this.enterGame();
       if (prevPhase !== "inter" && g.phase === "inter") { this.hud.banner(`Round ${g.round} over`); sfx.roundEnd(); sfx.startInterlude(); }
-      if (prevPhase !== "play" && g.phase === "play") { sfx.stopInterlude(); this.hud.banner(`${this.map.meta.name} · Round ${g.round} — go!`); sfx.roundStart(); }
+      // deploy → play is announced by exitDeploy below (shared with the host)
+      if (prevPhase !== "play" && prevPhase !== "deploy" && g.phase === "play") { sfx.stopInterlude(); this.hud.banner(`${this.map.meta.name} · Round ${g.round} — go!`); sfx.roundStart(); }
       if (g.phase === "over" && prevPhase !== "over") this.enterEnd();
+      // pre-round deploy freeze (guests — the host runs these from hostStartRound /
+      // hostBeginPlay directly, since it mutates this.phase before snapshotting)
+      if (prevPhase !== "deploy" && g.phase === "deploy") this.enterDeploy();
+      if (prevPhase === "deploy" && g.phase !== "deploy") this.exitDeploy(g.phase === "play");
     }
   }
 
@@ -2436,6 +2654,7 @@ class Game {
     const tex = await resolveTextures(this.engine, mapTextureFolders(def));
     this.map.load(this.engine, this.root, tex, this.models, def);
     this.physics.syncFromMap();   // (re)bind prop colliders + rebuild static world (PhysX)
+    this.waterFX.setWater(this.map.primaryWaterY());  // (re)aim the planar reflections
     this.currentMapId = id;
     await this.applyEnv(def.env);
     this.buildPickups(this.root);
@@ -2689,7 +2908,7 @@ class Game {
       this.scores[id] = this.scores[id] ?? { k: 0, d: 0 };
       this.assignLateJoiner(id);
       // late joiner mid-game → spawn them
-      if (this.phase === "play") window.setTimeout(() => this.hostSpawn(id), 400);
+      if (this.phase === "play" || this.phase === "deploy") window.setTimeout(() => this.hostSpawn(id), 400);
       this.refreshLobby();
       return { t: "init", id, players: n.players, game: this.gameSnap() };
     };
@@ -2757,7 +2976,7 @@ class Game {
         }
         this.applyGame(m.game);
         this.refreshLobby();
-        if (m.game.phase === "play" || m.game.phase === "inter") this.enterGame();
+        if (m.game.phase === "play" || m.game.phase === "inter" || m.game.phase === "deploy") this.enterGame();
         else { this.hud.show("lobby"); this.enterLobby(); }
         this.hud.connecting(false);
         this.announcePlatform(); // tell the host (→ everyone) our current input device
@@ -2968,6 +3187,12 @@ class Game {
         this.ws.setScope(false);
         this.applyScopeFov();
         this.clearBuff();
+        // free the mouse so the death screen's class cards are clickable; the lock is
+        // re-acquired on respawn (see the "spawn" branch below)
+        if (this.myPlatform === "keyboard" && this.classPickable()) {
+          this.deathReleasedLock = true;
+          this.releasePointerLock();
+        }
       } else {
         const r = this.remotes.get(m.v);
         if (r) { r.markDead(m.hs === 1); r.alive = false; }
@@ -2991,6 +3216,9 @@ class Game {
         this.hud.respawnOverlay(null);
         this.hud.crosshair(true);
         this.refreshAmmoHud();
+        // during the deploy freeze the cursor stays free for the class picker — the
+        // relock happens on the deploy → play transition (exitDeploy) instead
+        if (this.phase !== "deploy") this.relockAfterDeath();
       } else {
         const r = this.remotes.get(m.id);
         if (r) { r.alive = true; r.hp = MAX_HP; }
@@ -3067,10 +3295,49 @@ class Game {
     return this.inGame && this.mode !== "gungame" && !this.isHider();
   }
 
+  /** the class strip is interactive right now: while dead (death screen), or during the
+   *  pre-round deploy freeze. Gates the number-key / bumper / d-pad class shortcuts. */
+  classPickerActive(): boolean {
+    return this.classPickable() && (!this.alive || this.phase === "deploy");
+  }
+
+  // ─── pre-round deploy freeze ─────────────────────────────────────────────────
+
+  /** the deploy freeze began (host + guests, via applyGame): surface the class picker +
+   *  countdown, and free the mouse so the cards are clickable. Gameplay input is already
+   *  dead — movement / fire / look all gate on phase === "play". */
+  enterDeploy(): void {
+    sfx.stopInterlude();
+    this.hud.banner(`${MODES[this.mode].name} · Round ${this.round}`);
+    this.hud.respawnDeploy(this.classPickable(), this.settings.state.loadoutClass);
+    if (this.myPlatform === "keyboard" && this.classPickable()) {
+      this.deathReleasedLock = true;
+      this.releasePointerLock();
+      this.hud.clickToPlay(false);
+    }
+  }
+
+  /** the deploy freeze ended: drop the overlay; when the round went live, fire the
+   *  round-start banner/sting and re-grab the pointer for keyboard players. */
+  exitDeploy(toPlay: boolean): void {
+    this.hud.deployOverlay(null);
+    if (!toPlay) return;
+    this.hud.banner(`${this.map.meta.name} · Round ${this.round} — go!`);
+    sfx.roundStart();
+    this.relockAfterDeath();
+  }
+
   /** pick the Nth class in CLASS_LIST (death-screen number keys / touch strip). */
   chooseClassSlot(i: number): void {
     const id = CLASS_LIST[i];
     if (id) this.chooseClass(id);
+  }
+
+  /** step the class pick ±1 through CLASS_LIST (death-screen gamepad bumpers / d-pad) */
+  cycleClassPick(dir: number): void {
+    const n = CLASS_LIST.length;
+    const cur = CLASS_LIST.indexOf(this.settings.state.loadoutClass as ClassId);
+    this.chooseClass(CLASS_LIST[(Math.max(cur, 0) + dir + n) % n]);
   }
 
   /** persist a class pick (in-game overlay or death-screen strip). It applies on the next
@@ -3082,7 +3349,10 @@ class Game {
     this.settings.setLoadoutClass(id);
     this.hud.markClass(id);
     if (this.inGame && this.alive && this.classPickable()) {
-      this.hud.banner(`${CLASSES[id as ClassId]?.name ?? "Loadout"} · applies on next spawn`, 1800);
+      // during the deploy freeze the round hasn't started — swap the kit immediately;
+      // mid-life it lands on the next spawn, so nudge that the current kit is unchanged
+      if (this.phase === "deploy") this.applyLoadout();
+      else this.hud.banner(`${CLASSES[id as ClassId]?.name ?? "Loadout"} · applies on next spawn`, 1800);
     }
   }
 
@@ -3667,6 +3937,7 @@ class Game {
   enterGame(): void {
     this.inGame = true;
     this.alive = true;
+    this.deathReleasedLock = false; // any pending death-screen unlock is void now
     this.myHp = MAX_HP;
     this.exitMenu();
     this.exitLobby();
@@ -3709,7 +3980,10 @@ function falloff(def: WeaponDef, dist: number): number {
   return 1 - (1 - fmin) * ((dist - fs) / (fe - fs));
 }
 
+const cursor = new Cursor(); // holographic pointer over the menu / lobby chrome (self-hides under pointer lock)
+
 const game = new Game();
 void game.start();
-// dev-only handle for debugging in the console (stripped from production builds)
-if (import.meta.env.DEV) (window as unknown as { __game: Game }).__game = game;
+// dev-only handles for debugging in the console (stripped from production builds)
+if (import.meta.env.DEV) (window as unknown as { __game: Game; __cursor: Cursor }).__game = game;
+if (import.meta.env.DEV) (window as unknown as { __cursor: Cursor }).__cursor = cursor;

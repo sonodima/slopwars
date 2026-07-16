@@ -19,10 +19,16 @@ export class PlayerBody {
   landed = false; // set true for one frame on landing
   jumped = false;
   gravityScale = 1; // host match-rule gravity multiplier
+  // Stair smoothing: a step-up snaps pos.y instantly (jerky camera). This tracks how far
+  // the *view* still lags below the true feet Y; it decays each frame so the eye glides
+  // up the step while the physics position stays exact (see viewEyeY).
+  private stepSmooth = 0;
 
   constructor(private map: GameMap) {}
 
   get eyeY(): number { return this.pos.y + MOVE.eyeHeight; }
+  /** camera-only eye height: physics eyeY minus the decaying step-up smoothing offset */
+  get viewEyeY(): number { return this.pos.y - this.stepSmooth + MOVE.eyeHeight; }
   get height(): number { return MOVE.height; }
 
   teleport(p: Vec3, yaw: number): void {
@@ -30,6 +36,7 @@ export class PlayerBody {
     this.vel = { x: 0, y: 0, z: 0 };
     this.yaw = (yaw * Math.PI) / 180;
     this.pitch = 0;
+    this.stepSmooth = 0;
   }
 
   update(dt: number, inp: Input, speedFactor: number): void {
@@ -65,6 +72,10 @@ export class PlayerBody {
     this.vel.y -= MOVE.gravity * this.gravityScale * dt;
 
     this.move(dt);
+
+    // ease the view offset accumulated by step-up snaps back to zero (~150 ms glide)
+    this.stepSmooth *= Math.exp(-20 * dt);
+    if (this.stepSmooth < 0.001) this.stepSmooth = 0;
 
     if (!this.wasOnGround && this.onGround) this.landed = true;
     this.wasOnGround = this.onGround;
@@ -110,7 +121,12 @@ export class PlayerBody {
     p.y += this.vel.y * dt;
     if (this.vel.y <= 0) {
       const gy = this.groundHeight(p, h, oldY);
-      if (gy !== null && p.y <= gy) { p.y = gy; this.vel.y = 0; this.onGround = true; }
+      if (gy !== null && p.y <= gy) {
+        // ground-stick can also snap the feet up (micro-steps / stepped ramps within the
+        // 0.35 m catch range) — glide the camera over those rises too
+        this.stepSmooth = clamp(this.stepSmooth + Math.max(0, gy - oldY), 0, MOVE.stepHeight);
+        p.y = gy; this.vel.y = 0; this.onGround = true;
+      }
       else this.onGround = false;
     } else {
       const cy = this.ceilY(p, h);
@@ -141,7 +157,12 @@ export class PlayerBody {
             if (top > next.y && top <= next.y + MOVE.stepHeight + 0.001 && (gy === null || top > gy)) gy = top;
           }
         }
-        if (gy !== null) { p[axis] = next[axis]; p.y = gy; return; }
+        if (gy !== null) {
+          // remember how far the feet just snapped up so the camera can glide instead
+          this.stepSmooth = clamp(this.stepSmooth + (gy - p.y), 0, MOVE.stepHeight);
+          p[axis] = next[axis]; p.y = gy;
+          return;
+        }
       }
     }
     // slide: kill velocity on this axis

@@ -1,24 +1,25 @@
 // ─── Diegetic weapon-mounted ammo counter (Halo-style) ───────────────────────
-// A small holographic panel physically parented to the first-person viewmodel, so it
+// A small holographic readout physically parented to the first-person viewmodel, so it
 // tracks the weapon's every motion — bob, recoil kick, reload dip, draw. It's a canvas
-// texture (redrawn only when the readout changes) on a double-sided unlit quad, styled to
-// match the 2D holographic HUD (cyan glass, Orbitron numerals, Rajdhani label).
+// texture (redrawn only when the readout changes) on a double-sided unlit quad: pure
+// masked text — no panel/backing — so only the glowing glyphs float over the weapon.
+// It is seated per weapon by the model's `ammo` anchor (authored in the editor); a
+// weapon without that anchor shows no readout at all.
 import {
   Color, Engine, Entity, MeshRenderer, PrimitiveMesh, RenderFace,
   Texture2D, TextureFilterMode, TextureFormat, TextureWrapMode, UnlitMaterial, Vector4,
 } from "@galacean/engine";
+import type { ModelAnchor } from "@slopwars/shared";
 
-// ── mount transform in viewmodel space (TUNABLE) ──
-// The viewmodel sits to the lower-right of the camera and extends forward (−Z), so the eye
-// is toward +Z (and up). createPlane's quad has a +Y normal, so a ~+75° X-rotation stands
-// it up facing back at the eye; the small Y/Z tilts angle it toward screen-centre and level
-// it. These seat the panel just above the receiver — nudge them per weapon if needed.
-const TAG_POS: [number, number, number] = [-0.016, 0.05, -0.008];
+// default readout orientation (viewmodel space) when the anchor authors no rotation:
+// the viewmodel sits to the lower-right of the camera and extends forward (−Z), so a
+// ~+76° X-rotation stands the quad up facing back at the eye; the small Y/Z tilts angle
+// it toward screen-centre and level it.
 const TAG_ROT: [number, number, number] = [76, 7, -3];
-const TAG_W = 0.104;   // panel width  (viewmodel units)
-const TAG_H = 0.056;   // panel height
+const TAG_W = 0.104;   // readout width  (viewmodel units)
+const TAG_H = 0.056;   // readout height
 
-const CW = 384, CH = 208; // canvas (texture) resolution — 2:1-ish, crisp at the tiny quad
+const CW = 384, CH = 208; // canvas (texture) resolution — crisp at the tiny quad
 
 export class AmmoTag {
   private holder: Entity;
@@ -26,11 +27,10 @@ export class AmmoTag {
   private ctx: CanvasRenderingContext2D;
   private tex: Texture2D;
   private last = ""; // last drawn signature — skip redraw when unchanged
+  private mounted = false;
 
   constructor(engine: Engine, parent: Entity) {
     this.holder = parent.createChild("ammotag");
-    this.holder.transform.setPosition(TAG_POS[0], TAG_POS[1], TAG_POS[2]);
-    this.holder.transform.setRotation(TAG_ROT[0], TAG_ROT[1], TAG_ROT[2]);
 
     this.canvas = document.createElement("canvas");
     this.canvas.width = CW; this.canvas.height = CH;
@@ -48,20 +48,35 @@ export class AmmoTag {
     mat.renderFace = RenderFace.Double; // visible whichever way the tilt lands
     mat.tilingOffset = new Vector4(1, 1, 0, 0);
 
-    // createPlane lies in the X-Z plane (normal +Y); the holder's rotation stands it up to
-    // face the eye. Double-sided + a flipped upload keep the text upright + readable.
+    // createPlane lies in the X-Z plane (normal +Y); the holder's rotation stands it up
+    // to face the eye. The quad is viewed from its underside, so the canvas uploads
+    // unflipped (see upload) for the text to read upright and unmirrored.
     const r = this.holder.addComponent(MeshRenderer);
     r.mesh = PrimitiveMesh.createPlane(engine, TAG_W, TAG_H);
     r.setMaterial(mat);
     r.castShadows = false;
     r.receiveShadows = false;
 
+    this.holder.isActive = false; // shown only once a weapon with an `ammo` anchor mounts it
+
     // redraw once the bundled HUD fonts are ready (first draw may hit the fallback face)
     document.fonts?.ready.then(() => { this.last = ""; }).catch(() => { /* no-op */ });
   }
 
+  /** seat the readout at a weapon's `ammo` anchor (already scaled into viewmodel space).
+   *  Passing null hides it — a weapon without the anchor shows no readout. */
+  mount(at: { x: number; y: number; z: number } | null, rot?: ModelAnchor["rot"]): void {
+    this.mounted = at !== null;
+    this.holder.isActive = this.mounted;
+    if (!at) return;
+    this.holder.transform.setPosition(at.x, at.y, at.z);
+    const r = rot ?? TAG_ROT;
+    this.holder.transform.setRotation(r[0], r[1], r[2]);
+  }
+
   /** update the readout; only redraws the canvas when the visible values change. */
   set(name: string, mag: number, reserve: number, reloading: boolean, melee: boolean, throwable: boolean, magMax: number): void {
+    if (!this.mounted) return;
     const sig = `${name}|${mag}|${reserve}|${reloading}|${melee}|${throwable}|${magMax}`;
     if (sig === this.last) return;
     this.last = sig;
@@ -72,41 +87,16 @@ export class AmmoTag {
     const c = this.ctx;
     c.clearRect(0, 0, CW, CH);
 
-    // ── holographic glass panel (chamfered, cyan edge) ──
-    const pad = 14, ch = 26;
-    const x = pad, y = pad, w = CW - pad * 2, h = CH - pad * 2;
-    c.beginPath();
-    c.moveTo(x, y);
-    c.lineTo(x + w - ch, y);
-    c.lineTo(x + w, y + ch);
-    c.lineTo(x + w, y + h);
-    c.lineTo(x + ch, y + h);
-    c.lineTo(x, y + h - ch);
-    c.closePath();
-    const bg = c.createLinearGradient(0, 0, 0, CH);
-    bg.addColorStop(0, "rgba(14,34,42,0.82)");
-    bg.addColorStop(1, "rgba(6,14,18,0.64)");
-    c.fillStyle = bg; c.fill();
-    c.lineWidth = 3; c.strokeStyle = "rgba(155,236,255,0.65)";
-    c.shadowColor = "rgba(120,214,255,0.7)"; c.shadowBlur = 12; c.stroke();
-    c.shadowBlur = 0;
+    // pure text mask — no panel. Every glyph carries its own holo glow.
+    const x = 18, baseY = CH - 46;
 
-    // scanline film
-    c.fillStyle = "rgba(155,236,255,0.06)";
-    for (let sy = y + 3; sy < y + h; sy += 4) c.fillRect(x, sy, w, 1);
-
-    // bright top tick
-    const tg = c.createLinearGradient(x, 0, x + w, 0);
-    tg.addColorStop(0, "rgba(155,236,255,0)");
-    tg.addColorStop(0.5, "rgba(155,236,255,0.95)");
-    tg.addColorStop(1, "rgba(155,236,255,0)");
-    c.fillStyle = tg; c.fillRect(x + 8, y + 1, w - 34, 2);
-
-    // ── weapon label (Rajdhani) ──
+    // ── weapon label (Rajdhani, dim) ──
     c.textBaseline = "alphabetic";
     c.fillStyle = "#8fd8ea";
-    c.font = "700 30px Rajdhani, 'Bahnschrift', sans-serif";
-    c.fillText(name.toUpperCase(), x + 20, y + 44);
+    c.shadowColor = "rgba(120,214,255,0.55)"; c.shadowBlur = 10;
+    c.font = "700 34px Rajdhani, 'Bahnschrift', sans-serif";
+    c.fillText(name.toUpperCase(), x + 2, 44);
+    c.shadowBlur = 0;
 
     const low = !melee && !throwable && (mag <= 0 || (magMax > 0 && mag / magMax <= 0.25));
     const cyan = "#eafaff", red = "#ff6a5a";
@@ -114,49 +104,40 @@ export class AmmoTag {
     if (reloading) {
       c.fillStyle = "#9becff";
       c.shadowColor = "rgba(120,214,255,0.75)"; c.shadowBlur = 16;
-      c.font = "700 58px Rajdhani, 'Bahnschrift', sans-serif";
-      c.fillText("RELOAD", x + 20, y + h - 34);
+      c.font = "700 62px Rajdhani, 'Bahnschrift', sans-serif";
+      c.fillText("RELOAD", x, baseY + 14);
       c.shadowBlur = 0;
       this.upload(); return;
     }
 
     // ── big magazine number (Orbitron) ──
-    let magStr: string;
-    if (melee) magStr = "∞";
-    else magStr = String(Math.max(0, mag));
+    const magStr = melee ? "∞" : String(Math.max(0, mag));
     c.fillStyle = low ? red : cyan;
     c.shadowColor = low ? "rgba(255,106,90,0.8)" : "rgba(120,214,255,0.85)";
     c.shadowBlur = 20;
-    c.font = "700 96px Orbitron, 'Bahnschrift', sans-serif";
-    c.fillText(magStr, x + 18, y + h - 28);
+    c.font = "700 104px Orbitron, 'Bahnschrift', sans-serif";
+    c.fillText(magStr, x, baseY + 24);
     const magW = c.measureText(magStr).width;
-    c.shadowBlur = 0;
 
     // ── reserve / spare (Orbitron, dim) ──
     if (!melee) {
-      c.fillStyle = "#63c6e0";
-      c.font = "700 38px Orbitron, 'Bahnschrift', sans-serif";
       const spare = throwable ? "" : reserve < 0 ? "∞" : String(reserve);
-      if (spare) c.fillText("/ " + spare, x + 34 + magW, y + h - 34);
+      if (spare) {
+        c.fillStyle = "#63c6e0";
+        c.shadowColor = "rgba(120,214,255,0.55)"; c.shadowBlur = 12;
+        c.font = "700 42px Orbitron, 'Bahnschrift', sans-serif";
+        c.fillText("/ " + spare, x + magW + 18, baseY + 16);
+      }
     }
-
-    // ── magazine fill bar along the bottom edge ──
-    if (!melee && magMax > 0) {
-      const frac = Math.max(0, Math.min(1, mag / magMax));
-      const bx = x + 18, by = y + h - 12, bw = w - 36, bh = 4;
-      c.fillStyle = "rgba(155,236,255,0.16)";
-      c.fillRect(bx, by, bw, bh);
-      c.fillStyle = low ? red : "#9becff";
-      c.shadowColor = low ? "rgba(255,106,90,0.7)" : "rgba(120,214,255,0.7)"; c.shadowBlur = 8;
-      c.fillRect(bx, by, bw * frac, bh);
-      c.shadowBlur = 0;
-    }
+    c.shadowBlur = 0;
 
     this.upload();
   }
 
   private upload(): void {
-    // flipY so the canvas' top-left origin lands upright on the plane's UVs
-    this.tex.setImageSource(this.canvas, 0, true);
+    // NO flipY: the quad is viewed from its underside (the −Y face of createPlane after
+    // the stand-up rotation), which already inverts V — flipping again mirrored the text
+    // vertically (label at the bottom, "/" reading as "\").
+    this.tex.setImageSource(this.canvas, 0, false);
   }
 }

@@ -12,14 +12,14 @@
 // It renders into its own canvas (shown only for preview tabs) with its own engine,
 // exactly like the thumbnail renderer — no coupling to the map Viewport.
 import {
-  AmbientLight, BackgroundMode, BlendMode, BoundingBox, Camera, Color, DirectLight, Entity,
-  MeshRenderer, PBRMaterial, PrimitiveMesh, RenderFace, SkyBoxMaterial,
-  TextureCube, UnlitMaterial, Vector3, Vector4, WebGLEngine,
+  AmbientLight, BackgroundMode, BlendMode, BoundingBox, Camera, Color, DepthTextureMode,
+  DirectLight, Entity, Material, MeshRenderer, PBRMaterial, PrimitiveMesh, RenderFace,
+  SkyBoxMaterial, TextureCube, UnlitMaterial, Vector3, Vector4, WebGLEngine,
 } from "@galacean/engine";
 import type { AssetCatalog, CollisionBox, MaterialDef, ModelAnchor, ModelMeta, TextureMaps, Tuple3 } from "@slopwars/shared";
 import { rotateEulerInv, modelSlotMaterial } from "@slopwars/shared";
 import { loadGLTF, loadHDRCube, loadTexture2D } from "@game/assets";
-import { applyWaterLook, attachWaterAnim, WATER_LOOK, type WaterAnim, type WaterLook } from "@game/water";
+import { createWaterMaterial, setWaterSun, WATER_LOOK, type WaterLook } from "@game/water";
 import { buildGlassMaterial } from "@game/materials";
 import type { ModelView } from "./tabs";
 import type { Tool } from "./viewport";
@@ -71,9 +71,6 @@ export class PreviewScene {
   private hdriCache = new Map<string, Promise<TextureCube>>();
   private catalog: AssetCatalog = { models: [], textures: [], materials: [], audio: [], hdri: [] };
   private curHdri: string | null = null;
-  /** live water flow animation of the current material preview (kept so its phase
-   *  survives a rebuild on a param edit — see showMaterial) */
-  private waterAnim: WaterAnim | null = null;
 
   // collision authoring
   private boxes: CollisionBox[] = [];
@@ -152,6 +149,12 @@ export class PreviewScene {
     this.camera.farClipPlane = 400;
     this.camera.enableHDR = true;
     this.camera.opaqueTextureEnabled = true;   // glass/water preview refracts
+    // water preview: the depth prepass gives the shader real thickness (depth tint +
+    // shore fade against the backdrop); reflections fall back to the procedural sky
+    // (no SLOP_WATER_REFL macro here — no planar mirror in the preview scene).
+    this.camera.depthTextureMode = DepthTextureMode.PrePass;
+    scene.shaderData.enableMacro("SLOP_WATER_DEPTH");
+    setWaterSun(scene, new Vector3(-0.45, -0.7, -0.55), new Color(1.25, 1.2, 1.12, 1));
 
     this.holder = this.root.createChild("holder");
     this.collisionRoot = this.root.createChild("collision");
@@ -199,11 +202,6 @@ export class PreviewScene {
    *  `keepCamera` preserves the orbit (used for live material edits). */
   async showMaterial(name: string, def: MaterialDef, keepCamera = false): Promise<void> {
     if (!this.ready) return;
-    // preserve the water flow phase when re-showing the SAME material (a live edit),
-    // so tweaking a param doesn't snap the ripples back to the start.
-    const samePrev = keepCamera && this.content.kind === "material" && this.content.name === name;
-    const prevPhase = samePrev && this.waterAnim ? this.waterAnim.phase : 0;
-    this.waterAnim = null;
     this.content = { kind: "material", name };
     this.anchors = null; this.selAnchor = null;
     this.clearHolder();
@@ -216,12 +214,10 @@ export class PreviewScene {
     // guard: a slower texture load may have been superseded by another tab
     if (this.content.kind !== "material" || this.content.name !== name || e.destroyed) return;
     r.setMaterial(mat);
-    // water flows: scroll the wave-normal UVs so ripples move like they do in-game
-    if (def.type === "water") { const L = waterLookOf(def); this.waterAnim = attachWaterAnim(e, mat, WATER_PREVIEW_TILING, L.flow, L.waves, prevPhase); }
   }
 
   /** build an engine material from a def (mirrors the thumbnail renderer) */
-  private async buildMaterial(def: MaterialDef): Promise<PBRMaterial> {
+  private async buildMaterial(def: MaterialDef): Promise<Material> {
     const m = new PBRMaterial(this.engine);
     if (def.type === "standard") {
       if (def.texture) {
@@ -249,10 +245,10 @@ export class PreviewScene {
       // behind the sphere identically to a window in a map.
       return buildGlassMaterial(this.engine, def);
     } else {
-      // water — use the game's exact shading (fractal wave normal + transmission +
-      // depth attenuation) so the preview shows real ripples, not a flat tint. The
-      // scroll animation is attached to the sphere by showMaterial().
-      applyWaterLook(this.engine, m, waterLookOf(def), WATER_PREVIEW_TILING);
+      // water — the game's exact custom shader (screen-space refraction + depth
+      // tint + fresnel; reflections fall back to a procedural sky here). It is
+      // self-animating, so nothing needs attaching to the sphere.
+      return createWaterMaterial(this.engine, waterLookOf(def), WATER_PREVIEW_TILING);
     }
     return m;
   }

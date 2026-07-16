@@ -57,6 +57,10 @@ export const ANCHOR_KINDS: readonly AnchorKind[] = [
     key: "muzzle", label: "Muzzle", rot: false,
     help: "Where a weapon's muzzle flash and shots originate — the tip of the barrel. Points forward (−Z) by the model's orientation.",
   },
+  {
+    key: "ammo", label: "Ammo readout", rot: true,
+    help: "Where the first-person viewmodel shows the holographic ammo readout, seated on the weapon body. Rotation angles the readout back toward the eye. A weapon without this anchor shows no readout.",
+  },
 ];
 
 /** the display label for an anchor kind (falls back to the raw key for unknown names) */

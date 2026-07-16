@@ -5,6 +5,7 @@
 import {
   DEFAULT_KEYS, DEFAULT_PADS, KEY_ACTIONS, KeyAction, keyLabel, PAD_ACTIONS, PadAction, padLabel,
 } from "./keybinds";
+import { syncRanges } from "./range";
 
 const $ = (id: string): HTMLElement => document.getElementById(id)!;
 
@@ -84,6 +85,10 @@ export class Settings {
     if (this.built) return;
     this.built = true;
 
+    // sub-page tabs (Video / Input / Controls / AI)
+    for (const b of $("set-tabs").querySelectorAll("button")) {
+      b.addEventListener("click", () => this.showPage((b as HTMLElement).dataset.tab!));
+    }
     for (const b of $("set-quality").querySelectorAll("button")) {
       b.addEventListener("click", () => this.set({ quality: (b as HTMLElement).dataset.v as Quality }));
     }
@@ -130,11 +135,19 @@ export class Settings {
     wire("set-padbinds");
     $("set-keys-reset").addEventListener("click", () => { this.cancelRebind(); this.set({ keys: {} }); });
     $("set-pads-reset").addEventListener("click", () => { this.cancelRebind(); this.set({ pads: {} }); });
-    // collapse/expand the (long) controls section
-    $("set-controls-toggle").addEventListener("click", () => {
-      const open = $("set-controls").classList.toggle("open");
-      $("set-controls-toggle").textContent = open ? "Controls ▴" : "Controls ▾";
-    });
+  }
+
+  /** switch the visible settings sub-page; leaving Controls aborts any pending rebind */
+  private showPage(tab: string): void {
+    this.cancelRebind();
+    for (const b of $("set-tabs").querySelectorAll("button")) {
+      const on = (b as HTMLElement).dataset.tab === tab;
+      b.classList.toggle("on", on);
+      b.setAttribute("aria-selected", String(on));
+    }
+    for (const p of document.querySelectorAll<HTMLElement>("#settings .set-page")) {
+      p.classList.toggle("hidden", p.dataset.page !== tab);
+    }
   }
 
   /** begin capturing a replacement key/button for `action`. Escape (or picking again)
@@ -218,6 +231,8 @@ export class Settings {
     $("set-sens-val").textContent = s.sensitivity.toFixed(2);
     $("set-padsens-val").textContent = s.padSensitivity.toFixed(2);
     $("set-fov-val").textContent = String(s.fov);
+    syncRanges(); // assigning .value above fires no input event, so light the rails by hand
+
     this.toggleBtn("set-invert", s.invertY);
     this.toggleBtn("set-aim", s.aimAssist);
     this.toggleBtn("set-stats", s.showStats);

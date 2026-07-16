@@ -1,9 +1,9 @@
 // ─── Grenades: fixed-step bounce physics, explosion & fire FX ────────────────
 import {
-  Color, Engine, Entity, MeshRenderer, PointLight, PrimitiveMesh, UnlitMaterial,
+  Color, Engine, Entity, MeshRenderer, ParticleRenderer, PointLight, PrimitiveMesh, UnlitMaterial,
 } from "@galacean/engine";
 import { GameMap } from "./map";
-import { buildParticles } from "./particles";
+import { buildBurstEmitter, buildParticles } from "./particles";
 import { Vec3, rand, ThrowableKind } from "./types";
 import { GameModels, instantiate, modelMetaOf } from "./models";
 import { MaterialLibrary, shadeModelSlots } from "./materials";
@@ -80,7 +80,7 @@ export class Projectiles {
 
   private nades: Nade[] = [];
   private fires: Fire[] = [];
-  private smokes: { until: number; root: Entity }[] = [];
+  private smokes: { until: number; root: Entity; center: Vec3 }[] = [];
   private fx: Fx[] = [];
   private root: Entity;
   private acc = 0;
@@ -105,6 +105,15 @@ export class Projectiles {
   private boomLight: PointLight;
   private boomToken = 0;
 
+  // one persistent burst-emitter rig shared by every explosion (grenade/barrel): a
+  // fireball, a rising smoke column and streaked falling sparks. Moved to the blast
+  // point and fired with emit() — zero allocation per blast, and world-space simulation
+  // means back-to-back explosions don't disturb each other's particles.
+  private blastRoot: Entity;
+  private blastFire: ParticleRenderer;
+  private blastSmoke: ParticleRenderer;
+  private blastSparks: ParticleRenderer;
+
   constructor(private engine: Engine, parent: Entity, private map: GameMap, private models: GameModels) {
     this.root = parent.createChild("nades");
     this.mHe = this.unlit(0.12, 0.16, 0.1);
@@ -119,6 +128,24 @@ export class Projectiles {
     this.boomLight.color = new Color(1.5, 0.95, 0.45, 1);
     this.boomLight.distance = 18;
     this.boomLightE.isActive = false;
+
+    this.blastRoot = this.root.createChild("blast");
+    // fireball: hot expanding puffs that dissolve fast — the body of the explosion
+    this.blastFire = buildBurstEmitter(engine, this.blastRoot, {
+      lifetime: [0.22, 0.5], speed: [2.5, 7], size: [0.5, 1.0], growth: 2.0,
+      gravity: -0.15, color: [3.2, 1.35, 0.3], opacity: 0.95, additive: true, radius: 0.45,
+    });
+    // smoke: slower, darker, longer-lived, billowing upward after the fire clears
+    this.blastSmoke = buildBurstEmitter(engine, this.blastRoot, {
+      lifetime: [1.1, 2.2], speed: [1.2, 3.6], size: [0.8, 1.4], growth: 3.0,
+      gravity: -0.05, color: [0.16, 0.15, 0.14], opacity: 0.5, additive: false, radius: 0.55, max: 96,
+    });
+    // sparks: fast glowing streaks thrown out radially, pulled down by gravity
+    this.blastSparks = buildBurstEmitter(engine, this.blastRoot, {
+      lifetime: [0.35, 0.85], speed: [8, 17], size: [0.05, 0.11], growth: 0.5,
+      gravity: 1.6, color: [4.5, 2.8, 0.7], opacity: 1, additive: true, radius: 0.25,
+      stretch: 4, max: 160,
+    });
   }
 
   private unlit(r: number, g: number, b: number): UnlitMaterial {
@@ -321,22 +348,36 @@ export class Projectiles {
     const light = le.addComponent(PointLight);
     light.color = new Color(0.5, 0.5, 0.55, 1);
     light.distance = SMOKE_RADIUS * 2.2;
-    this.smokes.push({ until: now + SMOKE_DURATION, root });
+    this.smokes.push({ until: now + SMOKE_DURATION, root, center: { x: c.x, y: c.y + 1.2, z: c.z } });
   }
 
-  /** explosion visuals + boom at a point (grenade or barrel); no damage/authority */
+  /** does the segment a→b pass through (or end inside) an active smoke cloud? Used to
+   *  hide nametags behind/inside smoke — the cloud is only a particle visual, so the
+   *  map raycast can't know about it. Sphere test against each live cloud. */
+  smokeOccludes(a: Vec3, b: Vec3): boolean {
+    for (const s of this.smokes) {
+      const c = s.center, r = SMOKE_RADIUS;
+      const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
+      const len2 = dx * dx + dy * dy + dz * dz;
+      // closest point on the segment to the cloud centre
+      let t = len2 > 1e-6 ? ((c.x - a.x) * dx + (c.y - a.y) * dy + (c.z - a.z) * dz) / len2 : 0;
+      t = t < 0 ? 0 : t > 1 ? 1 : t;
+      const px = a.x + dx * t - c.x, py = a.y + dy * t - c.y, pz = a.z + dz * t - c.z;
+      if (px * px + py * py + pz * pz < r * r) return true;
+    }
+    return false;
+  }
+
+  /** explosion visuals + boom at a point (grenade or barrel); no damage/authority.
+   *  A single-frame white-hot core, then the pooled particle rig: fireball puffs,
+   *  streaked sparks and a rising smoke column — real debris motion instead of the old
+   *  balloon-like expanding spheres. */
   explodeFx(c: Vec3): void {
-    this.addFx(this.acquireSphere(this.mFlash, 1.2, 12), c, 0.20, 11);   // white-hot flash core
-    this.addFx(this.acquireSphere(this.mFlame2, 0.7, 12), c, 0.34, 17);  // expanding fireball
-    this.addFx(this.acquireSphere(this.mFlame, 0.5, 10), c, 0.44, 13);   // inner flame
-    for (let k = 0; k < 12; k++) {                                       // smoke plume
-      const e = this.acquireSphere(this.mSmoke, rand(0.3, 0.6), 6);
-      this.addFx(e, c, rand(0.8, 1.7), 1.9, { x: rand(-3.5, 3.5), y: rand(1.2, 5), z: rand(-3.5, 3.5) });
-    }
-    for (let k = 0; k < 10; k++) {                                       // flying embers
-      const e = this.acquireSphere(this.mFlame, rand(0.04, 0.09), 5);
-      this.addFx(e, c, rand(0.5, 1.1), 0.4, { x: rand(-6, 6), y: rand(2, 7), z: rand(-6, 6) });
-    }
+    this.addFx(this.acquireSphere(this.mFlash, 1.0, 12), c, 0.09, 5);    // detonation flash
+    this.blastRoot.transform.setPosition(c.x, c.y + 0.25, c.z);
+    this.blastFire.generator.emit(26);
+    this.blastSmoke.generator.emit(16);
+    this.blastSparks.generator.emit(30);
     // reuse the single blast light (toggled, not created) — see constructor
     this.boomLightE.transform.setPosition(c.x, c.y + 0.5, c.z);
     this.boomLight.distance = 18;
@@ -374,6 +415,12 @@ export class Projectiles {
     const fire = this.root.createChild("prewarm-fx");
     buildParticles(this.engine, fire, c.x, c.y, c.z, { rate: 6, lifetime: 0.4, additive: true });
     buildParticles(this.engine, fire, c.x, c.y, c.z, { rate: 6, lifetime: 0.4, additive: false });
+    // fire the blast rig once underground too — the sparks' stretch-billboard mode is
+    // its own shader variant, so without this the FIRST real explosion would still stall
+    this.blastRoot.transform.setPosition(c.x, c.y, c.z);
+    this.blastFire.generator.emit(4);
+    this.blastSmoke.generator.emit(4);
+    this.blastSparks.generator.emit(4);
     window.setTimeout(() => {
       for (const e of spheres) this.releaseSphere(e);
       fire.destroy();

@@ -7,8 +7,8 @@
 // textures (no team tint); prop-hunt swaps the whole humanoid for a disguise prop
 // (a model from the map's prop-hunt pool, or a plain crate when the pool is empty).
 import {
-  Animator, AnimatorCullingMode, BlinnPhongMaterial, Color, Engine, Entity, MeshRenderer,
-  PrimitiveMesh, SkinnedMeshRenderer, Vector3, WrapMode,
+  AnimationClip, Animator, AnimatorCullingMode, BlinnPhongMaterial, Color, Engine, Entity,
+  MeshRenderer, PrimitiveMesh, Quaternion, SkinnedMeshRenderer, Vector3, WrapMode,
 } from "@galacean/engine";
 import { modelAnchor } from "@slopwars/shared";
 import { AABB, rayAABB } from "./map";
@@ -26,10 +26,17 @@ const CHARACTER_MODEL = "operator";
 const TP_WEAPON: Partial<Record<WeaponId, string>> = {
   ak47: "wep_ak47",
   usp: "wep_makarov",
+  luger: "wep_luger",
+  m4a1: "wep_m4a1",
+  suomi: "wep_suomi",
+  grease: "wep_grease",
+  shotgun: "wep_shotgun",
   awp: "wep_sniper",
   knife: "wep_knife",
   he: "wep_frag",
   mol: "wep_molotov",
+  flash: "wep_flashbang",
+  smoke: "wep_smoke",
 };
 
 // The weapon is parented to `mixamorig:RightHand` so it follows the arm through every
@@ -46,7 +53,7 @@ const TP_WEAPON_SCALE = 1.5;
 // grenades/molotov are chunky compared to a gun; the gun bump (1.5×) makes them read as
 // oversized boulders in the fist. Hold throwables closer to their real size instead.
 const TP_THROWABLE_SCALE = 0.95;
-const THROWABLES: WeaponId[] = ["he", "mol"];
+const THROWABLES: WeaponId[] = ["he", "mol", "flash", "smoke"];
 
 const LOCO_RUN = 4.5;  // m/s above which the avatar plays Run
 const LOCO_WALK = 0.7; // m/s above which the avatar plays Walk
@@ -173,7 +180,12 @@ export class RemotePlayer {
       // must play once and hold its final frame instead of restarting.
       for (const clip of LOOP_CLIPS) {
         const st = this.animator.findAnimatorState(clip);
-        if (st) st.wrapMode = WrapMode.Loop;
+        if (st) {
+          st.wrapMode = WrapMode.Loop;
+          // the shipped locomotion clips don't end exactly on their first pose (Walk is
+          // off by a little, Run by a lot), so a raw Loop pops every cycle — seam them.
+          if (st.clip) seamLoopClip(st.clip);
+        }
       }
       for (const clip of ONCE_CLIPS) {
         const st = this.animator.findAnimatorState(clip);
@@ -200,16 +212,21 @@ export class RemotePlayer {
     const clip = a.findAnimatorState("Jump")?.clip;
     const sm = a.animatorController?.layers?.[0]?.stateMachine;
     if (!clip || !sm) return;
-    const mk = (name: string, start: number, end: number, wrap: WrapMode): void => {
+    const mk = (name: string, start: number, end: number, wrap: WrapMode, speed = 1): void => {
       if (a.findAnimatorState(name)) return; // a real clip by this name wins
       const st = sm.addState(name);
       st.clip = clip;
       st.clipStartTime = start;
       st.clipEndTime = end;
       st.wrapMode = wrap;
+      st.speed = speed;
     };
     mk("JumpStart", 0.0, 0.32, WrapMode.Once);  // crouch + push off
-    mk("Falling", 0.42, 0.6, WrapMode.Loop);    // airborne, looped
+    // airborne: a FROZEN pose at the leap's apex (state speed 0 — playback never
+    // advances, the crossfade just blends into this fixed frame). Any *playing*
+    // sub-range of the Jump clip carries the hips through the leap arc, which read
+    // as the avatar rapidly bobbing / trembling while in the air.
+    mk("Falling", 0.45, 1.0, WrapMode.Once, 0);
     mk("Landing", 0.68, 1.0, WrapMode.Once);    // touchdown + recover
   }
 
@@ -545,6 +562,32 @@ export class RemotePlayer {
   gunMuzzle(): Vec3 {
     const s = Math.sin(this.yaw), c = Math.cos(this.yaw);
     return { x: this.pos.x - s * 0.6 + c * 0.28, y: this.pos.y + 1.3, z: this.pos.z - c * 0.6 - s * 0.28 };
+  }
+}
+
+/** Make a locomotion clip loop seamlessly by rewriting each curve's LAST keyframe to
+ *  its FIRST pose. The operator glb's loop clips don't quite return to their start pose
+ *  (Walk's feet are ~0.06 off, Run's thigh ~0.25), so WrapMode.Loop snapped every cycle —
+ *  the walking "hitch". Overwriting the final key makes the last frame interval blend
+ *  back into the exact start pose instead. Quaternions are sign-matched to the outgoing
+ *  key (q and −q are the same rotation, but lerping across the sign flip spins the bone).
+ *  Clips are shared engine resources: running this twice is a no-op, so every
+ *  RemotePlayer instance can call it safely. */
+function seamLoopClip(clip: AnimationClip): void {
+  for (const b of clip.curveBindings) {
+    const keys = b.curve?.keys;
+    if (!keys || keys.length < 2) continue;
+    const first = keys[0].value;
+    const last = keys[keys.length - 1].value;
+    if (first instanceof Quaternion && last instanceof Quaternion) {
+      const dot = first.x * last.x + first.y * last.y + first.z * last.z + first.w * last.w;
+      const s = dot < 0 ? -1 : 1;
+      last.set(first.x * s, first.y * s, first.z * s, first.w * s);
+    } else if (first instanceof Vector3 && last instanceof Vector3) {
+      last.copyFrom(first);
+    } else if (typeof first === "number" && typeof last === "number") {
+      keys[keys.length - 1].value = first;
+    }
   }
 }
 

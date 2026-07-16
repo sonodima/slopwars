@@ -7,8 +7,8 @@
 // own rotation: the cone points up its local +Y, so rotating the object aims it.
 import {
   BlendMode, Color, ConeShape, Engine, Entity, ParticleCompositeCurve, ParticleCompositeGradient,
-  ParticleCurve, ParticleGradient, ParticleMaterial, ParticleRenderer, ParticleSimulationSpace,
-  Texture2D, TextureFormat,
+  ParticleCurve, ParticleGradient, ParticleMaterial, ParticleRenderMode, ParticleRenderer,
+  ParticleSimulationSpace, SphereShape, Texture2D, TextureFormat,
 } from "@galacean/engine";
 
 /** every look/behaviour control for an emitter (all required in object defaults) */
@@ -82,6 +82,79 @@ export function buildParticles(
   r.setMaterial(mat);
   configureEmitter(r, mat, { ...PARTICLE_LOOK, ...look }, sprite, engine);
   return e;
+}
+
+// ── one-shot burst emitters (explosions) ──────────────────────────────────────
+
+/** look of a pooled burst emitter. Unlike ParticleLook these are RANGES — each particle
+ *  rolls its own lifetime/speed/size, which is what makes a blast read as chaotic debris
+ *  instead of a uniform shell. The emitter idles at rate 0; fire a burst with
+ *  `renderer.generator.emit(count)` after moving its parent to the blast point. */
+export interface BurstLook {
+  lifetime: [number, number];      // per-particle lifetime range (s)
+  speed: [number, number];         // initial radial speed range (m/s, sphere emission)
+  size: [number, number];          // initial particle size range (m)
+  growth: number;                  // size multiplier at end of life (<1 = shrink)
+  gravity: number;                 // gravity modifier (positive = falls, negative = rises)
+  color: [number, number, number]; // tint; HDR values (>1) glow through bloom
+  opacity: number;                 // starting alpha (fades to 0 over life)
+  additive: boolean;               // additive (fire/sparks) vs normal (smoke)
+  radius: number;                  // emission sphere radius (m)
+  stretch?: number;                // >0: stretch along velocity (spark streaks), as lengthScale
+  max?: number;                    // particle budget (default 128) — covers overlapping blasts
+}
+
+/** build a persistent, world-space, rate-0 emitter for on-demand bursts. One instance is
+ *  reused by every explosion: move it, emit(), and the already-flying particles of the
+ *  previous blast are unaffected (world simulation space). */
+export function buildBurstEmitter(engine: Engine, root: Entity, look: BurstLook): ParticleRenderer {
+  const e = root.createChild("burst");
+  const r = e.addComponent(ParticleRenderer);
+  const mat = new ParticleMaterial(engine);
+  mat.baseColor = new Color(1, 1, 1, 1);
+  mat.isTransparent = true;
+  mat.blendMode = look.additive ? BlendMode.Additive : BlendMode.Normal;
+  mat.baseTexture = puffSprite(engine);
+  r.setMaterial(mat);
+  if (look.stretch) {
+    r.renderMode = ParticleRenderMode.StretchBillboard; // motion-streaked sparks
+    r.lengthScale = look.stretch;
+    r.velocityScale = 0.02;
+  }
+
+  const g = r.generator;
+  const main = g.main;
+  main.startLifetime = new ParticleCompositeCurve(look.lifetime[0], look.lifetime[1]);
+  main.startSpeed = new ParticleCompositeCurve(look.speed[0], look.speed[1]);
+  main.startSize = new ParticleCompositeCurve(look.size[0], look.size[1]);
+  main.startColor = new ParticleCompositeGradient(new Color(look.color[0], look.color[1], look.color[2], look.opacity));
+  main.gravityModifier = new ParticleCompositeCurve(look.gravity);
+  main.simulationSpace = ParticleSimulationSpace.World;
+  main.maxParticles = look.max ?? 128;
+
+  g.emission.rateOverTime = new ParticleCompositeCurve(0); // bursts only
+  const shape = new SphereShape();
+  shape.radius = Math.max(0.02, look.radius);
+  g.emission.shape = shape;
+
+  if (look.growth !== 1) {
+    const curve = new ParticleCurve();
+    curve.addKey(0, 1);
+    curve.addKey(1, Math.max(0, look.growth));
+    g.sizeOverLifetime.enabled = true;
+    g.sizeOverLifetime.size = new ParticleCompositeCurve(curve);
+  }
+  // hold colour, ramp alpha out — the tail of a blast dissolves instead of popping off
+  const grad = new ParticleGradient();
+  grad.addColorKey(0, new Color(1, 1, 1));
+  grad.addColorKey(1, new Color(1, 1, 1));
+  grad.addAlphaKey(0, 1);
+  grad.addAlphaKey(0.55, 0.7);
+  grad.addAlphaKey(1, 0);
+  g.colorOverLifetime.enabled = true;
+  g.colorOverLifetime.color = new ParticleCompositeGradient(grad);
+  g.play(); // ensure the generator is running — emit() is a no-op on a stopped generator
+  return r;
 }
 
 /** re-apply a look to an emitter built by buildParticles WITHOUT tearing it down, so

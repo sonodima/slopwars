@@ -1,0 +1,28 @@
+{
+  "scale": 0.7,
+  "materials": {
+    "Mat": "wep_grease",
+    "DefaultMaterial": "wep_grease"
+  },
+  "anchors": {
+    "muzzle": {
+      "at": [
+        0,
+        0.012,
+        -0.345
+      ]
+    },
+    "ammo": {
+      "at": [
+        -0.0229,
+        0.0714,
+        -0.0114
+      ],
+      "rot": [
+        76,
+        7,
+        -3
+      ]
+    }
+  }
+}
