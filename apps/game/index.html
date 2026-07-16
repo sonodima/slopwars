@@ -104,10 +104,9 @@
   /* bordered (ghost) chamfered CTAs: close the outline ring across the two cuts */
   .end-actions button.ghost{background-image:var(--edge-tr),var(--edge-bl);background-size:9px 9px;
     background-position:top right,bottom left;background-repeat:no-repeat}
-  /* gamepad focus ring lives outside the clip on chamfered controls — swap it for an inset ring */
+  /* chamfered controls clip away an outer glow, so their focus emphasis has to sit inside */
   .lobby-foot button.gp-focus,.end-actions button.gp-focus,#btn-join.gp-focus,#set-done.gp-focus,
-  #set-leave.gp-focus,.tgl.gp-focus{outline:none!important;
-    box-shadow:inset 0 0 0 2px var(--sand),inset 0 0 16px rgba(155,236,255,.3)!important}
+  #set-leave.gp-focus,.tgl.gp-focus{box-shadow:inset 0 0 16px rgba(155,236,255,.3)!important}
   button.ghost{background:transparent;border:1px solid var(--line);color:var(--sand)}
   .row2{display:flex;gap:10px}
   .or-sep{display:flex;align-items:center;gap:10px;margin:16px 0 2px;color:var(--sand-dim);
@@ -488,15 +487,19 @@
   .lp .plat{margin-left:2px}
   .plat-bot{opacity:.55} /* AI bots read a touch quieter than human devices */
 
-  /* ═══ gamepad menu-navigation focus ring (square, no rounding) ═══ */
-  .gp-focus{outline:2px solid var(--sand)!important;outline-offset:3px;border-radius:0!important;
-    box-shadow:0 0 0 4px rgba(155,236,255,.25)!important}
+  /* ═══ gamepad menu-navigation focus ═══
+     The lock-on brackets (cursor.ts, drawn on the overlay canvas) are the actual read —
+     the same animated frame a mouse hover gets. This is just the underlay: a soft holo
+     wash that says "this one", without a hard ring fighting the brackets around it. */
+  .gp-focus{outline:none!important;border-radius:0!important;
+    box-shadow:0 0 20px rgba(155,236,255,.28)!important;filter:brightness(1.18)}
   /* muted qualifier on a settings label (e.g. which devices a control applies to) */
   .set-sub{color:var(--sand-dim);font-size:9px;letter-spacing:1.5px;text-transform:uppercase;font-weight:400}
 
   @media (prefers-reduced-motion:reduce){
     #scr-end::before,#scr-end::after,.end-card,.end-kicker,#end-title,.end-rule,
     .end-mvp,#end-rows .lb-row,.end-actions{animation:none}
+    .set-tabs .slide{transition:none} /* the lit block cuts to the tab instead of sliding */
   }
 
   /* ── powerup buff indicator ── */
@@ -787,14 +790,36 @@
     background:var(--sand);cursor:var(--cur,pointer);
     clip-path:polygon(0 0,calc(100% - 5px) 0,100% 5px,100% 100%,5px 100%,0 calc(100% - 5px));
     box-shadow:0 0 10px var(--holo-glow)}
-  /* sub-page tabs — Video / Input / Controls / AI, each page its own simple sheet */
-  .set-tabs{display:flex;gap:2px;margin-top:14px;border-bottom:1px solid var(--line)}
-  .set-tabs button{flex:1;width:auto;margin:0;padding:10px 4px;background:transparent;border:none;
-    color:var(--sand-dim);font-size:10px;letter-spacing:2px;font-weight:700;position:relative}
-  .set-tabs button:hover{filter:none;color:var(--sand)}
-  .set-tabs button.on{color:var(--sand);text-shadow:0 0 10px rgba(155,236,255,.4)}
-  .set-tabs button.on::after{content:"";position:absolute;left:8%;right:8%;bottom:-1px;height:2px;
+  /* sub-page tabs — Video / Input / Controls / AI. A chamfered selector rail in the same
+     "piece of kit" language as .panel: a recessed track, hairline-divided segments, and a
+     lit block that slides between them (--i = active index, set in settings.ts). */
+  .set-tabs{position:relative;display:flex;gap:0;margin-top:16px;padding:3px;
+    background:var(--holo-deep);border:1px solid var(--line);
+    box-shadow:inset 0 2px 10px rgba(0,0,0,.5);
+    clip-path:polygon(0 0,calc(100% - 9px) 0,100% 9px,100% 100%,9px 100%,0 calc(100% - 9px));
+    background-image:var(--edge-tr),var(--edge-bl);background-size:9px 9px;
+    background-position:top right,bottom left;background-repeat:no-repeat}
+  /* the lit block: one segment wide, translated to the active tab */
+  .set-tabs .slide{position:absolute;top:3px;bottom:3px;left:3px;pointer-events:none;
+    width:calc((100% - 6px) / var(--n,4));transform:translateX(calc(var(--i,0) * 100%));
+    transition:transform .22s cubic-bezier(.2,.9,.25,1);
+    background:linear-gradient(180deg,rgba(155,236,255,.20),rgba(155,236,255,.07));
+    box-shadow:inset 0 0 14px rgba(155,236,255,.18),0 0 12px var(--holo-glow);
+    clip-path:polygon(0 0,calc(100% - 6px) 0,100% 6px,100% 100%,6px 100%,0 calc(100% - 6px))}
+  /* top + bottom scan bars ride the block, so the slide reads as a machined part moving */
+  .set-tabs .slide::before,.set-tabs .slide::after{content:"";position:absolute;left:10%;right:10%;height:2px;
     background:linear-gradient(90deg,transparent,var(--sand),transparent);box-shadow:0 0 8px var(--holo-glow)}
+  .set-tabs .slide::before{top:0}
+  .set-tabs .slide::after{bottom:0}
+  .set-tabs button{flex:1;width:auto;margin:0;padding:9px 4px;background:transparent;border:none;
+    color:var(--sand-dim);font-size:10px;letter-spacing:2px;font-weight:700;position:relative;z-index:1;
+    transition:color .18s,text-shadow .18s}
+  /* hairline dividers between the dormant segments — hidden either side of the lit block */
+  .set-tabs button+button::before{content:"";position:absolute;left:0;top:22%;bottom:22%;width:1px;
+    background:var(--line);transition:opacity .18s}
+  .set-tabs button.on::before,.set-tabs button.on+button::before{opacity:0}
+  .set-tabs button:hover{filter:none;color:var(--sand)}
+  .set-tabs button.on{color:var(--sand);text-shadow:0 0 10px rgba(155,236,255,.55)}
   /* a floor on the page height keeps the panel (and Done button) from jumping between tabs */
   .set-page{min-height:min(320px,48vh)}
   /* toggle switch — angular kit slab: chamfered track + sliding chamfered pip, with the
@@ -1291,7 +1316,8 @@
     <h2 class="set-title">Settings</h2>
 
     <!-- sub-page tabs: each group is its own simple sheet (wired in settings.ts) -->
-    <div class="set-tabs" id="set-tabs" role="tablist">
+    <div class="set-tabs" id="set-tabs" role="tablist" style="--n:4">
+      <i class="slide" aria-hidden="true"></i>
       <button data-tab="video" class="on" type="button" role="tab" aria-selected="true">Video</button>
       <button data-tab="input" type="button" role="tab" aria-selected="false">Input</button>
       <button data-tab="controls" type="button" role="tab" aria-selected="false">Controls</button>

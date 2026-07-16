@@ -140,11 +140,15 @@ export class Settings {
   /** switch the visible settings sub-page; leaving Controls aborts any pending rebind */
   private showPage(tab: string): void {
     this.cancelRebind();
-    for (const b of $("set-tabs").querySelectorAll("button")) {
+    const tabs = $("set-tabs");
+    const btns = tabs.querySelectorAll("button");
+    btns.forEach((b, i) => {
       const on = (b as HTMLElement).dataset.tab === tab;
       b.classList.toggle("on", on);
       b.setAttribute("aria-selected", String(on));
-    }
+      if (on) tabs.style.setProperty("--i", String(i)); // slides the lit block onto this segment
+    });
+    tabs.style.setProperty("--n", String(btns.length));
     for (const p of document.querySelectorAll<HTMLElement>("#settings .set-page")) {
       p.classList.toggle("hidden", p.dataset.page !== tab);
     }
