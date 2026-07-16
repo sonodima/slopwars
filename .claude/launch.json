@@ -14,27 +14,6 @@
       "runtimeArgs": ["dev:editor"],
       "port": 5210,
       "autoPort": false
-    },
-    {
-      "name": "dev-verify",
-      "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["dev", "--port", "5212", "--strictPort"],
-      "port": 5212,
-      "autoPort": false
-    },
-    {
-      "name": "dev-verify-2",
-      "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["dev", "--port", "5213", "--strictPort"],
-      "port": 5213,
-      "autoPort": false
-    },
-    {
-      "name": "dev-verify-3",
-      "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["dev", "--port", "5214", "--strictPort"],
-      "port": 5214,
-      "autoPort": false
     }
   ]
 }
