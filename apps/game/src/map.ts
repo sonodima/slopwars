@@ -187,12 +187,13 @@ export class GameMap {
   // ── queries ──────────────────────────────────────────────────────────────
   raycast(o: Vec3, d: Vec3, maxDist: number): { dist: number; normal: Vec3 } | null {
     let best = maxDist;
-    let bn: Vec3 | null = null;
+    let hitAny = false, nx = 0, ny = 0, nz = 0;
     for (const b of this.solids) {
       const h = rayAABB(o, d, b, best);
-      if (h) { best = h.dist; bn = h.normal; }
+      // copy out of rayAABB's shared scratch — the next call overwrites it
+      if (h) { best = h.dist; nx = h.normal.x; ny = h.normal.y; nz = h.normal.z; hitAny = true; }
     }
-    return bn ? { dist: best, normal: bn } : null;
+    return hitAny ? { dist: best, normal: { x: nx, y: ny, z: nz } } : null;
   }
 
   thicknessAt(entry: Vec3, d: Vec3, maxPen: number): number {
@@ -250,27 +251,53 @@ export class GameMap {
 }
 
 // ─── ray/AABB slab intersection ──────────────────────────────────────────────
+// This is the hottest function in the game: every raycast calls it once per solid, and
+// raycasts run per bot (several each), per nametag, and per camera every frame. It is
+// therefore written allocation-free — axes unrolled, hit returned through a shared
+// scratch object. Callers must copy the result before the next rayAABB call.
+const rayHit = { dist: 0, normal: { x: 0, y: 0, z: 0 } };
 export function rayAABB(o: Vec3, d: Vec3, b: AABB, maxDist: number): { dist: number; normal: Vec3 } | null {
   let tmin = 0, tmax = maxDist;
   let axis = -1, sign = 0;
-  const od = [o.x, o.y, o.z], dd = [d.x, d.y, d.z];
-  const mn = [b.min.x, b.min.y, b.min.z], mx = [b.max.x, b.max.y, b.max.z];
-  for (let i = 0; i < 3; i++) {
-    if (Math.abs(dd[i]) < 1e-9) {
-      if (od[i] < mn[i] || od[i] > mx[i]) return null;
-    } else {
-      const inv = 1 / dd[i];
-      let t1 = (mn[i] - od[i]) * inv;
-      let t2 = (mx[i] - od[i]) * inv;
-      let s = -1;
-      if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; s = 1; }
-      if (t1 > tmin) { tmin = t1; axis = i; sign = s; }
-      if (t2 < tmax) tmax = t2;
-      if (tmin > tmax) return null;
-    }
+
+  // x slab
+  if (d.x > -1e-9 && d.x < 1e-9) {
+    if (o.x < b.min.x || o.x > b.max.x) return null;
+  } else {
+    const inv = 1 / d.x;
+    let t1 = (b.min.x - o.x) * inv, t2 = (b.max.x - o.x) * inv, s = -1;
+    if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; s = 1; }
+    if (t1 > tmin) { tmin = t1; axis = 0; sign = s; }
+    if (t2 < tmax) tmax = t2;
+    if (tmin > tmax) return null;
   }
+  // y slab
+  if (d.y > -1e-9 && d.y < 1e-9) {
+    if (o.y < b.min.y || o.y > b.max.y) return null;
+  } else {
+    const inv = 1 / d.y;
+    let t1 = (b.min.y - o.y) * inv, t2 = (b.max.y - o.y) * inv, s = -1;
+    if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; s = 1; }
+    if (t1 > tmin) { tmin = t1; axis = 1; sign = s; }
+    if (t2 < tmax) tmax = t2;
+    if (tmin > tmax) return null;
+  }
+  // z slab
+  if (d.z > -1e-9 && d.z < 1e-9) {
+    if (o.z < b.min.z || o.z > b.max.z) return null;
+  } else {
+    const inv = 1 / d.z;
+    let t1 = (b.min.z - o.z) * inv, t2 = (b.max.z - o.z) * inv, s = -1;
+    if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; s = 1; }
+    if (t1 > tmin) { tmin = t1; axis = 2; sign = s; }
+    if (t2 < tmax) tmax = t2;
+    if (tmin > tmax) return null;
+  }
+
   if (axis < 0 || tmin <= 0) return null;
-  const n = { x: 0, y: 0, z: 0 };
+  const n = rayHit.normal;
+  n.x = 0; n.y = 0; n.z = 0;
   if (axis === 0) n.x = sign; else if (axis === 1) n.y = sign; else n.z = sign;
-  return { dist: tmin, normal: n };
+  rayHit.dist = tmin;
+  return rayHit;
 }

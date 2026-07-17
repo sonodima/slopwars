@@ -281,6 +281,8 @@ export class WeaponSystem {
       const folder = WEAPON_MODEL[id];
       const m = instantiate(this.src[folder]);
       if (!m) { console.warn("[weapon] model missing:", folder); continue; }
+      // The Luger's glTF ships with a magazine ("Clip") node we don't want on the viewmodel.
+      if (id === "luger") m.findByName("Clip")?.destroy();
       const meta = modelMetaOf(folder);
       const s = meta.scale ?? 1;
       m.transform.setScale(s, s, s);

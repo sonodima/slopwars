@@ -60,7 +60,7 @@ interface Fire {
   local: boolean;
   until: number;
   nextDmg: number;
-  light: PointLight;
+  light: PointLight | null; // pooled — null when the pool was exhausted
   root: Entity;
 }
 
@@ -80,10 +80,15 @@ export class Projectiles {
 
   private nades: Nade[] = [];
   private fires: Fire[] = [];
-  private smokes: { until: number; root: Entity; center: Vec3 }[] = [];
+  private smokes: { until: number; root: Entity; center: Vec3; light: PointLight | null }[] = [];
   private fx: Fx[] = [];
   private root: Entity;
   private acc = 0;
+
+  // pooled area lights for molotov fires / smoke domes. Like boomLight, these are
+  // created once and toggled: adding/removing a PointLight changes the scene light
+  // count, which forces shader-variant recompiles — a real mid-fight hitch.
+  private areaLights: { e: Entity; l: PointLight; busy: boolean }[] = [];
 
   // material library for the thrown-grenade models, handed over once weapon textures are
   // ready (the models themselves are passed at construction). A grenade thrown before the
@@ -146,6 +151,33 @@ export class Projectiles {
       gravity: 1.6, color: [4.5, 2.8, 0.7], opacity: 1, additive: true, radius: 0.25,
       stretch: 4, max: 160,
     });
+
+    // area-light pool (molotov fires / smoke domes) — see field comment
+    for (let i = 0; i < 3; i++) {
+      const e = this.root.createChild(`area-l-${i}`);
+      const l = e.addComponent(PointLight);
+      e.isActive = false;
+      this.areaLights.push({ e, l, busy: false });
+    }
+  }
+
+  /** borrow a pooled area light, placed + colored for the effect; null if all in use
+   *  (the effect then simply renders without a light — better than a shader recompile) */
+  private acquireAreaLight(x: number, y: number, z: number, color: Color, distance: number): PointLight | null {
+    const slot = this.areaLights.find((s) => !s.busy);
+    if (!slot) return null;
+    slot.busy = true;
+    slot.e.transform.setPosition(x, y, z);
+    slot.l.color = color;
+    slot.l.distance = distance;
+    slot.e.isActive = true;
+    return slot.l;
+  }
+
+  private releaseAreaLight(l: PointLight | null): void {
+    if (!l) return;
+    const slot = this.areaLights.find((s) => s.l === l);
+    if (slot) { slot.e.isActive = false; slot.busy = false; }
   }
 
   private unlit(r: number, g: number, b: number): UnlitMaterial {
@@ -233,6 +265,7 @@ export class Projectiles {
   private updateSmokes(now: number): void {
     for (let i = this.smokes.length - 1; i >= 0; i--) {
       if (now >= this.smokes[i].until) {
+        this.releaseAreaLight(this.smokes[i].light);
         this.smokes[i].root.destroy();
         this.smokes.splice(i, 1);
       }
@@ -343,12 +376,8 @@ export class Projectiles {
       gravity: -0.02, color: [0.78, 0.78, 0.8], opacity: 0.62, additive: false, world: true,
       emitRadius: SMOKE_RADIUS * 0.7,
     });
-    const le = root.createChild("l");
-    le.transform.setPosition(c.x, c.y + 1.2, c.z);
-    const light = le.addComponent(PointLight);
-    light.color = new Color(0.5, 0.5, 0.55, 1);
-    light.distance = SMOKE_RADIUS * 2.2;
-    this.smokes.push({ until: now + SMOKE_DURATION, root, center: { x: c.x, y: c.y + 1.2, z: c.z } });
+    const light = this.acquireAreaLight(c.x, c.y + 1.2, c.z, new Color(0.5, 0.5, 0.55, 1), SMOKE_RADIUS * 2.2);
+    this.smokes.push({ until: now + SMOKE_DURATION, root, center: { x: c.x, y: c.y + 1.2, z: c.z }, light });
   }
 
   /** does the segment a→b pass through (or end inside) an active smoke cloud? Used to
@@ -449,11 +478,7 @@ export class Projectiles {
       gravity: -0.15, color: [0.22, 0.2, 0.2], opacity: 0.4, additive: false, world: true,
       emitRadius: Math.max(0.2, MOL_RADIUS - 0.7),
     });
-    const le = root.createChild("l");
-    le.transform.setPosition(c.x, c.y + 0.8, c.z);
-    const light = le.addComponent(PointLight);
-    light.color = new Color(1.2, 0.55, 0.15, 1);
-    light.distance = 12;
+    const light = this.acquireAreaLight(c.x, c.y + 0.8, c.z, new Color(1.2, 0.55, 0.15, 1), 12);
 
     this.fires.push({ center: c, owner: n.owner, local: n.local, until: now + MOL_DURATION, nextDmg: now + 0.3, light, root });
   }
@@ -463,12 +488,13 @@ export class Projectiles {
       const f = this.fires[i];
       const left = f.until - now;
       if (left <= 0) {
+        this.releaseAreaLight(f.light);
         f.root.destroy();
         this.fires.splice(i, 1);
         continue;
       }
       // flicker the light; the flames themselves are self-animating particles
-      f.light.distance = 10 + Math.sin(now * 13) * 2;
+      if (f.light) f.light.distance = 10 + Math.sin(now * 13) * 2;
       if (now >= f.nextDmg) {
         f.nextDmg = now + MOL_TICK;
         this.onFireTick?.(f.center, f.owner, f.local);

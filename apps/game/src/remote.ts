@@ -360,12 +360,14 @@ export class RemotePlayer {
     this.disguise = holder;
   }
 
-  push(s: PlayerState, time: number): void {
-    this.hp = s.hp;
+  push(s: PlayerState, time: number, hpOverride?: number): void {
+    this.hp = hpOverride ?? s.hp;
     this.weapon = s.w;
     if (s.g !== undefined) this.netGround = s.g;
     this.buf.push({ time, p: s.p, yaw: s.yaw, pitch: s.pitch, g: s.g });
-    if (this.buf.length > 30) this.buf.shift();
+    // keep only what interpolation can ever look at (~INTERP_DELAY at TICK_RATE, plus
+    // slack) — a deep buffer just made the per-frame search scan dead samples
+    if (this.buf.length > 8) this.buf.shift();
   }
 
   update(now: number): void {
@@ -467,7 +469,6 @@ export class RemotePlayer {
     // the operator rig is authored facing +Z, but the player's forward (body.yaw) points
     // −Z, so add 180° to turn the avatar to look where it's actually aiming/moving.
     this.entity.transform.setRotation(0, (this.yaw * 180) / Math.PI + 180, 0);
-    this.entity.transform.setScale(1, 1, 1);
   }
 
   /** pick Death / Jump / directional Run·Walk / Idle from the interpolated motion */

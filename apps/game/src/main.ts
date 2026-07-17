@@ -75,6 +75,14 @@ interface BotAI {
   wanderYaw: number;     // heading used while it has nothing to chase
   lastHp: number;        // hp last frame — a drop means it took fire → juke-hop
   dodgeLockCd: number;   // refractory period so the on-hit sideways juke is occasional, not a twitch
+  // ─ raycast throttles: LOS + whisker steering re-test on a cadence, not per frame ─
+  losCd: number;         // time until the next real line-of-sight raycast
+  losHit: boolean;       // cached result of the last LOS raycast
+  steerCd: number;       // time until the next whisker steering probe
+  steerX: number;        // cached steered move (world) from the last probe
+  steerZ: number;
+  steerBlocked: boolean;
+  steerOpen: boolean;
 }
 
 // ─── bot aim math: turn toward a heading at a capped rate instead of snapping ──
@@ -754,9 +762,19 @@ class Game {
    *  not disguised (Prop-Hunt hider), on screen, within range AND actually visible —
    *  a map raycast from the camera keeps names from leaking through walls. */
   private static readonly NAMETAG_DIST = 55; // m — beyond this the tag is off anyway
+  /** pre-rendered CSS colors for the two team sides (constant — never rebuild per frame) */
+  private static readonly TEAM_HEX: [string, string] = [
+    `#${TEAM_COLORS[0].toString(16).padStart(6, "0")}`,
+    `#${TEAM_COLORS[1].toString(16).padStart(6, "0")}`,
+  ];
+  /** per-remote line-of-sight cache: the wall/smoke occlusion test is throttled to
+   *  ~10 Hz (raycast over every map solid per remote per frame was a real GC/CPU cost);
+   *  the screen-space projection still runs per frame so tags track heads smoothly. */
+  private tagLos = new Map<string, { next: number; vis: boolean }>();
   updateNametags(): void {
     const cam = this.camEntity.transform.worldPosition;
     const tdm = this.mode === "tdm";
+    const now = performance.now();
     for (const r of this.remotes.values()) {
       const el = this.tagEls.get(r.id);
       let shown = false;
@@ -767,20 +785,27 @@ class Game {
         if (dist > 0.7 && dist < Game.NAMETAG_DIST) {
           this.tagIn.set(r.pos.x, hy, r.pos.z);
           const vp = this.camera.worldToViewportPoint(this.tagIn, this.tagOut);
-          if (vp.z > 0 && vp.x >= 0 && vp.x <= 1 && vp.y >= 0 && vp.y <= 1
-              && !this.map.raycast({ x: cam.x, y: cam.y, z: cam.z }, { x: dx / dist, y: dy / dist, z: dz / dist }, dist - 0.35)
-              // smoke clouds hide names too (they're particles — invisible to the map raycast)
-              && !this.nades.smokeOccludes({ x: cam.x, y: cam.y, z: cam.z }, { x: r.pos.x, y: hy, z: r.pos.z })) {
-            const tag = el ?? this.buildTag(r.id);
-            const name = this.names.get(r.id) ?? r.name;
-            if (tag.textContent !== name) tag.textContent = name; // names are untrusted input — text only
-            const side = tdm ? this.teams[r.id] : undefined;
-            tag.style.color = side === 0 || side === 1 ? `#${TEAM_COLORS[side].toString(16).padStart(6, "0")}` : "";
-            tag.style.left = `${(vp.x * 100).toFixed(2)}%`;
-            tag.style.top = `${(vp.y * 100).toFixed(2)}%`;
-            tag.style.opacity = clamp(1.25 - dist / Game.NAMETAG_DIST, 0, 1).toFixed(2);
-            tag.style.display = "";
-            shown = true;
+          if (vp.z > 0 && vp.x >= 0 && vp.x <= 1 && vp.y >= 0 && vp.y <= 1) {
+            let los = this.tagLos.get(r.id);
+            if (!los) { los = { next: 0, vis: false }; this.tagLos.set(r.id, los); }
+            if (now >= los.next) {
+              los.next = now + 100;
+              los.vis = !this.map.raycast({ x: cam.x, y: cam.y, z: cam.z }, { x: dx / dist, y: dy / dist, z: dz / dist }, dist - 0.35)
+                // smoke clouds hide names too (they're particles — invisible to the map raycast)
+                && !this.nades.smokeOccludes({ x: cam.x, y: cam.y, z: cam.z }, { x: r.pos.x, y: hy, z: r.pos.z });
+            }
+            if (los.vis) {
+              const tag = el ?? this.buildTag(r.id);
+              const name = this.names.get(r.id) ?? r.name;
+              if (tag.textContent !== name) tag.textContent = name; // names are untrusted input — text only
+              const side = tdm ? this.teams[r.id] : undefined;
+              tag.style.color = side === 0 || side === 1 ? Game.TEAM_HEX[side] : "";
+              tag.style.left = `${(vp.x * 100).toFixed(2)}%`;
+              tag.style.top = `${(vp.y * 100).toFixed(2)}%`;
+              tag.style.opacity = clamp(1.25 - dist / Game.NAMETAG_DIST, 0, 1).toFixed(2);
+              tag.style.display = "";
+              shown = true;
+            }
           }
         }
       }
@@ -788,7 +813,7 @@ class Game {
     }
     // drop tags of players that left the match
     for (const [id, el] of this.tagEls) {
-      if (!this.remotes.has(id)) { el.remove(); this.tagEls.delete(id); }
+      if (!this.remotes.has(id)) { el.remove(); this.tagEls.delete(id); this.tagLos.delete(id); }
     }
   }
 
@@ -1035,9 +1060,14 @@ class Game {
     return this.mode !== "gungame" && !(this.mode === "prophunt" && this.myRole === ROLE_HIDE);
   }
 
-  /** per-frame: prop-hunt disguises on remote avatars */
+  /** per-frame: prop-hunt disguises on remote avatars. Outside Prop Hunt this is a
+   *  cheap no-op (one clearing pass right after leaving the mode, then nothing) —
+   *  propForPlayer's per-id hash shouldn't run for every remote every frame. */
+  private modeVisualsDirty = false;
   updateModeVisuals(): void {
     const disguise = this.mode === "prophunt";
+    if (!disguise && !this.modeVisualsDirty) return;
+    this.modeVisualsDirty = disguise;
     for (const r of this.remotes.values()) {
       r.setDisguise(disguise && this.teams[r.id] === ROLE_HIDE, this.propForPlayer(r.id), this.disguiseLib);
     }
@@ -1669,12 +1699,15 @@ class Game {
       this.camEntity.transform.rotationQuaternion = this.q;
       this.updateSelfView(eye, pitch);
 
-      // remotes + proximity voice
+      // remotes + proximity voice (spatialization skipped entirely while voice is off)
       if (this.net.isHost && this.bots.size) this.updateBots(dt, now);
+      const voiceOn = this.voice.hasAudio;
       for (const r of this.remotes.values()) {
         r.update(now);
-        const rel = this.relAudio(r.pos);
-        this.voice.setSpatial(r.id, rel.pan, rel.dist);
+        if (voiceOn) {
+          const rel = this.relAudio(r.pos);
+          this.voice.setSpatial(r.id, rel.pan, rel.dist);
+        }
       }
       this.updateNametags();
       this.updateDamageNumbers(dt);
@@ -1951,13 +1984,17 @@ class Game {
     else this.net.send(m);
   }
 
+  /** shared scratch — relAudio is called per remote per frame; don't allocate a result
+   *  object each call. Consumers read pan/dist immediately and never hold the reference. */
+  private relOut = { pan: 0, dist: 0 };
   relAudio(p: Vec3): { pan: number; dist: number } {
     const dx = p.x - this.body.pos.x, dz = p.z - this.body.pos.z;
     const dist = Math.hypot(dx, dz);
     const s = Math.sin(this.body.yaw), c = Math.cos(this.body.yaw);
     const rightX = c, rightZ = -s;
-    const pan = dist > 0.5 ? clamp((dx * rightX + dz * rightZ) / dist, -1, 1) : 0;
-    return { pan, dist };
+    this.relOut.pan = dist > 0.5 ? clamp((dx * rightX + dz * rightZ) / dist, -1, 1) : 0;
+    this.relOut.dist = dist;
+    return this.relOut;
   }
 
   /** reload the current weapon and, if it actually started, play the third-person
@@ -2948,14 +2985,7 @@ class Game {
       const established = this.net.players.length > 0; // we already received the host's init
       const lost = err.includes("Lost connection") || err.includes("Connection failed");
       if (!this.net.isHost && established && lost) {
-        // host gone → the lobby/match is over for this client; return home
-        this.inGame = false;
-        this.leaving = true;
-        this.exitLobby();
-        this.releasePointerLock();
-        this.hud.menuError("Host left — lobby closed.");
-        this.hud.show("menu");
-        window.setTimeout(() => location.reload(), 1200);
+        this.hostGone(); // host dropped → the lobby/match is over for this client
       } else if (!this.inGame && this.phase === "lobby") {
         this.hud.menuError(
           err.includes("Could not connect") || err.includes("peer-unavailable") || err.includes("Connection failed")
@@ -2968,6 +2998,21 @@ class Game {
     };
 
     n.onMessage = (m, fromId) => this.handleMsg(m, fromId);
+  }
+
+  /** guest side: the host is gone (explicit `hostleave`, a dropped connection, or the
+   *  heartbeat timeout). The lobby/match can't continue, so bail home and reload. Idempotent
+   *  — the `leaving` guard keeps the several triggers from stacking up reloads. */
+  private hostGone(): void {
+    if (this.net.isHost || this.leaving) return;
+    this.hud.connecting(false);
+    this.inGame = false;
+    this.leaving = true;
+    this.exitLobby();
+    this.releasePointerLock();
+    this.hud.menuError("Host left — lobby closed.");
+    this.hud.show("menu");
+    window.setTimeout(() => location.reload(), 1200);
   }
 
   ensureRemote(id: string, name: string): RemotePlayer {
@@ -3017,11 +3062,15 @@ class Game {
         this.refreshLobby();
         break;
       }
+      case "hostleave": {
+        this.hostGone(); // host closed the lobby — bail immediately, no need to wait out the timeout
+        break;
+      }
       case "state": {
-        // host receives guest state
+        // host receives guest state (hp is host-authoritative — override, don't copy the object)
         if (this.net.isHost) {
           const r = this.remotes.get(fromId);
-          if (r) r.push({ ...m.s, hp: this.hpMap[fromId] ?? 100 }, performance.now() / 1000);
+          if (r) r.push(m.s, performance.now() / 1000, this.hpMap[fromId] ?? 100);
         }
         break;
       }
@@ -3383,8 +3432,17 @@ class Game {
   /** leave the current lobby/match and return to the home screen */
   leaveToMenu(): void {
     this.leaving = true; // suppress the beforeunload confirm for this intentional exit
-    try { this.net.leave(); } catch { /* ignore */ }
-    location.reload(); // cleanest full reset back to the menu
+    if (this.net.isHost) {
+      // Announce the close so guests bail at once, then give the datagram a beat to reach
+      // them before the reload tears the peer down (the reload is the real teardown, so we
+      // deliberately don't destroy the peer first). conn-close + the 15s guest-side host
+      // timeout stay as backstops if the unreliable-channel announce is dropped.
+      try { this.net.broadcast({ t: "hostleave" }); } catch { /* ignore */ }
+      window.setTimeout(() => location.reload(), 250);
+    } else {
+      try { this.net.leave(); } catch { /* ignore */ }
+      location.reload(); // cleanest full reset back to the menu
+    }
   }
 
   addBots(n: number): void {
@@ -3411,6 +3469,9 @@ class Game {
         seen: false, reactCd: 0, memoryCd: 0, lastKnown: null,
         aimErrX: 0, aimErrY: 0, aimErrCd: 0, avoidCd: 0, avoidSign: 1, wanderYaw: body.yaw,
         lastHp: MAX_HP, dodgeLockCd: 0,
+        // stagger the raycast cadences so a fleet of bots doesn't probe on the same frame
+        losCd: Math.random() * 0.1, losHit: false,
+        steerCd: Math.random() * 0.05, steerX: 0, steerZ: 0, steerBlocked: false, steerOpen: true,
       });
       this.net.broadcast({ t: "pjoin", p: info }); // let guests see the bot
       this.net.broadcast({ t: "plat", id, plat: "bot" }); // …with a bot platform icon
@@ -3520,8 +3581,14 @@ class Game {
       const fx = -Math.sin(bot.body.yaw), fz = -Math.cos(bot.body.yaw);
       if ((dx * fx + dz * fz) / flat < Math.cos(tune.fov)) return false; // outside FOV cone
     }
-    // clear LOS if nothing solid sits between the eye and (just short of) the target
-    return !this.map.raycast(eye, { x: dx / dist, y: dy / dist, z: dz / dist }, dist - 0.5);
+    // clear LOS if nothing solid sits between the eye and (just short of) the target.
+    // The raycast (O(solids)) is throttled to 10 Hz per bot — well inside the bot's own
+    // reaction delay; the cheap FOV cone above still gates per frame.
+    if (bot.losCd <= 0) {
+      bot.losCd = 0.1;
+      bot.losHit = !this.map.raycast(eye, { x: dx / dist, y: dy / dist, z: dz / dist }, dist - 0.5);
+    }
+    return bot.losHit;
   }
 
   /** whisker obstacle-avoidance: given a desired world move dir, steer it around walls so
@@ -3530,13 +3597,20 @@ class Game {
   botSteer(bot: BotAI, wx: number, wz: number): { x: number; z: number; blocked: boolean; open: boolean } {
     const len = Math.hypot(wx, wz);
     if (len < 1e-3) return { x: 0, z: 0, blocked: false, open: false };
+    // whisker probes are 1–3 O(solids) raycasts — re-probe at 20 Hz per bot and hold the
+    // last steer between probes (walls don't move; the wish direction drifts slowly)
+    if (bot.steerCd > 0) return { x: bot.steerX, z: bot.steerZ, blocked: bot.steerBlocked, open: bot.steerOpen };
+    bot.steerCd = 0.05;
     const nx = wx / len, nz = wz / len;
     const o: Vec3 = { x: bot.body.pos.x, y: bot.body.pos.y + 0.9, z: bot.body.pos.z };
     const R = 2.8; // look-ahead: start bending early so it's a gentle curve, not a last-moment jerk
     const clear = (ax: number, az: number): number =>
       this.map.raycast(o, { x: ax, y: 0, z: az }, R)?.dist ?? R;
     const ahead = clear(nx, nz);
-    if (ahead >= R - 0.05) return { x: wx, z: wz, blocked: false, open: true }; // open road
+    if (ahead >= R - 0.05) { // open road
+      bot.steerX = wx; bot.steerZ = wz; bot.steerBlocked = false; bot.steerOpen = true;
+      return { x: wx, z: wz, blocked: false, open: true };
+    }
     const rot = (a: number): { x: number; z: number } => {
       const cs = Math.cos(a), sn = Math.sin(a);
       return { x: nx * cs - nz * sn, z: nx * sn + nz * cs };
@@ -3549,7 +3623,8 @@ class Game {
     // bend proportional to how close the wall is: barely at range R, hard up close
     const near = 1 - ahead / R; // 0..1
     const s = rot((0.2 + 1.0 * near) * bot.avoidSign);
-    return { x: s.x * len, z: s.z * len, blocked: ahead < 1.1, open: false };
+    bot.steerX = s.x * len; bot.steerZ = s.z * len; bot.steerBlocked = ahead < 1.1; bot.steerOpen = false;
+    return { x: bot.steerX, z: bot.steerZ, blocked: bot.steerBlocked, open: bot.steerOpen };
   }
 
   /** drive every bot: perceive, aim (capped slew), move (obstacle-aware), shoot. Host only. */
@@ -3573,7 +3648,7 @@ class Game {
       const playing = this.phase === "play" && !frozen;
 
       bot.avoidCd -= dt; bot.reactCd -= dt; bot.burstCd -= dt; bot.fireCd -= dt;
-      bot.reloadCd -= dt; bot.switchCd -= dt;
+      bot.reloadCd -= dt; bot.switchCd -= dt; bot.losCd -= dt; bot.steerCd -= dt;
       // finished reloading → top the mag back up
       if (bot.reloadCd < 0 && bot.mag <= 0 && !WEAPONS[bot.weapon].melee) bot.mag = WEAPONS[bot.weapon].mag;
 

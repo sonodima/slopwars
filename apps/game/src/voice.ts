@@ -97,6 +97,10 @@ export class Voice {
     this.nodes.delete(pid);
   }
 
+  /** true when at least one peer's audio is playing — lets the frame loop skip the
+   *  per-remote spatialization math entirely in the common voice-off case */
+  get hasAudio(): boolean { return this.nodes.size > 0; }
+
   /** per-frame: pan [-1,1], dist in units */
   setSpatial(pid: string, panV: number, dist: number): void {
     const n = this.nodes.get(pid);

@@ -316,7 +316,8 @@ export type Msg =
   | { t: "plat"; id: string; plat: Platform }                // any → all: player switched input device
   | { t: "ping"; ts: number }
   | { t: "pong"; ts: number }
-  | { t: "leave" };
+  | { t: "leave" }              // guest → host: I'm leaving
+  | { t: "hostleave" };         // host → all: I'm closing the lobby
 
 export function rand(a: number, b: number): number { return a + Math.random() * (b - a); }
 export function clamp(v: number, a: number, b: number): number { return v < a ? a : v > b ? b : v; }
