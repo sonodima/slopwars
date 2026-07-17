@@ -14,7 +14,7 @@
     "build": "pnpm --filter @slopwars/game build",
     "typecheck": "pnpm -r typecheck"
   },
-  "license": "ISC",
+  "license": "MIT",
   "devDependencies": {
     "typescript": "^6.0.3",
     "vite": "^7.0.0"
