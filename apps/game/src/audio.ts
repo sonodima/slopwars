@@ -17,6 +17,9 @@ type SampleName = keyof typeof SAMPLES;
 
 interface Loop { src: AudioBufferSourceNode; gain: GainNode; pan?: StereoPannerNode }
 
+/** live handle to a looping portal hum (see portalHum) */
+export interface PortalHum { set(pan: number, dist: number, level: number): void; stop(): void }
+
 function clamp(v: number, a: number, b: number): number { return v < a ? a : v > b ? b : v; }
 
 const MUFFLE_OPEN = 20000; // lowpass fully open (no audible filtering)
@@ -196,6 +199,49 @@ class Sfx {
   nadeBounce(pan: number, dist: number): void { this.burst(0.04, 1800, 3, 0.25, this.out(pan, dist)); }
   pickup(): void { const d = this.out(); this.thump(0.09, 660, 660, 0.22, d); this.thump(0.12, 990, 990, 0.22, d, 0.08); }
   draw(): void { this.burst(0.05, 2000, 4, 0.2, this.out()); }
+
+  // ── portals (synth — no samples supplied) ──
+  /** a portal snapped open: a rising zap; orange sits a step above blue so the pair reads */
+  portalFire(slot: 0 | 1, pan = 0, dist = 0): void {
+    const d = this.out(pan, dist);
+    const f = slot === 0 ? 320 : 430;
+    this.thump(0.2, f, f * 2.6, 0.32, d);
+    this.burst(0.1, 2400, 2.5, 0.2, d, 0.03);
+  }
+  /** placement ray hit nothing in range — a soft dud */
+  portalFail(): void { this.thump(0.12, 230, 120, 0.2, this.out()); }
+  /** something crossed a portal — an airy whoosh with a falling tail */
+  portalEnter(pan = 0, dist = 0): void {
+    const d = this.out(pan, dist);
+    this.burst(0.22, 900, 0.8, 0.3, d);
+    this.thump(0.26, 540, 90, 0.35, d);
+  }
+  /** start a looping portal hum. The caller drives it every frame — spatialization AND
+   *  the audible lifespan cue (level fades toward 0 over the portal's last seconds) —
+   *  then must stop() it, which fades out and kills the oscillators. */
+  portalHum(): PortalHum {
+    const ctx = this.ac();
+    const o1 = ctx.createOscillator(); o1.type = "sine"; o1.frequency.value = 62;
+    const o2 = ctx.createOscillator(); o2.type = "sine"; o2.frequency.value = 93; // detuned partial → beating shimmer
+    const g = ctx.createGain(); g.gain.value = 0;
+    const p = ctx.createStereoPanner();
+    o1.connect(g); o2.connect(g);
+    g.connect(p).connect(this.master);
+    o1.start(); o2.start();
+    return {
+      set: (pan, dist, level) => {
+        p.pan.value = clamp(pan, -1, 1);
+        const v = dist > 30 ? 0 : (0.14 * clamp(level, 0, 1)) / (1 + dist * 0.14);
+        g.gain.setTargetAtTime(v, ctx.currentTime, 0.08); // smoothed — no zipper noise
+      },
+      stop: () => {
+        const t = ctx.currentTime;
+        g.gain.cancelScheduledValues(t);
+        g.gain.setTargetAtTime(0, t, 0.05);
+        o1.stop(t + 0.4); o2.stop(t + 0.4);
+      },
+    };
+  }
 
   // ── round stings ──
   roundStart(): void { this.play("roundStart", { gain: 0.7 }); }

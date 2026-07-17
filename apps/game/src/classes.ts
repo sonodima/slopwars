@@ -12,7 +12,7 @@
 // for every weapon and simply activates the class's subset.
 import { WeaponId } from "./types";
 
-export type ClassId = "assault" | "rifleman" | "recon" | "raider" | "breacher";
+export type ClassId = "assault" | "rifleman" | "recon" | "raider" | "breacher" | "voidwalker";
 
 export interface ClassDef {
   id: ClassId;
@@ -44,9 +44,13 @@ export const CLASSES: Record<ClassId, ClassDef> = {
     id: "breacher", name: "Breacher", blurb: "Shotgun up close, Grease Gun spray, frag to clear.",
     loadout: ["shotgun", "grease", "knife", "he"],
   },
+  voidwalker: {
+    id: "voidwalker", name: "Voidwalker", blurb: "Suomi + portal gun — link two rifts, flank through.",
+    loadout: ["suomi", "luger", "knife", "portalgun"],
+  },
 };
 
-export const CLASS_LIST: ClassId[] = ["assault", "rifleman", "recon", "raider", "breacher"];
+export const CLASS_LIST: ClassId[] = ["assault", "rifleman", "recon", "raider", "breacher", "voidwalker"];
 export const DEFAULT_CLASS: ClassId = "assault";
 
 export function classById(id: string | undefined): ClassDef {
