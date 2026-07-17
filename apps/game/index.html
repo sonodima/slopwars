@@ -831,14 +831,23 @@
     background:var(--sand);cursor:var(--cur,pointer);
     clip-path:polygon(0 0,calc(100% - 5px) 0,100% 5px,100% 100%,5px 100%,0 calc(100% - 5px));
     box-shadow:0 0 10px var(--holo-glow)}
-  /* sub-page tabs — Video / Input / Controls / AI, each page its own simple sheet */
-  .set-tabs{display:flex;gap:2px;margin-top:14px;border-bottom:1px solid var(--line)}
-  .set-tabs button{flex:1;width:auto;margin:0;padding:10px 4px;background:transparent;border:none;
-    color:var(--sand-dim);font-size:10px;letter-spacing:2px;font-weight:700;position:relative}
-  .set-tabs button:hover{filter:none;color:var(--sand)}
-  .set-tabs button.on{color:var(--sand);text-shadow:0 0 10px rgba(155,236,255,.4)}
-  .set-tabs button.on::after{content:"";position:absolute;left:8%;right:8%;bottom:-1px;height:2px;
-    background:linear-gradient(90deg,transparent,var(--sand),transparent);box-shadow:0 0 8px var(--holo-glow)}
+  /* sub-page tabs — Video / Input / Controls / AI. Chamfered holo-kit chips (the panel
+     silhouette at tab scale, with the same painted diagonal edges) so the category picker
+     reads as kit chrome instead of bare text. The active tab lights up — cyan fill, bright
+     frame + glow — so the current page is unmistakable at a glance. */
+  .set-tabs{display:flex;gap:6px;margin-top:14px}
+  .set-tabs button{flex:1;width:auto;margin:0;padding:10px 4px;position:relative;
+    color:var(--sand-dim);font-size:10px;letter-spacing:2px;font-weight:700;
+    background:rgba(155,236,255,.05);border:1px solid var(--line);
+    background-image:var(--edge-tr),var(--edge-bl);background-size:6px 6px;
+    background-position:top right,bottom left;background-repeat:no-repeat;
+    clip-path:polygon(0 0,calc(100% - 6px) 0,100% 6px,100% 100%,6px 100%,0 calc(100% - 6px))}
+  .set-tabs button:hover{filter:none;color:var(--sand);border-color:var(--sand)}
+  .set-tabs button.on{color:var(--sand);border-color:var(--sand);background:rgba(155,236,255,.15);
+    background-image:var(--edge-tr),var(--edge-bl);background-size:6px 6px;
+    background-position:top right,bottom left;background-repeat:no-repeat;
+    box-shadow:0 0 14px var(--holo-glow),inset 0 0 12px rgba(155,236,255,.08);
+    text-shadow:0 0 10px rgba(155,236,255,.4)}
   /* the active sub-page is the ONLY scrolling region — the header (tabs) + footer (Done)
      stay pinned around it. The panel's own fixed height keeps it from jumping between tabs. */
   .set-page{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;
