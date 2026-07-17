@@ -12,6 +12,7 @@ const SAMPLES = {
   roundStart: "round_starts.mp3", roundEnd: "round_end.mp3",
   hit: "hitmarker.mp3", headshot: "headshot.mp3",
   jumpStart: "jump_start.mp3", jumpEnd: "jump_end.mp3", deathScreen: "death_screen.mp3",
+  portalShot: "portal_gun.mp3", portalLoop: "portal_loop.mp3",
 } as const;
 type SampleName = keyof typeof SAMPLES;
 
@@ -71,7 +72,7 @@ class Sfx {
     const warm: SampleName[] = [
       "knife", "usp", "ak47", "awp", "luger", "m4a1", "suomi", "shotgun", "boom", "shatter", "fire",
       "hit", "headshot", "jumpStart", "jumpEnd", "step1", "step2", "deathScreen",
-      "roundStart", "roundEnd",
+      "roundStart", "roundEnd", "portalShot", "portalLoop",
     ];
     for (const n of warm) void this.buf(n).catch(() => { /* a missing sample just stays lazy */ });
   }
@@ -200,13 +201,17 @@ class Sfx {
   pickup(): void { const d = this.out(); this.thump(0.09, 660, 660, 0.22, d); this.thump(0.12, 990, 990, 0.22, d, 0.08); }
   draw(): void { this.burst(0.05, 2000, 4, 0.2, this.out()); }
 
-  // ── portals (synth — no samples supplied) ──
-  /** a portal snapped open: a rising zap; orange sits a step above blue so the pair reads */
+  // ── hardpoint ──
+  /** the hill is about to relocate — an urgent double blip */
+  hillWarn(): void { const d = this.out(); this.thump(0.07, 760, 760, 0.22, d); this.thump(0.07, 760, 760, 0.22, d, 0.16); }
+  /** the hill moved — a rising two-tone sting (inverse of the pickup chirp) */
+  hillMove(): void { const d = this.out(); this.thump(0.1, 520, 520, 0.26, d); this.thump(0.16, 880, 880, 0.28, d, 0.11); }
+
+  // ── portals ──
+  /** a portal snapped open (real sample). Orange (slot 1) plays a touch higher so the
+   *  pair still reads as two distinct colours, like the old synth cue did. */
   portalFire(slot: 0 | 1, pan = 0, dist = 0): void {
-    const d = this.out(pan, dist);
-    const f = slot === 0 ? 320 : 430;
-    this.thump(0.2, f, f * 2.6, 0.32, d);
-    this.burst(0.1, 2400, 2.5, 0.2, d, 0.03);
+    this.play("portalShot", { pan, dist, gain: 0.95, rate: slot === 0 ? 1.0 : 1.12 });
   }
   /** placement ray hit nothing in range — a soft dud */
   portalFail(): void { this.thump(0.12, 230, 120, 0.2, this.out()); }
@@ -216,29 +221,37 @@ class Sfx {
     this.burst(0.22, 900, 0.8, 0.3, d);
     this.thump(0.26, 540, 90, 0.35, d);
   }
-  /** start a looping portal hum. The caller drives it every frame — spatialization AND
-   *  the audible lifespan cue (level fades toward 0 over the portal's last seconds) —
-   *  then must stop() it, which fades out and kills the oscillators. */
+  /** start a looping portal hum from the real `portal_loop` sample, spatialized. The
+   *  caller drives it every frame — panning + distance attenuation AND the lifespan cue
+   *  (level fades toward 0 over the portal's last seconds) — then must stop() it, which
+   *  fades out and kills the source. The buffer decodes off-thread; nodes are wired up
+   *  front so set/stop work immediately and the loop simply starts once it's ready. */
   portalHum(): PortalHum {
     const ctx = this.ac();
-    const o1 = ctx.createOscillator(); o1.type = "sine"; o1.frequency.value = 62;
-    const o2 = ctx.createOscillator(); o2.type = "sine"; o2.frequency.value = 93; // detuned partial → beating shimmer
     const g = ctx.createGain(); g.gain.value = 0;
     const p = ctx.createStereoPanner();
-    o1.connect(g); o2.connect(g);
     g.connect(p).connect(this.master);
-    o1.start(); o2.start();
+    let src: AudioBufferSourceNode | null = null;
+    let stopped = false;
+    void this.buf("portalLoop").then((b) => {
+      if (stopped) return; // stopped before the sample finished decoding
+      src = ctx.createBufferSource();
+      src.buffer = b; src.loop = true;
+      src.connect(g);
+      src.start();
+    });
     return {
       set: (pan, dist, level) => {
         p.pan.value = clamp(pan, -1, 1);
-        const v = dist > 30 ? 0 : (0.14 * clamp(level, 0, 1)) / (1 + dist * 0.14);
+        const v = dist > 30 ? 0 : (0.6 * clamp(level, 0, 1)) / (1 + dist * 0.14);
         g.gain.setTargetAtTime(v, ctx.currentTime, 0.08); // smoothed — no zipper noise
       },
       stop: () => {
+        stopped = true;
         const t = ctx.currentTime;
         g.gain.cancelScheduledValues(t);
         g.gain.setTargetAtTime(0, t, 0.05);
-        o1.stop(t + 0.4); o2.stop(t + 0.4);
+        if (src) { try { src.stop(t + 0.4); } catch { /* already stopped */ } }
       },
     };
   }

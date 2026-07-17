@@ -75,6 +75,19 @@ export default defineConfig({
   build: {
     target: "es2020",
     chunkSizeWarningLimit: 4096,
+    // Terser over the default esbuild minify: smaller output and a harder read for
+    // cheat userscripts — top-level names mangled, console/debugger stripped, no
+    // sourcemaps shipped. Deliberately NO property mangling and NO obfuscator pass:
+    // property mangling corrupts everything keyed by literal names (map/meta JSON,
+    // the net protocol), and control-flow obfuscators cost real frame time in a
+    // 60 fps loop while adding nothing against the actual cheat surface (the P2P
+    // messages themselves). Obfuscation only raises the bar — it is not anti-cheat.
+    minify: "terser",
+    terserOptions: {
+      compress: { passes: 2, drop_console: true, drop_debugger: true, pure_getters: true },
+      mangle: { toplevel: true },
+      format: { comments: false },
+    },
   },
   // Fixed port so the game dev server is always at http://localhost:5211 and never
   // collides with the editor (5210); strictPort fails loudly instead of hopping.

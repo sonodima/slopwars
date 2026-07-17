@@ -1,0 +1,27 @@
+{
+  "scale": 0.17,
+  "baseRot": [
+    0,
+    -45,
+    -10
+  ],
+  "materials": {
+    "PortalGun": "wep_portalgun"
+  },
+  "anchors": {
+    "muzzle": {
+      "at": [
+        -0.05,
+        0.1,
+        -0.5
+      ]
+    },
+    "grip": {
+      "at": [
+        0,
+        -0.2,
+        0
+      ]
+    }
+  }
+}

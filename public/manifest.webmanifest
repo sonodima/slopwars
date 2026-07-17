@@ -1,7 +1,7 @@
 {
   "name": "SlopWars",
   "short_name": "SlopWars",
-  "description": "AI-built multiplayer browser FPS — serverless P2P, 4-round FFA.",
+  "description": "A web-based competitive FPS entirely hallucinated by AI",
   "id": "/",
   "start_url": "./",
   "scope": "./",

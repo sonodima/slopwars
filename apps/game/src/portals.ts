@@ -58,6 +58,10 @@ const VIEW_BIAS = 0.02; // oblique clip lift off the exit plane (< PORTAL_GAP �
 const BASE: [number, number, number][] = [[0.25, 0.62, 1.0], [1.0, 0.45, 0.12]];
 // nebula depth accents — the colour the clouds sink into (violet / crimson)
 const ACCENT: [number, number, number][] = [[0.45, 0.15, 0.95], [0.95, 0.10, 0.30]];
+// someone ELSE's portals: both of the pair render hostile red (you can't tell an
+// enemy's entry from its exit — and you can't use either), over an opaque void.
+const HOSTILE_BASE: [number, number, number] = [1.0, 0.16, 0.12];
+const HOSTILE_ACCENT: [number, number, number] = [0.55, 0.04, 0.10];
 
 /** portal discs live on their own layer so the see-through camera can cull them:
  *  a disc must never sample the render target it is being drawn into (feedback),
@@ -159,6 +163,7 @@ void main() {
 
   float live = clamp(u_portalLive.x, 0.0, 1.0);
   float window = u_portalLive.z;
+  float solid = u_portalLive.w;   // hostile portals: opaque void — nothing shows through
   float alpha;
   if (window > 0.001) {
     // window mode: the RT was rendered from the virtual (through-portal) camera with
@@ -176,6 +181,9 @@ void main() {
     // nebula mode: alpha-composited (not additive) so the gaps stay a dark void and
     // the swirl keeps contrast against bright walls, while the HDR bits feed bloom.
     alpha = edge * live * (0.55 + clouds * 0.30 + arms * 0.15);
+    // hostile: the void is a black backdrop — full coverage inside the oval (still
+    // fading out with the portal's own life so expiry doesn't pop)
+    alpha = max(alpha, edge * live * solid);
   }
   gl_FragColor = outputSRGBCorrection(vec4(col * live, alpha));
 }
@@ -196,6 +204,7 @@ interface Portal {
   until: number;    // expiry (perf-clock s)
   cdUntil: number;  // re-entry cooldown after a traversal
   phase: number;    // running pulse phase (rate ramps up as expiry nears)
+  base: [number, number, number]; // ring/nebula base colour (own slot colour · hostile red)
   root: Entity;
   ringMat: UnlitMaterial;
   live: Vector4;    // u_portalLive backing store (mutated in place — shaderData keeps the ref)
@@ -264,7 +273,7 @@ export class Portals {
   }
 
   /** the nebula material: alpha-blended void + HDR nebula — no depth write, both faces */
-  private vortexMaterial(slot: 0 | 1, live: Vector4): Material {
+  private vortexMaterial(base: [number, number, number], accent: [number, number, number], live: Vector4): Material {
     const m = new Material(this.engine, portalShader());
     m.renderState.renderQueueType = RenderQueueType.Transparent;
     m.renderState.depthState.writeEnabled = false;
@@ -275,8 +284,8 @@ export class Portals {
     tb.destinationColorBlendFactor = BlendFactor.OneMinusSourceAlpha;
     tb.sourceAlphaBlendFactor = BlendFactor.One;
     tb.destinationAlphaBlendFactor = BlendFactor.OneMinusSourceAlpha;
-    const [br, bg, bb] = BASE[slot];
-    const [ar, ag, ab] = ACCENT[slot];
+    const [br, bg, bb] = base;
+    const [ar, ag, ab] = accent;
     m.shaderData.setVector4("u_portalColor", new Vector4(br, bg, bb, Math.random() * 20)); // a = phase seed
     m.shaderData.setVector4("u_portalColor2", new Vector4(ar, ag, ab, 0));
     m.shaderData.setVector4("u_portalLive", live);
@@ -299,7 +308,11 @@ export class Portals {
     if (Math.abs(n.y) > 0.9) root.transform.setRotation(n.y > 0 ? -90 : 90, 0, 0);
     else root.transform.setRotation(0, (Math.atan2(n.x, n.z) * 180) / Math.PI, 0);
 
-    const [br, bg, bb] = BASE[slot];
+    // your own pair keeps its blue/orange identity; anyone else's reads hostile red —
+    // both colours, over an opaque black void (no window, and you can't use it anyway)
+    const base = local ? BASE[slot] : HOSTILE_BASE;
+    const accent = local ? ACCENT[slot] : HOSTILE_ACCENT;
+    const [br, bg, bb] = base;
     const ringMat = new UnlitMaterial(this.engine);
     ringMat.baseColor = new Color(br * 4, bg * 4, bb * 4, 1); // HDR → bloom halo
     const ring = root.createChild("ring");
@@ -312,14 +325,14 @@ export class Portals {
 
     // nebula disc: the shared XZ plane stood up into the portal's XY frame
     // (rot +90° X maps local Z → −Y, so scale is W along X, H along local Z)
-    const live = new Vector4(1, 0, 0, 0);
+    const live = new Vector4(1, 0, 0, local ? 0 : 1); // w: hostile → opaque void
     const disc = root.createChild("disc");
     disc.layer = PORTAL_SURF_LAYER; // culled from the see-through camera (no feedback)
     disc.transform.setRotation(90, 0, 0);
     disc.transform.setScale(PORTAL_HALF_W, 1, PORTAL_HALF_H);
     const dr = disc.addComponent(MeshRenderer);
     dr.mesh = this.discMesh;
-    const discMat = this.vortexMaterial(slot, live);
+    const discMat = this.vortexMaterial(base, accent, live);
     dr.setMaterial(discMat);
     dr.castShadows = false;
     dr.receiveShadows = false;
@@ -334,7 +347,7 @@ export class Portals {
     wisps.transform.setRotation(90, 0, 0);
     // nebula mist: slower, larger accent-coloured billows drifting off the disc —
     // the same emitter recipe, tuned soft, so the rift reads as leaking nebula
-    const [ar, ag, ab] = ACCENT[slot];
+    const [ar, ag, ab] = accent;
     const mist = buildParticles(this.engine, root, 0, 0, 0.08, {
       rate: 6, lifetime: 2.4, speed: 0.22, size: 0.24, growth: 0.9, spread: 70,
       emitRadius: 0.9, gravity: 0, color: [ar * 1.8, ag * 1.8, ab * 1.8], opacity: 0.4,
@@ -345,7 +358,7 @@ export class Portals {
     const now = performance.now() / 1000;
     this.portals.push({
       owner, slot, local, c: { ...c }, n: { ...n }, t, b,
-      until: now + PORTAL_LIFE, cdUntil: now + 0.2, phase: 0,
+      until: now + PORTAL_LIFE, cdUntil: now + 0.2, phase: 0, base,
       root, ringMat, live, discMat, ring, hum: null,
     });
   }
@@ -411,7 +424,7 @@ export class Portals {
       p.live.y = 1 - lifeFrac;
       // ring emissive dims toward expiry (mutate + reassign to flag the material dirty)
       const k = (0.3 + 0.7 * lifeFrac) * 4;
-      const [br, bg, bb] = BASE[p.slot];
+      const [br, bg, bb] = p.base;
       const rc = p.ringMat.baseColor;
       rc.r = br * k; rc.g = bg * k; rc.b = bb * k;
       p.ringMat.baseColor = rc;

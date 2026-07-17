@@ -2,7 +2,7 @@
 import {
   AmbientLight, Animator, BackgroundMode, BlinnPhongMaterial, BloomEffect, Camera, Color,
   DirectLight, Engine, Entity, FogMode, MSAASamples, MeshRenderer, PostProcess,
-  PrimitiveMesh, Quaternion, ShadowResolution, ShadowType, SkinnedMeshRenderer, SkyBoxMaterial,
+  PrimitiveMesh, Quaternion, RenderFace, ShadowResolution, ShadowType, SkinnedMeshRenderer, SkyBoxMaterial,
   TextureCube, TonemappingEffect, TonemappingMode, UnlitMaterial, Vector3,
 } from "@galacean/engine";
 import { sfx } from "./audio";
@@ -30,14 +30,16 @@ import { Input, PlayerBody } from "./player";
 import { RemotePlayer } from "./remote";
 import { MODEL_LOAD_COUNT, buildProp, instantiate, loadModels, propHuntPool } from "./models";
 import {
-  BOT_TUNING, DEFAULT_CONFIG, DEPLOY_TIME, GamePhase, GameSnapshot, INTERMISSION, MatchConfig, MAX_HP, ModeId,
+  BOT_TUNING, DEFAULT_CONFIG, DEPLOY_TIME, GamePhase, GameSnapshot, HillOwner, INTERMISSION, MatchConfig, MAX_HP, ModeId,
   MOVE_BACK_FACTOR, MOVE_STRAFE_FACTOR, Msg,
   PICKUP_HEAL, PICKUP_RADIUS, PICKUP_RESPAWN, Platform, PlayerState, POWERUPS, POWERUP_INTERVAL,
-  POWERUP_RADIUS, PowerupKind, QUAD_MULT, RAPID_MULT, SPEED_MULT, TICK_RATE,
+  POWERUP_RADIUS, PowerupKind, QUAD_MULT, RAPID_MULT, SPAWN_PROT, SPEED_MULT, TICK_RATE,
   MOVE, Vec3, WEAPONS, WeaponDef, WeaponId, DeathCause, deathCauseLabel, clamp, rand, randomPowerup,
 } from "./types";
 import {
-  DEFAULT_MODE, GUNGAME_FINAL, MODES, PROPHUNT_PREP, ROLE_HIDE, ROLE_SEEK,
+  DEFAULT_MODE, GUNGAME_FINAL, HARDPOINT_RADIUS, HARDPOINT_RATE, HARDPOINT_ROTATE, HARDPOINT_SPOTS,
+  HARDPOINT_TARGET, HARDPOINT_WARN, HARDPOINT_YTOL, HILL_CONTESTED, HILL_NEUTRAL, hillColor,
+  MODES, PROPHUNT_PREP, ROLE_HIDE, ROLE_SEEK,
   TEAM_COLORS, TEAM_NAMES, seekerCount, tierWeapon,
 } from "./modes";
 import { CLASSES, CLASS_LIST, ClassId, classById, randomClass } from "./classes";
@@ -135,6 +137,8 @@ const AA_FOLLOW = 0.62;        // fraction of a target's horizontal angular drif
 const AA_FOLLOW_PITCH = 0.4;   // gentler tracking on the vertical axis
 // slow cinematic orbit (rad/s) of the death camera around the fallen body.
 const DEATH_CAM_ORBIT_SPEED = 0.4;
+// hardpoint hill cylinder height (m) — render-only; the capture check is a radius + Y slack.
+const HILL_HEIGHT = 2.6;
 // seconds the death orbit plays before a no-respawn player (Prop-Hunt hider) switches
 // to spectating a living seeker instead of staring at their own corpse forever.
 const SPECTATE_AFTER = 1.8;
@@ -166,7 +170,6 @@ class Game {
   lastVoteCounts: Record<string, number> = {};
   body!: PlayerBody;
   ws!: WeaponSystem;
-  lastWeapon: WeaponId | null = null; // weapon held at death — reselected on respawn
   tracers!: TracerPool;
   nades!: Projectiles;
   portals!: Portals;
@@ -246,14 +249,34 @@ class Game {
 
   // ── game modes ──
   mode: ModeId = DEFAULT_MODE;
-  teams: Record<string, number> = {};   // tdm: side 0/1 · prophunt: 0 seeker / 1 hide
-  teamScore: [number, number] = [0, 0]; // tdm side scores · prophunt [seeker, hider] wins
+  teams: Record<string, number> = {};   // tdm/hardpoint: side 0/1 · prophunt: 0 seeker / 1 hide
+  teamScore: [number, number] = [0, 0]; // tdm/hardpoint side scores · prophunt [seeker, hider] wins
   tiers: Record<string, number> = {};   // gungame: player → weapon-ladder tier
+  props: Record<string, number> = {};   // prophunt: player → disguise roll (host-rolled per round)
   myRole = ROLE_SEEK;                    // prophunt: local role (mirror of teams[myId])
+
+  // ── hardpoint ──
+  hillSpots: Vec3[] = [];               // candidate hill centres for the loaded map
+  hillIndex = 0;                        // active candidate (host clock; mirrored via snapshot + "hill" msg)
+  hillOwner: HillOwner = HILL_NEUTRAL;  // -1 empty · 0/1 capturing side · 2 contested
+  hillProgress = 0;                     // 0..1 of the rotate window (host-authoritative)
+  private hillWarned = false;           // "moving soon" cue fired for this cycle (per client)
+  private hillScore = 0;                // host: fractional point accumulator for the holder
+  private hillEntity: Entity | null = null;   // the capture-zone visual (wall + base rim)
+  private hillWallMat: UnlitMaterial | null = null; // faint volume — readable from inside without washing the view
+  private hillRimMat: UnlitMaterial | null = null;  // bright HDR boundary ring — the bloom carrier
+  private hillTint: HillOwner | -2 = -2;      // owner the cylinder is tinted for (-2 = dirty)
+  private hillIn = new Vector3();       // waypoint projection scratch (like the nametags)
+  private hillOut = new Vector3();
 
   myHp = MAX_HP;
   alive = true;
   respawnAt = 0;
+  // spawn protection: player id → perf-clock deadline. Set on every spawn, cleared by
+  // that player's first shot/throw/portal — every client derives the same state from
+  // the broadcast spawn/shot/nade/portal msgs (renders the ghost); the host is the
+  // authority where it matters (hostApplyHit ignores damage to a protected victim).
+  prot: Record<string, number> = {};
   // holographic HUD parallax: smoothed look velocity (rad/frame) + last look angles, so
   // the HUD chrome drifts opposite to where the player is looking (a floating-hologram feel)
   private hudLookVX = 0;
@@ -796,7 +819,7 @@ class Game {
   private tagLos = new Map<string, { next: number; vis: boolean }>();
   updateNametags(): void {
     const cam = this.camEntity.transform.worldPosition;
-    const tdm = this.mode === "tdm";
+    const sides = this.mode === "tdm" || this.mode === "hardpoint"; // side-coloured names
     const now = performance.now();
     for (const r of this.remotes.values()) {
       const el = this.tagEls.get(r.id);
@@ -821,7 +844,7 @@ class Game {
               const tag = el ?? this.buildTag(r.id);
               const name = this.names.get(r.id) ?? r.name;
               if (tag.textContent !== name) tag.textContent = name; // names are untrusted input — text only
-              const side = tdm ? this.teams[r.id] : undefined;
+              const side = sides ? this.teams[r.id] : undefined;
               tag.style.color = side === 0 || side === 1 ? Game.TEAM_HEX[side] : "";
               tag.style.left = `${(vp.x * 100).toFixed(2)}%`;
               tag.style.top = `${(vp.y * 100).toFixed(2)}%`;
@@ -1040,14 +1063,12 @@ class Game {
       return;
     }
     this.ws.showViewmodel(this.inGame);
-    // apply the player's chosen class kit, then re-equip whatever was held at death if it's
-    // still part of the kit (nades are refilled by now); otherwise draw the class's primary.
+    // apply the player's chosen class kit and always draw its primary (loadout[0]) —
+    // every life starts on the main gun, whatever was in hand at death.
     const cls = classById(this.settings.state.loadoutClass);
     this.ws.setLoadout(cls.loadout);
     this.touch.setLoadout(this.ws.loadout);
-    const w = this.lastWeapon && cls.loadout.includes(this.lastWeapon) && this.ws.available(this.lastWeapon)
-      ? this.lastWeapon : cls.loadout[0];
-    this.ws.select(w);
+    this.ws.select(cls.loadout[0]);
     this.applyScopeFov();
     this.refreshAmmoHud();
   }
@@ -1105,19 +1126,23 @@ class Game {
   /** material library the Prop-Hunt disguises shade against (built once; see ensureDisguiseMaterials) */
   private disguiseLib: MaterialLibrary | null = null;
 
-  /** deterministic disguise-prop model for a player id (host + guests agree without any
-   *  extra networking). null when the pool is empty → callers fall back to the crate. */
+  /** disguise-prop model for a player: the host's per-round roll (synced via snapshot +
+   *  the role msg), with the old deterministic id-hash only as a sync-gap fallback —
+   *  as the primary path it meant a given id (the host's literal "host" above all) wore
+   *  the SAME disguise every round of every match. null → callers fall back to the crate. */
   propForPlayer(id: string): string | null {
     const pool = this.propPool;
     if (!pool.length) return null;
+    const rolled = this.props[id];
+    if (rolled !== undefined) return pool[rolled % pool.length];
     let h = 0;
     for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
     return pool[h % pool.length];
   }
 
-  /** per-frame: mode HUD (team score / gungame tier / prop-hunt role) */
+  /** per-frame: mode HUD (team score / gungame tier / prop-hunt role / hardpoint state) */
   updateModeHud(): void {
-    if (this.mode === "tdm") {
+    if (this.mode === "tdm" || this.mode === "hardpoint") {
       this.hud.teamScoreHud(
         { name: TEAM_NAMES[0], score: this.teamScore[0], color: TEAM_COLORS[0] },
         { name: TEAM_NAMES[1], score: this.teamScore[1], color: TEAM_COLORS[1] },
@@ -1150,6 +1175,21 @@ class Game {
     } else {
       this.hud.roleHud("", "");
     }
+
+    // hardpoint: capture-state line tinted by the hill's holder (+ the move countdown)
+    if (this.mode === "hardpoint" && this.phase === "play") {
+      const o = this.hillOwner;
+      const my = this.teams[this.net.myId];
+      const secs = Math.max(0, Math.ceil((1 - this.hillProgress) * HARDPOINT_ROTATE));
+      const move = this.hillSpots.length > 1 && secs <= HARDPOINT_WARN ? ` · moves in ${secs}s` : "";
+      const txt = o === HILL_CONTESTED ? "Contested"
+        : o === my ? "Capturing"
+        : o === HILL_NEUTRAL ? "Take the hill"
+        : "Enemy hill";
+      this.hud.hardpointHud(txt + move, hillColor(o));
+    } else {
+      this.hud.hardpointHud("", 0);
+    }
   }
 
   /** hiders still alive (works on host + guests via avatar liveness) */
@@ -1165,7 +1205,7 @@ class Game {
 
   /** end-screen headline for the finished match */
   resultTitle(): string {
-    if (this.mode === "tdm") {
+    if (this.mode === "tdm" || this.mode === "hardpoint") {
       const [a, b] = this.teamScore;
       if (a === b) return "Draw";
       return `${TEAM_NAMES[a > b ? 0 : 1]} wins`;
@@ -1730,11 +1770,14 @@ class Game {
       const voiceOn = this.voice.hasAudio;
       for (const r of this.remotes.values()) {
         r.update(now);
+        r.setGhost(this.isProt(r.id)); // spawn-protected → translucent (change-guarded)
         if (voiceOn) {
           const rel = this.relAudio(r.pos);
           this.voice.setSpatial(r.id, rel.pan, rel.dist);
         }
       }
+      // your own third-person body ghosts too, so you can see your protection running
+      this.selfOperator?.setGhost(this.isProt(this.net.myId));
       this.updateNametags();
       this.updateDamageNumbers(dt);
 
@@ -1822,6 +1865,7 @@ class Game {
       this.hud.timer(this.phase, this.round, this.timeLeft, this.cfg.rounds);
       this.hud.scoreboard(this.sbOpen || this.phase === "inter", this.net.players, this.scores, this.net.myId, this.platforms);
       this.updateModeVisuals();
+      this.updateHill(dt);
       this.updateModeHud();
     } else if (this.lobbyView || this.menuView) {
       this.updateLobbyCamera(now);
@@ -2045,6 +2089,7 @@ class Game {
   }
 
   broadcastShot(o: Vec3, d: Vec3, w: WeaponId): void {
+    this.clearProt(this.net.myId); // firing forfeits spawn protection
     const m: Msg = { t: "shot", id: this.net.myId, o: [o.x, o.y, o.z], d: [d.x, d.y, d.z], w };
     if (this.net.isHost) this.net.broadcast(m);
     else this.net.send(m);
@@ -2084,6 +2129,7 @@ class Game {
       const o: Vec3 = { x: this.body.pos.x + d.x * 0.35, y: this.body.eyeY - 0.05, z: this.body.pos.z + d.z * 0.35 };
       const spd = kind === "he" ? 16 : 14;
       const v: Vec3 = { x: d.x * spd, y: d.y * spd + 3.2, z: d.z * spd };
+      this.clearProt(this.net.myId); // throwing forfeits spawn protection
       this.nades.throw_(kind, o, v, this.net.myId, true);
       const m: Msg = { t: "nade", id: this.net.myId, k: kind, o: [o.x, o.y, o.z], v: [v.x, v.y, v.z] };
       if (this.net.isHost) this.net.broadcast(m);
@@ -2121,10 +2167,18 @@ class Game {
       y: o.y + d.y * hit.dist + n.y * PORTAL_GAP,
       z: o.z + d.z * hit.dist + n.z * PORTAL_GAP,
     };
-    // a wall shot at the skirting would sink half the oval underground — lift it clear
-    if (Math.abs(n.y) < 0.5) c.y = Math.max(c.y, this.map.floorY(c.x, c.z) + PORTAL_HALF_H * 0.9);
+    // a wall shot at the skirting would sink half the oval underground — lift it just
+    // clear of the floor DIRECTLY beneath the hit. A local down-ray, not the map-wide
+    // floorY query: under a covered walkway floorY returned the roof top and beached
+    // the portal on top of the cover.
+    if (Math.abs(n.y) < 0.5) {
+      const lift = PORTAL_HALF_H * 0.9;
+      const down = this.map.raycast(c, { x: 0, y: -1, z: 0 }, lift);
+      if (down) c.y += lift - down.dist;
+    }
     const s = this.portalSlot;
     this.portalSlot = s === 0 ? 1 : 0;
+    this.clearProt(this.net.myId); // placing a portal forfeits spawn protection
     this.portals.place(this.net.myId, s, c, n, true);
     sfx.portalFire(s);
     const m: Msg = { t: "portal", id: this.net.myId, s, o: [c.x, c.y, c.z], n: [n.x, n.y, n.z] };
@@ -2232,6 +2286,8 @@ class Game {
     if (this.phase !== "play") return;
     const hp = this.hpMap[victim];
     if (hp === undefined || hp <= 0) return;
+    // spawn protection: a fresh spawn can't be damaged until they fire or the timer lapses
+    if (this.isProt(victim)) return;
     // team modes: no friendly fire (TDM sides / Prop Hunt roles)
     if (MODES[this.mode].teams && attacker !== victim && this.teams[attacker] === this.teams[victim]) return;
     // prep phase: seekers can't hurt hiders while the hiders are still scattering
@@ -2552,6 +2608,13 @@ class Game {
     return this.remotes.get(id)?.pos ?? { x: 0, y: 0, z: 0 };
   }
 
+  // ─── spawn protection ─────────────────────────────────────────────────────────
+
+  /** is `id` still inside their post-spawn invulnerability window? */
+  isProt(id: string): boolean { return (this.prot[id] ?? 0) > performance.now() / 1000; }
+  /** `id` fired/threw/placed — their spawn protection ends now */
+  clearProt(id: string): void { this.prot[id] = 0; }
+
   hostSpawn(id: string): void {
     // deploy counts: the round-start burst spawns everyone in during the pre-round freeze
     if (this.phase !== "play" && this.phase !== "deploy") return;
@@ -2574,7 +2637,7 @@ class Game {
     this.net.broadcast(m);
     // deliver the mode loadout directly (unreliable channel → don't rely on snapshot order)
     if (id !== this.net.myId) {
-      if (this.mode === "prophunt") this.net.sendTo(id, { t: "role", role: this.teams[id] ?? ROLE_SEEK, prop: 0 });
+      if (this.mode === "prophunt") this.net.sendTo(id, { t: "role", role: this.teams[id] ?? ROLE_SEEK, prop: this.props[id] ?? 0 });
       else if (this.mode === "gungame") this.net.sendTo(id, { t: "tier", tier: this.tiers[id] ?? 0 });
     }
     this.applyLocal(m);
@@ -2603,6 +2666,11 @@ class Game {
         this.pkTimers[i] -= dt;
         if (this.pkTimers[i] <= 0) { this.pkTimers[i] = 0; this.pkEntities[i].isActive = true; }
       }
+    }
+    // hardpoint: occupancy scoring + hill relocation (may end the match → phase "over")
+    if (this.mode === "hardpoint" && this.phase === "play") {
+      this.hostHillTick(dt);
+      if (this.phase !== "play") return; // a side just hit the target — match is over
     }
     if (this.phase === "play" || this.phase === "inter" || this.phase === "deploy") {
       this.timeLeft -= dt;
@@ -2681,13 +2749,26 @@ class Game {
     const ids = this.net.players.map((p) => p.id);
     if (n === 1) { this.teamScore = [0, 0]; this.tiers = {}; }
     this.teams = {};
-    if (this.mode === "tdm") {
+    if (this.mode === "tdm" || this.mode === "hardpoint") {
       const shuffled = [...ids].sort(() => Math.random() - 0.5);
       shuffled.forEach((id, i) => { this.teams[id] = i % 2; });
+      if (this.mode === "hardpoint") {
+        // every round opens on the first (most central) hill; silent reset — the round
+        // banner covers the announcement, applyHillMove only cues mid-round moves
+        this.hillIndex = 0;
+        this.hillProgress = 0;
+        this.hillScore = 0;
+        this.hillOwner = HILL_NEUTRAL;
+        this.hillWarned = false;
+      }
     } else if (this.mode === "prophunt") {
       const shuffled = [...ids].sort(() => Math.random() - 0.5);
       const seekers = seekerCount(ids.length);
       shuffled.forEach((id, i) => { this.teams[id] = i < seekers ? ROLE_SEEK : ROLE_HIDE; });
+      // fresh disguise roll each round (synced via snapshot + the role msg) — the old
+      // id-hash disguise was deterministic, so e.g. the host was the same prop forever
+      this.props = {};
+      for (const id of ids) this.props[id] = (Math.random() * 4096) | 0;
     } else if (this.mode === "gungame") {
       for (const id of ids) if (this.tiers[id] === undefined) this.tiers[id] = 0;
     }
@@ -2705,7 +2786,11 @@ class Game {
       phase: this.phase, round: this.round, timeLeft: this.timeLeft, scores: this.scores,
       pk: this.pkTimers.map((t) => Math.ceil(t)), map: this.currentMapId,
       mode: this.mode, cfg: this.cfg, teams: this.teams, teamScore: this.teamScore, tiers: this.tiers,
+      props: this.mode === "prophunt" ? this.props : undefined,
       platforms: this.platforms,
+      hill: this.mode === "hardpoint"
+        ? { i: this.hillIndex, owner: this.hillOwner, progress: Math.min(1, this.hillProgress) }
+        : undefined,
     };
   }
 
@@ -2723,6 +2808,13 @@ class Game {
     if (g.teams) this.teams = g.teams;
     if (g.teamScore) this.teamScore = g.teamScore;
     if (g.tiers) this.tiers = g.tiers;
+    if (g.props) this.props = g.props; // prophunt disguise rolls (updateModeVisuals reads them)
+    // hardpoint hill: relocations usually land via the "hill" msg — the snapshot is the
+    // catch-up path (late joiners, dropped datagrams). Owner/clock stay host-authoritative.
+    if (g.hill) {
+      if (g.hill.i !== this.hillIndex) this.applyHillMove(g.hill.i);
+      if (!this.net.isHost) { this.hillOwner = g.hill.owner; this.hillProgress = g.hill.progress; }
+    }
     // merge synced input-device icons, but never let a stale host snapshot stomp our
     // own live platform (we're the source of truth for the device we're holding).
     if (g.platforms) { this.platforms = { ...g.platforms }; this.platforms[this.net.myId] = this.myPlatform; }
@@ -2756,6 +2848,8 @@ class Game {
   enterEnd(): void {
     this.inGame = false;
     this.portals.clear(); // update() stops with the match — don't leave frozen rings behind
+    if (this.hillEntity) this.hillEntity.isActive = false; // updateHill stops with the match too
+    this.hud.hillMarker(false);
     if (this.selfAvatar) this.selfAvatar.isActive = false;
     if (this.selfOperator) this.selfOperator.entity.isActive = false;
     document.body.classList.remove("hider", "weplock");
@@ -2787,6 +2881,7 @@ class Game {
     if (this.portals) this.portals.clear(); // (undefined during the boot-time first load)
     for (const e of this.pkEntities) e.destroy();
     for (const e of this.pwEntities) e.destroy();
+    if (this.hillEntity) { this.hillEntity.destroy(); this.hillEntity = null; this.hillWallMat = null; this.hillRimMat = null; }
     this.pkEntities = [];
     this.pwEntities = [];
     this.pwMats = [];
@@ -2800,6 +2895,7 @@ class Game {
     await this.applyEnv(def.env);
     this.buildPickups(this.root);
     this.buildPowerups(this.root);
+    this.buildHill(this.root);
     this.updateAmbientWater();
   }
 
@@ -3042,6 +3138,188 @@ class Game {
     this.hud.buff(null, 0, 0);
   }
 
+  // ─── hardpoint hill ───────────────────────────────────────────────────────────
+
+  /** candidate hill centres for the loaded map: authored `hardpoint` markers when the
+   *  map has them, else a spread-out subset of its pickup/powerup spots (spawns as a
+   *  last resort). Deterministic — host and guests must derive the identical list. */
+  private hillCandidates(): Vec3[] {
+    if (this.map.hardpointSpots.length) return this.map.hardpointSpots.map((p) => ({ ...p }));
+    // pickups/powerups float ~1m over the floor — drop each candidate to its ground
+    let pool = [...this.map.pickupSpots, ...this.map.powerupSpots]
+      .map((p) => ({ x: p.x, y: Math.max(this.map.floorY(p.x, p.z), p.y - 1), z: p.z }));
+    if (pool.length < 2) pool = pool.concat(this.map.spawns.map((s) => ({ ...s.p })));
+    if (!pool.length) return [{ x: 0, y: 0, z: 0 }];
+    // farthest-point sampling: seed with the most central spot (each round opens on a
+    // mid-map hill), then greedily add whichever spot is farthest from every chosen one
+    const cx = pool.reduce((s, p) => s + p.x, 0) / pool.length;
+    const cz = pool.reduce((s, p) => s + p.z, 0) / pool.length;
+    let seed = 0;
+    for (let i = 1; i < pool.length; i++) {
+      if (Math.hypot(pool[i].x - cx, pool[i].z - cz) < Math.hypot(pool[seed].x - cx, pool[seed].z - cz)) seed = i;
+    }
+    const picked = [pool[seed]];
+    const rest = pool.filter((_, i) => i !== seed);
+    while (picked.length < HARDPOINT_SPOTS && rest.length) {
+      let best = 0, bd = -1;
+      for (let i = 0; i < rest.length; i++) {
+        let min = Infinity;
+        for (const q of picked) min = Math.min(min, Math.hypot(rest[i].x - q.x, rest[i].z - q.z));
+        if (min > bd) { bd = min; best = i; }
+      }
+      picked.push(rest.splice(best, 1)[0]);
+    }
+    return picked;
+  }
+
+  /** (re)derive the hill candidates + build the capture-zone visual for a fresh map:
+   *  a faint translucent cylinder (the volume, readable from inside without tinting the
+   *  whole view) ringed by a bright HDR torus at the base — the bloom carrier, same
+   *  trick as the powerup gems. Moved/recoloured on state change by updateHill. No
+   *  shadows — it's a zone, not scenery. */
+  buildHill(root: Entity): void {
+    this.hillSpots = this.hillCandidates();
+    // keep the synced index if still valid (a guest may already hold the live state)
+    this.hillIndex = Math.min(this.hillIndex, this.hillSpots.length - 1);
+    this.hillTint = -2;
+    const g = root.createChild("hill");
+    const mat = (): UnlitMaterial => {
+      const m = new UnlitMaterial(this.engine);
+      m.isTransparent = true;
+      m.renderFace = RenderFace.Double;
+      return m;
+    };
+    const wall = g.createChild("wall");
+    wall.transform.setPosition(0, HILL_HEIGHT / 2, 0);
+    const wr = wall.addComponent(MeshRenderer);
+    wr.mesh = PrimitiveMesh.createCylinder(this.engine, HARDPOINT_RADIUS, HARDPOINT_RADIUS, HILL_HEIGHT, 28, 1);
+    wr.setMaterial(this.hillWallMat = mat());
+    wr.castShadows = false;
+    const rim = g.createChild("rim");
+    rim.transform.setPosition(0, 0.08, 0);
+    rim.transform.setRotation(90, 0, 0); // the torus is authored in the XY plane — lay it flat
+    const rr = rim.addComponent(MeshRenderer);
+    rr.mesh = PrimitiveMesh.createTorus(this.engine, HARDPOINT_RADIUS, 0.12, 12, 48);
+    rr.setMaterial(this.hillRimMat = mat());
+    rr.castShadows = false;
+    g.isActive = false;
+    this.hillEntity = g;
+  }
+
+  /** host: hardpoint occupancy → team scoring + the relocation clock (runs at play) */
+  hostHillTick(dt: number): void {
+    const hill = this.hillSpots[this.hillIndex];
+    if (!hill) return;
+    // who's standing on it: living players inside the XZ radius with some Y slack
+    let a = 0, b = 0;
+    for (const p of this.net.players) {
+      if ((this.hpMap[p.id] ?? 0) <= 0) continue;
+      const pos = p.id === this.net.myId ? (this.alive ? this.body.pos : null) : this.remotes.get(p.id)?.pos;
+      if (!pos) continue;
+      if (Math.hypot(pos.x - hill.x, pos.z - hill.z) > HARDPOINT_RADIUS) continue;
+      if (Math.abs(pos.y - hill.y) > HARDPOINT_YTOL) continue;
+      const t = this.teams[p.id];
+      if (t === 0) a++; else if (t === 1) b++;
+    }
+    const owner: HillOwner = a && b ? HILL_CONTESTED : a ? 0 : b ? 1 : HILL_NEUTRAL;
+    if (owner !== this.hillOwner) { this.hillOwner = owner; this.hillScore = 0; }
+    // an uncontested hold accrues whole points at a fixed rate
+    if (owner === 0 || owner === 1) {
+      this.hillScore += dt * HARDPOINT_RATE;
+      const pts = Math.floor(this.hillScore);
+      if (pts > 0) {
+        this.hillScore -= pts;
+        this.teamScore[owner] += pts;
+        if (this.teamScore[owner] >= HARDPOINT_TARGET) { this.hostHardpointWin(owner); return; }
+      }
+    }
+    // relocation clock (a single-candidate map just keeps its one hill)
+    if (this.hillSpots.length > 1) {
+      this.hillProgress += dt / HARDPOINT_ROTATE;
+      if (this.hillProgress >= 1) {
+        const i = (this.hillIndex + 1) % this.hillSpots.length;
+        this.applyHillMove(i);
+        this.net.broadcast({ t: "hill", i }); // crisp cue — snapshots only tick at 1 Hz
+      }
+    }
+  }
+
+  /** host: a side reached the score target — instant match win */
+  hostHardpointWin(side: 0 | 1): void {
+    this.hud.banner(`${TEAM_NAMES[side]} held the hill!`, 3000);
+    this.phase = "over";
+    this.pushGame();
+    this.enterEnd();
+  }
+
+  /** the hill relocated to candidate `i` (host clock, the host's "hill" msg, or a
+   *  snapshot catching a guest up). Cues only on a real mid-round move — round-start
+   *  resets land during the deploy freeze and stay silent. */
+  applyHillMove(i: number): void {
+    const moved = i !== this.hillIndex;
+    this.hillIndex = i;
+    this.hillProgress = 0;
+    this.hillScore = 0;
+    this.hillWarned = false;
+    this.hillOwner = HILL_NEUTRAL; // re-resolved by the next host tick / snapshot
+    if (moved && this.inGame && this.mode === "hardpoint" && this.phase === "play") {
+      this.hud.banner("Hardpoint moved!", 2000);
+      sfx.hillMove();
+    }
+  }
+
+  /** per-frame hardpoint presentation (host + guests): cylinder position/tint, the
+   *  on-screen waypoint, the "moving soon" cue, and — on guests — advancing the synced
+   *  rotate clock between the 1 Hz snapshots. */
+  updateHill(dt: number): void {
+    const e = this.hillEntity;
+    if (this.mode !== "hardpoint" || !e || !this.hillSpots.length) {
+      if (e?.isActive) e.isActive = false;
+      this.hud.hillMarker(false);
+      return;
+    }
+    const hill = this.hillSpots[this.hillIndex];
+    const show = this.inGame && (this.phase === "play" || this.phase === "deploy") && !!hill;
+    if (e.isActive !== show) e.isActive = show;
+    if (!show) { this.hud.hillMarker(false); return; }
+    e.transform.setPosition(hill.x, hill.y, hill.z);
+    // tint by holder: the rim gets the HDR boost (bloom halo), the wall stays a whisper
+    // so standing inside the zone never washes the whole view with colour
+    if (this.hillTint !== this.hillOwner && this.hillWallMat && this.hillRimMat) {
+      this.hillTint = this.hillOwner;
+      const c = hillColor(this.hillOwner);
+      const r = ((c >> 16) & 255) / 255, g = ((c >> 8) & 255) / 255, b = (c & 255) / 255;
+      this.hillWallMat.baseColor = new Color(r * 1.6, g * 1.6, b * 1.6, 0.07);
+      this.hillRimMat.baseColor = new Color(r * 4, g * 4, b * 4, 0.9);
+    }
+    // waypoint: project the hill top; when off-view, pin to the nearest screen edge
+    this.hillIn.set(hill.x, hill.y + HILL_HEIGHT + 0.5, hill.z);
+    const vp = this.camera.worldToViewportPoint(this.hillIn, this.hillOut);
+    let x = vp.x, y = vp.y;
+    if (vp.z < 0) { x = x > 0.5 ? 0 : 1; y = 0.5; } // behind the camera → hug a side edge
+    x = clamp(x, 0.04, 0.96);
+    y = clamp(y, 0.1, 0.88);
+    const dist = Math.hypot(hill.x - this.body.pos.x, hill.z - this.body.pos.z);
+    this.hud.hillMarker(true, x, y, dist, hillColor(this.hillOwner));
+    if (this.phase !== "play") return;
+    // guests: run the rotate clock forward between snapshots (the host owns the real one)
+    if (!this.net.isHost && this.hillSpots.length > 1) {
+      this.hillProgress = Math.min(1, this.hillProgress + dt / HARDPOINT_ROTATE);
+    }
+    // "about to move" cue — every client derives it locally from the synced clock. The
+    // latch re-arms itself once the clock reads fresh again (with hysteresis, so 1 Hz
+    // snapshot jitter around the threshold can't double-fire it).
+    if (this.hillSpots.length > 1) {
+      const leftS = (1 - this.hillProgress) * HARDPOINT_ROTATE;
+      if (leftS > HARDPOINT_WARN + 2) this.hillWarned = false;
+      else if (leftS <= HARDPOINT_WARN && !this.hillWarned) {
+        this.hillWarned = true;
+        this.hud.banner(`Hardpoint moving in ${Math.ceil(leftS)}s`, 1800);
+        sfx.hillWarn();
+      }
+    }
+  }
+
   // ─── net wiring ─────────────────────────────────────────────────────────────
 
   wireNet(): void {
@@ -3184,6 +3462,7 @@ class Game {
         break;
       }
       case "shot": {
+        this.clearProt(m.id); // they fired → spawn protection over (mirrored on every client)
         const r = this.remotes.get(m.id);
         const o: Vec3 = { x: m.o[0], y: m.o[1], z: m.o[2] };
         const d: Vec3 = { x: m.d[0], y: m.d[1], z: m.d[2] };
@@ -3215,6 +3494,7 @@ class Game {
         break;
       }
       case "nade": {
+        this.clearProt(m.id); // they threw → spawn protection over
         this.nades.throw_(m.k, { x: m.o[0], y: m.o[1], z: m.o[2] }, { x: m.v[0], y: m.v[1], z: m.v[2] }, m.id, false);
         sfx.nadeThrow();
         if (this.net.isHost) this.net.broadcast(m, fromId);
@@ -3255,6 +3535,7 @@ class Game {
         break;
       }
       case "portal": {
+        this.clearProt(m.id); // they placed a portal → spawn protection over
         // render-only mirror of a remote player's portal (no collision/traversal here —
         // traversal is resolved by the owner and arrives through the position stream)
         this.portals.place(m.id, m.s, { x: m.o[0], y: m.o[1], z: m.o[2] }, { x: m.n[0], y: m.n[1], z: m.n[2] }, false);
@@ -3291,9 +3572,10 @@ class Game {
         break;
       }
       case "role": {
-        // host → me: prop-hunt role for this round
+        // host → me: prop-hunt role + disguise roll for this round
         this.myRole = m.role;
         this.teams[this.net.myId] = m.role;
+        this.props[this.net.myId] = m.prop;
         if (this.inGame && this.alive) this.applyLoadout();
         break;
       }
@@ -3301,6 +3583,11 @@ class Game {
         // host → me: gungame tier changed
         this.tiers[this.net.myId] = m.tier;
         if (this.inGame && this.mode === "gungame") this.applyTier(m.tier);
+        break;
+      }
+      case "hill": {
+        // host → all: the hardpoint relocated (crisp cue — the 1Hz snapshot backs it up)
+        if (!this.net.isHost) this.applyHillMove(m.i);
         break;
       }
       case "plat": {
@@ -3352,7 +3639,6 @@ class Game {
       this.portals.clearOwner(m.v); // portals die with their owner (every client sees the kill)
       if (m.v === this.net.myId) {
         this.alive = false;
-        this.lastWeapon = this.ws.current; // remember it so respawn re-equips the same gun
         this.selfOperator?.markDead(m.hs === 1); // pick the death variant before syncDeath
         this.respawnAt = performance.now() / 1000 + MODES[this.mode].respawn;
         // surface the "choose your next class" strip on the death screen (deploys on respawn)
@@ -3374,6 +3660,8 @@ class Game {
         if (r) { r.markDead(m.hs === 1); r.alive = false; }
       }
     } else if (m.t === "spawn") {
+      // fresh life → spawn protection (all clients track it; host enforces the damage gate)
+      this.prot[m.id] = performance.now() / 1000 + SPAWN_PROT;
       if (m.id === this.net.myId) {
         this.alive = true;
         this.myHp = MAX_HP;
@@ -3837,6 +4125,15 @@ class Game {
         // nothing believed in view → patrol a slowly-drifting heading
         bot.strafeCd -= dt;
         if (bot.strafeCd <= 0) { bot.wanderYaw += (Math.random() - 0.5) * 1.2; bot.strafeCd = 1.5 + Math.random() * 2.5; }
+        // hardpoint: an idle bot's patrol leans toward the hill (objective pull) — once
+        // it's standing on the point it wanders in place, holding it. Fights unchanged.
+        if (this.mode === "hardpoint" && this.hillSpots.length) {
+          const h = this.hillSpots[this.hillIndex];
+          const hx = h.x - bot.body.pos.x, hz = h.z - bot.body.pos.z;
+          if (Math.hypot(hx, hz) > HARDPOINT_RADIUS * 0.5) {
+            bot.wanderYaw = approachAngle(bot.wanderYaw, Math.atan2(-hx, -hz), 2.5 * dt);
+          }
+        }
         wishX = -Math.sin(bot.wanderYaw);
         wishZ = -Math.cos(bot.wanderYaw);
       }
@@ -3886,6 +4183,7 @@ class Game {
 
   botTryShoot(bot: BotAI, tgt: Vec3, dist: number, eye: Vec3): void {
     if (bot.reloadCd > 0) return; // mid-reload — can't shoot
+    this.clearProt(bot.id); // a firing bot forfeits its spawn protection like anyone else
     const tune = BOT_TUNING[this.cfg.difficulty];
     const wid = this.botWeapon(bot);
     const def = WEAPONS[wid];
@@ -3957,7 +4255,7 @@ class Game {
 
   /** host: slot a mid-match joiner into the active mode */
   assignLateJoiner(id: string): void {
-    if (this.mode === "tdm") {
+    if (this.mode === "tdm" || this.mode === "hardpoint") {
       let a = 0, b = 0;
       for (const p of this.net.players) {
         if (p.id === id) continue;
@@ -3966,6 +4264,7 @@ class Game {
       this.teams[id] = a <= b ? 0 : 1; // fill the smaller side
     } else if (this.mode === "prophunt") {
       this.teams[id] = ROLE_SEEK; // mid-round joiners hunt
+      this.props[id] ??= (Math.random() * 4096) | 0; // a roll anyway — next round may hide them
     } else if (this.mode === "gungame") {
       this.tiers[id] = this.tiers[id] ?? 0;
     }

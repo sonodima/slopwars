@@ -1,0 +1,155 @@
+{
+  "asset": {
+    "generator": "slopwars-obj2gltf",
+    "version": "2.0"
+  },
+  "scene": 0,
+  "scenes": [
+    {
+      "name": "Root Scene",
+      "nodes": [
+        0
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "name": "RootNode",
+      "children": [
+        1
+      ],
+      "translation": [
+        0,
+        0,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ]
+    },
+    {
+      "name": "PortalGun",
+      "mesh": 0,
+      "translation": [
+        0,
+        0,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ]
+    }
+  ],
+  "materials": [
+    {
+      "name": "PortalGun",
+      "doubleSided": true,
+      "pbrMetallicRoughness": {}
+    }
+  ],
+  "meshes": [
+    {
+      "name": "PortalGun",
+      "primitives": [
+        {
+          "mode": 4,
+          "material": 0,
+          "indices": 0,
+          "attributes": {
+            "POSITION": 1,
+            "NORMAL": 2,
+            "TEXCOORD_0": 3
+          }
+        }
+      ]
+    }
+  ],
+  "buffers": [
+    {
+      "byteLength": 148544,
+      "uri": "wep_portalgun.bin"
+    }
+  ],
+  "bufferViews": [
+    {
+      "buffer": 0,
+      "byteOffset": 0,
+      "byteLength": 24704,
+      "target": 34963
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 24704,
+      "byteLength": 46440,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 71144,
+      "byteLength": 46440,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 117584,
+      "byteLength": 30960,
+      "target": 34962
+    }
+  ],
+  "accessors": [
+    {
+      "bufferView": 0,
+      "byteOffset": 0,
+      "componentType": 5123,
+      "type": "SCALAR",
+      "count": 12351
+    },
+    {
+      "bufferView": 1,
+      "byteOffset": 0,
+      "componentType": 5126,
+      "type": "VEC3",
+      "count": 3870,
+      "min": [
+        -0.935712,
+        -0.40762,
+        -0.928784
+      ],
+      "max": [
+        0.952647,
+        0.635062,
+        1.26154
+      ]
+    },
+    {
+      "bufferView": 2,
+      "byteOffset": 0,
+      "componentType": 5126,
+      "type": "VEC3",
+      "count": 3870
+    },
+    {
+      "bufferView": 3,
+      "byteOffset": 0,
+      "componentType": 5126,
+      "type": "VEC2",
+      "count": 3870
+    }
+  ]
+}

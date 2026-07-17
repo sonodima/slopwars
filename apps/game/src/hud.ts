@@ -427,7 +427,7 @@ export class Hud {
     const kit = c.loadout.map((w) => WEAPONS[w].name).join(" · ");
     const key = n ? `<span class="ck">${n}</span>` : "";
     return `<div class="mode-card class-card${c.id === selectedId ? " on" : ""}" data-class="${c.id}">` +
-      `${key}<div class="mn">${esc(c.name)}</div><div class="mb">${esc(c.blurb)}</div>` +
+      `${key}<div class="mn">${esc(c.name)}</div>` +
       `<span class="kit">${esc(kit)}</span></div>`;
   }
 
@@ -489,6 +489,39 @@ export class Hud {
     el.classList.remove("hidden");
     el.className = kind; // sets color via #hud-role.<kind>
     el.textContent = text;
+  }
+
+  /** hardpoint capture-state line (CAPTURING / CONTESTED / …), tinted by the hill's
+   *  holder. Empty text hides. */
+  private hillSig = "";
+  hardpointHud(text: string, color: number): void {
+    const el = $("hud-hill");
+    if (!text) { el.classList.add("hidden"); this.hillSig = ""; return; }
+    // called every frame — skip the DOM writes unless something actually changed
+    const sig = `${color}|${text}`;
+    if (sig === this.hillSig) return;
+    this.hillSig = sig;
+    el.classList.remove("hidden");
+    el.style.color = hex(color);
+    el.style.borderColor = hex(color);
+    el.textContent = text;
+  }
+
+  /** world-anchored hardpoint waypoint: `x`/`y` are viewport fractions (already
+   *  edge-clamped by the caller), `dist` metres to the hill, tinted by its holder.
+   *  Position updates per-frame like the nametags; text only when it changes. */
+  private hillMarkSig = "";
+  hillMarker(on: boolean, x = 0, y = 0, dist = 0, color = 0xffffff): void {
+    const el = $("hill-marker");
+    el.classList.toggle("hidden", !on);
+    if (!on) { this.hillMarkSig = ""; return; }
+    el.style.left = `${(x * 100).toFixed(2)}%`;
+    el.style.top = `${(y * 100).toFixed(2)}%`;
+    const sig = `${color}|${Math.round(dist)}`;
+    if (sig === this.hillMarkSig) return;
+    this.hillMarkSig = sig;
+    el.style.color = hex(color);
+    $("hill-marker-t").textContent = `${Math.round(dist)}m`;
   }
 
   /** gun-game tier + current weapon. tier < 0 hides. */
@@ -631,12 +664,10 @@ export class Hud {
       if (!this.deployMode) return; // don't touch the overlay when a real death owns it
       this.deployMode = false;
       $("respawn").classList.add("hidden");
-      $("rd-sub-when").textContent = "deploys on respawn";
       return;
     }
     this.deployMode = true;
     $("respawn").classList.remove("hidden");
-    $("rd-sub-when").textContent = "deploys now"; // a pick during the freeze applies immediately
     // suppress the centred count during deploy — the top HUD clock owns the countdown
     document.querySelector(".respawn-count")?.classList.add("hidden");
   }
