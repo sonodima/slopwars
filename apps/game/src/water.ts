@@ -395,8 +395,9 @@ function mirrorY(h: number, out: Matrix): void {
 
 /** Lengyel oblique near-plane: warp `proj` (in place) so its near plane becomes
  *  `c` (a clip plane in VIEW space, camera on the negative side). Keeps the far
- *  plane roughly intact; standard planar-reflection clipping. */
-function makeOblique(proj: Matrix, cx: number, cy: number, cz: number, cw: number): void {
+ *  plane roughly intact; standard planar-reflection clipping. Exported for the
+ *  portal see-through camera (portals.ts), which clips at the exit portal plane. */
+export function makeOblique(proj: Matrix, cx: number, cy: number, cz: number, cw: number): void {
   const m = proj.elements;
   const sgn = (v: number): number => (v > 0 ? 1 : v < 0 ? -1 : 0);
   const qx = (sgn(cx) + m[8]) / m[0];

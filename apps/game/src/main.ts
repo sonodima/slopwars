@@ -430,7 +430,7 @@ class Game {
     this.nades.onFireTick = (c, _owner, local) => { if (local) this.fireTickDamage(c); };
     this.nades.onFlash = (p) => this.onFlashDetonate(p);
     this.nades.onSmoke = (p) => { const r = this.relAudio(p); sfx.nadeBounce(r.pan, r.dist); };
-    this.portals = new Portals(engine, root, (p) => this.relAudio(p));
+    this.portals = new Portals(engine, root, this.camera, (p) => this.relAudio(p));
     this.portals.onTraverse = () => sfx.portalEnter();
     this.portals.onExpire = (s) => { // owner announces natural expiry (death/leave are inferred)
       const m: Msg = { t: "pgone", id: this.net.myId, s };
