@@ -164,7 +164,7 @@ export function createMcp({ root, bridge }: Deps): { handle: (msg: any) => Promi
       inputSchema: { type: "object", properties: {
         name: { type: "string" }, base: { type: "number" }, scale: { type: "number" },
         materials: { type: "object", description: "per-slot material map { glTF-material-slot-name: materialName }; this is what the renderer uses for multi-material models" },
-        material: { type: "string", description: "legacy: one material applied to every slot; prefer `materials`" },
+        material: { type: "string", description: "one material applied to every surface `materials` doesn't cover (the only way to shade a slot-less .glb); prefer `materials` when the model has named slots" },
         baseRot: V3,
         collision: { type: "string", enum: ["auto", "manual"] },
         collisionBoxes: { type: "array", items: { type: "object", properties: {

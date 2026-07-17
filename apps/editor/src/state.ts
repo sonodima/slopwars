@@ -107,7 +107,6 @@ class EditorState {
 
   /** open a map as a new document with the given id, and make it active. */
   openDocument(id: string, map: MapDef, fileId: string): void {
-    migrateGroups(map);   // give legacy (transform-less) groups a pivot + local children
     this.stashActive();
     const d: DocState = {
       id, map, fileId, dirty: false,
@@ -480,41 +479,5 @@ function snapshotOf(map: MapDef, selection: Placement[]): Snapshot {
 /** round a tuple to 2 decimals (matches the viewport's transform rounding) */
 function round3(t: Tuple3): Tuple3 { return [r2(t[0]), r2(t[1]), r2(t[2])]; }
 function r2(n: number): number { return Math.round(n * 100) / 100; }
-
-/** One-time upgrade of legacy (transform-less) groups to first-class parents: give
- *  each group a pivot at its members' world centroid and rebase every member (and
- *  nested group) into that group's local space. A legacy map stores members in
- *  absolute coordinates with no group transform; after this they compose back to
- *  the exact same world positions, so nothing moves — but the group can now be
- *  transformed as a unit. Idempotent: skips maps whose groups already have a pivot. */
-function migrateGroups(map: MapDef): void {
-  const groups = map.groups ?? [];
-  if (!groups.length || groups.every((g) => g.at !== undefined)) return;
-
-  // world centroid of each group from the (still absolute) member positions
-  const centroid = new Map<string, Tuple3>();
-  for (const g of groups) {
-    const m = groupMembers(map, g.id, true);
-    if (!m.length) { centroid.set(g.id, [0, 0, 0]); continue; }
-    let x = 0, y = 0, z = 0;
-    for (const o of m) { x += o.at[0]; y += o.at[1]; z += o.at[2]; }
-    centroid.set(g.id, [x / m.length, y / m.length, z / m.length]);
-  }
-  // rebase members to their immediate group's local space (pure translation, since
-  // migrated group transforms are identity-rotation/scale)
-  for (const o of map.objects) {
-    if (!o.group) continue;
-    const c = centroid.get(o.group); if (!c) continue;
-    o.at = [r2(o.at[0] - c[0]), r2(o.at[1] - c[1]), r2(o.at[2] - c[2])];
-  }
-  // give each group its pivot (relative to its parent's pivot)
-  for (const g of groups) {
-    const c = centroid.get(g.id) ?? [0, 0, 0];
-    const pc = g.parent ? (centroid.get(g.parent) ?? [0, 0, 0]) : [0, 0, 0];
-    g.at = [r2(c[0] - pc[0]), r2(c[1] - pc[1]), r2(c[2] - pc[2])];
-    g.rot = [0, 0, 0];
-    g.scale = [1, 1, 1];
-  }
-}
 
 export const state = new EditorState();

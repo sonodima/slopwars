@@ -86,8 +86,8 @@ export interface ModelMeta {
    *  a slot left out keeps whatever the glTF authored (e.g. a transparent glass part).
    *  Every model ships calibrated so each opaque slot points at its own material. */
   materials?: Record<string, string>;
-  /** legacy single-material field — applied to EVERY surface when `materials` doesn't
-   *  cover a slot. Kept only so old metas still load; the editor writes `materials`. */
+  /** single material applied to EVERY surface `materials` doesn't cover — the way to
+   *  shade a model with no named slots (a .glb, whose materials aren't scanned). */
   material?: string;
   /** collision derivation mode (default "auto"). "manual" uses `collisionBoxes`. */
   collision?: CollisionMode;
@@ -115,7 +115,7 @@ export interface ModelAsset {
 }
 
 /** the material asset a given glTF slot should render with (undefined → keep the glTF
- *  material). Prefers the per-slot `materials` map, falling back to the legacy single
+ *  material). Prefers the per-slot `materials` map, falling back to the all-surfaces
  *  `material`. Shared by the game renderer and the editor preview so both agree. */
 export function modelSlotMaterial(meta: ModelMeta | undefined, slot: string): string | undefined {
   if (!meta) return undefined;
@@ -179,8 +179,8 @@ export interface AssetCatalog {
 }
 
 /** map summary produced by scanning the maps/ directory (for the pool + editor picker).
- *  A map is either a flat `maps/<id>.json` file or a `maps/<id>/` folder holding the map
- *  JSON (map.json / <id>.json) plus an optional `preview.json` listing screenshots. */
+ *  A map is a `maps/<id>/` folder holding the map JSON (map.json / <id>.json) plus any
+ *  screenshot images (`preview.*` first, then the rest alphabetically). */
 export interface MapCatalogEntry {
   id: string;
   name: string;
