@@ -427,7 +427,7 @@ export class Hud {
     const kit = c.loadout.map((w) => WEAPONS[w].name).join(" · ");
     const key = n ? `<span class="ck">${n}</span>` : "";
     return `<div class="mode-card class-card${c.id === selectedId ? " on" : ""}" data-class="${c.id}">` +
-      `${key}<div class="mn">${esc(c.name)}</div><div class="mb">${esc(c.blurb)}</div>` +
+      `${key}<div class="mn">${esc(c.name)}</div>` +
       `<span class="kit">${esc(kit)}</span></div>`;
   }
 
@@ -631,12 +631,10 @@ export class Hud {
       if (!this.deployMode) return; // don't touch the overlay when a real death owns it
       this.deployMode = false;
       $("respawn").classList.add("hidden");
-      $("rd-sub-when").textContent = "deploys on respawn";
       return;
     }
     this.deployMode = true;
     $("respawn").classList.remove("hidden");
-    $("rd-sub-when").textContent = "deploys now"; // a pick during the freeze applies immediately
     // suppress the centred count during deploy — the top HUD clock owns the countdown
     document.querySelector(".respawn-count")?.classList.add("hidden");
   }

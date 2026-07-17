@@ -40,7 +40,7 @@ const WEAPON_MODEL: Record<WeaponId, string> = {
   mol: "wep_molotov",
   flash: "wep_flashbang",
   smoke: "wep_smoke",
-  portalgun: "wep_grease", // placeholder mesh until a dedicated glTF lands (ROADMAP §3.1)
+  portalgun: "wep_portalgun", // Portal 2 ASHPD device (CC OBJ, converted to geometry-only glTF)
 };
 
 /** a full ammo table for every weapon, seeded from each def's mag/reserve. Throwables
