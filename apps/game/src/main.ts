@@ -23,6 +23,7 @@ import {
 import { KeyAction, weaponSlot } from "./keybinds";
 import { FLASH_RADIUS, HE_DAMAGE, HE_RADIUS, MOL_RADIUS, MOL_TICK_DMG, NadeKind, Projectiles } from "./nades";
 import { Net } from "./net";
+import { PORTAL_GAP, PORTAL_HALF_H, Portals } from "./portals";
 import { PhysicsWorld, type PropSim } from "./physics";
 import { PhysxProps, createGameEngine } from "./physxprops";
 import { Input, PlayerBody } from "./player";
@@ -168,6 +169,8 @@ class Game {
   lastWeapon: WeaponId | null = null; // weapon held at death — reselected on respawn
   tracers!: TracerPool;
   nades!: Projectiles;
+  portals!: Portals;
+  portalSlot: 0 | 1 = 0; // colour the next portal shot places (alternates blue ⇄ orange)
   // dynamic-prop simulation — PhysX rigid bodies when available, else the custom
   // fallback. Starts as the fallback; init() swaps in PhysX after the engine is up.
   physics: PropSim = new PhysicsWorld(this.map);
@@ -412,7 +415,8 @@ class Game {
     void this.applyWeaponMaterials();   // texture the geometry-only gun viewmodels (async; pops in)
     void this.ensureDisguiseMaterials(); // texture the Prop-Hunt disguise props (async; ready well before any match)
     this.ws.onShoot = (def, spread) => {
-      if (def.throwable) this.throwNade(def.id as NadeKind);
+      if (def.portal) this.firePortal();
+      else if (def.throwable) this.throwNade(def.id as NadeKind);
       else this.fireHitscan(def, spread);
     };
     this.ws.onAmmoChange = () => this.refreshAmmoHud();
@@ -426,6 +430,18 @@ class Game {
     this.nades.onFireTick = (c, _owner, local) => { if (local) this.fireTickDamage(c); };
     this.nades.onFlash = (p) => this.onFlashDetonate(p);
     this.nades.onSmoke = (p) => { const r = this.relAudio(p); sfx.nadeBounce(r.pan, r.dist); };
+    this.portals = new Portals(engine, root, (p) => this.relAudio(p));
+    this.portals.onTraverse = () => sfx.portalEnter();
+    this.portals.onExpire = (s) => { // owner announces natural expiry (death/leave are inferred)
+      const m: Msg = { t: "pgone", id: this.net.myId, s };
+      if (this.net.isHost) this.net.broadcast(m); else this.net.send(m);
+    };
+    this.nades.onPortalRoute = (owner, pos, vel, step) => {
+      if (!this.portals.routeProjectile(owner, pos, vel, step)) return false;
+      const r = this.relAudio(pos); // pos is the exit side now
+      sfx.portalEnter(r.pan, r.dist);
+      return true;
+    };
 
     window.addEventListener("beforeunload", (e) => {
       // warn before an accidental navigation/close mid-match (skipped on an
@@ -459,6 +475,7 @@ class Game {
     this.ws.prewarm();
     this.tracers.prewarm();
     this.nades.prewarm();
+    this.portals.prewarm();
 
     this.hud.show("menu");
     this.enterMenu();   // 3D showcase backdrop behind the create/join menu
@@ -1666,6 +1683,9 @@ class Game {
       const back = inp.fwd < -0.01, sideDom = Math.abs(inp.right) > Math.abs(inp.fwd) + 0.01;
       const dirFactor = sideDom ? MOVE_STRAFE_FACTOR : back ? MOVE_BACK_FACTOR : 1;
       this.body.update(dt, canPlay ? inp : { fwd: 0, right: 0, jump: false, sprint: false }, this.ws.def().moveFactor * speedBuff * this.cfg.speed * dirFactor);
+      // own-portal traversal — before firing + the camera transform so a shot taken and
+      // the view this frame both use the exit-side position/yaw
+      if (canPlay) this.portals.tryTraverse(this.body, inp.fwd, inp.right, now);
 
       if (this.body.jumped) sfx.jump();
       if (this.body.landed) sfx.land();
@@ -1686,6 +1706,8 @@ class Game {
       this.ws.update(dt, moving, this.body.onGround);
       this.tracers.update(dt);
       this.nades.update(dt, now);
+      const camP = this.camEntity.transform.worldPosition;
+      this.portals.update(dt, now, { x: camP.x, y: camP.y, z: camP.z });
       // dynamic props: integrate after the player has moved so walking into a light
       // prop can shove it (and a heavy one blocks). No-op when the map has none.
       this.physics.step(dt, this.alive ? this.body : null);
@@ -1899,9 +1921,13 @@ class Game {
     const wallHit = this.map.raycast(o, d, def.range);
     const wallDist = wallHit ? wallHit.dist : def.range;
 
-    // nearest victim before the wall
+    // own-portal hop: if the ray reaches one of the shooter's portals before anything
+    // solid, it re-emits from the linked portal (one hop, sharing the wallbang depth cap)
+    const ph = depth === 0 ? this.portals.rayThrough(shooterId, o, d, wallDist) : null;
+
+    // nearest victim before the wall (or the portal — a body in front of it takes the hit)
     let victim: RemotePlayer | null = null;
-    let vDist = wallDist;
+    let vDist = ph ? ph.dist : wallDist;
     let vHead = false;
     for (const r of this.remotes.values()) {
       const h = r.hitTest(o, d, vDist);
@@ -1953,6 +1979,14 @@ class Game {
         this.showDamage(victim.id, dmg, vHead, { x: o.x + d.x * vDist, y: o.y + d.y * vDist, z: o.z + d.z * vDist });
         this.reportHit(victim.id, dmg, vHead, def.id);
       }
+      return;
+    }
+
+    if (ph) {
+      // through the rift: the tracer above already ends at the portal face; continue
+      // from the linked portal with the direction rotated into its frame. baseDist
+      // keeps accumulating so damage falloff spans the whole flight.
+      this.resolveRay(ph.o2, ph.d2, def, dmgScale, shooterId, localShooter, 1, baseDist + ph.dist, ph.o2);
       return;
     }
 
@@ -2036,6 +2070,33 @@ class Game {
       }
     };
     window.setTimeout(release, THROW_WINDUP_MS);
+  }
+
+  // ─── portals ────────────────────────────────────────────────────────────────
+
+  /** portal-gun trigger pull: raycast the aim onto a surface and place the next colour
+   *  there (blue → orange → blue …; the third of a colour replaces its predecessor via
+   *  Portals.place). Owner-authoritative — spawn locally, then mirror to everyone for
+   *  rendering (host relays, like a thrown nade). No surface in range = a fail cue. */
+  firePortal(): void {
+    const o: Vec3 = { x: this.body.pos.x, y: this.body.eyeY, z: this.body.pos.z };
+    const d = this.body.aimDir();
+    const hit = this.map.raycast(o, d, WEAPONS.portalgun.range);
+    if (!hit) { sfx.portalFail(); return; }
+    const n = hit.normal;
+    const c: Vec3 = {
+      x: o.x + d.x * hit.dist + n.x * PORTAL_GAP,
+      y: o.y + d.y * hit.dist + n.y * PORTAL_GAP,
+      z: o.z + d.z * hit.dist + n.z * PORTAL_GAP,
+    };
+    // a wall shot at the skirting would sink half the oval underground — lift it clear
+    if (Math.abs(n.y) < 0.5) c.y = Math.max(c.y, this.map.floorY(c.x, c.z) + PORTAL_HALF_H * 0.9);
+    const s = this.portalSlot;
+    this.portalSlot = s === 0 ? 1 : 0;
+    this.portals.place(this.net.myId, s, c, n, true);
+    sfx.portalFire(s);
+    const m: Msg = { t: "portal", id: this.net.myId, s, o: [c.x, c.y, c.z], n: [n.x, n.y, n.z] };
+    if (this.net.isHost) this.net.broadcast(m); else this.net.send(m);
   }
 
   /** area damage from a blast at `c`. `cause` attributes the kill — a thrown HE
@@ -2662,6 +2723,7 @@ class Game {
 
   enterEnd(): void {
     this.inGame = false;
+    this.portals.clear(); // update() stops with the match — don't leave frozen rings behind
     if (this.selfAvatar) this.selfAvatar.isActive = false;
     if (this.selfOperator) this.selfOperator.entity.isActive = false;
     document.body.classList.remove("hider", "weplock");
@@ -2690,6 +2752,7 @@ class Game {
    *  env, pickups & powerups. async — textures/HDRI load (cached) per map. */
   async loadMap(id: string): Promise<void> {
     // tear down old pickup/powerup visuals (map geometry is torn down by map.load)
+    if (this.portals) this.portals.clear(); // (undefined during the boot-time first load)
     for (const e of this.pkEntities) e.destroy();
     for (const e of this.pwEntities) e.destroy();
     this.pkEntities = [];
@@ -2974,6 +3037,7 @@ class Game {
     n.onPeerLeave = (id) => {
       const r = this.remotes.get(id);
       if (r) { r.entity.destroy(); this.remotes.delete(id); }
+      this.portals.clearOwner(id);
       delete this.hpMap[id];
       delete this.platforms[id];
       this.voice.drop(id);
@@ -3057,6 +3121,7 @@ class Game {
         this.net.players = this.net.players.filter((p) => p.id !== m.id);
         const r = this.remotes.get(m.id);
         if (r) { r.entity.destroy(); this.remotes.delete(m.id); }
+        this.portals.clearOwner(m.id);
         delete this.platforms[m.id];
         this.voice.drop(m.id);
         this.refreshLobby();
@@ -3157,6 +3222,20 @@ class Game {
         this.applyPwTake(m.i, m.who, m.k);
         break;
       }
+      case "portal": {
+        // render-only mirror of a remote player's portal (no collision/traversal here —
+        // traversal is resolved by the owner and arrives through the position stream)
+        this.portals.place(m.id, m.s, { x: m.o[0], y: m.o[1], z: m.o[2] }, { x: m.n[0], y: m.n[1], z: m.n[2] }, false);
+        const r = this.relAudio({ x: m.o[0], y: m.o[1], z: m.o[2] });
+        sfx.portalFire(m.s, r.pan, r.dist);
+        if (this.net.isHost) this.net.broadcast(m, fromId);
+        break;
+      }
+      case "pgone": {
+        this.portals.remove(m.id, m.s); // idempotent — our own 45 s clock may have beaten it
+        if (this.net.isHost) this.net.broadcast(m, fromId);
+        break;
+      }
       case "mapvote": {
         if (this.net.isHost) { this.mapVotes[fromId] = m.map; this.broadcastVotes(); }
         break;
@@ -3238,6 +3317,7 @@ class Game {
       }
     } else if (m.t === "kill") {
       this.hud.kill(this.names.get(m.k) ?? "?", this.names.get(m.v) ?? "?", m.w, m.hs === 1);
+      this.portals.clearOwner(m.v); // portals die with their owner (every client sees the kill)
       if (m.v === this.net.myId) {
         this.alive = false;
         this.lastWeapon = this.ws.current; // remember it so respawn re-equips the same gun
@@ -3265,6 +3345,7 @@ class Game {
       if (m.id === this.net.myId) {
         this.alive = true;
         this.myHp = MAX_HP;
+        this.portalSlot = 0; // fresh life starts its pair from blue
         this.body.teleport({ x: m.p[0], y: m.p[1], z: m.p[2] }, m.yaw);
         this.ws.ammo.usp = { mag: 12, reserve: 48 };
         this.ws.ammo.ak47 = { mag: 30, reserve: 90 };
@@ -3372,6 +3453,7 @@ class Game {
    *  dead — movement / fire / look all gate on phase === "play". */
   enterDeploy(): void {
     sfx.stopInterlude();
+    this.portals.clear(); // stale pairs never carry across rounds (same-map reloads skip loadMap)
     this.hud.banner(`${MODES[this.mode].name} · Round ${this.round}`);
     this.hud.respawnDeploy(this.classPickable(), this.settings.state.loadoutClass);
     if (this.myPlatform === "keyboard" && this.classPickable()) {
@@ -3825,7 +3907,8 @@ class Game {
    *  range-based swapping and the close-quarters reload fallback keep working. The primary
    *  stays first, which is what the bot spawns holding. */
   botArsenal(): WeaponId[] {
-    const set = new Set<WeaponId>(CLASSES[randomClass()].loadout.filter((w) => !WEAPONS[w].throwable));
+    // no throwables, and no portal gun — bots don't place or use portals
+    const set = new Set<WeaponId>(CLASSES[randomClass()].loadout.filter((w) => !WEAPONS[w].throwable && !WEAPONS[w].portal));
     set.add("usp"); set.add("knife");
     return [...set];
   }

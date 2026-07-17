@@ -40,6 +40,7 @@ const WEAPON_MODEL: Record<WeaponId, string> = {
   mol: "wep_molotov",
   flash: "wep_flashbang",
   smoke: "wep_smoke",
+  portalgun: "wep_grease", // placeholder mesh until a dedicated glTF lands (ROADMAP §3.1)
 };
 
 /** a full ammo table for every weapon, seeded from each def's mag/reserve. Throwables
@@ -209,6 +210,14 @@ export class WeaponSystem {
     const d = this.def();
     const a = this.ammo[this.current];
     if (this.cooldown > 0 || this.reloading > 0 || this.drawTimer > 0) return false;
+    if (d.portal) {
+      // portal gun: never dry, no flash/recoil — the shot itself (placement raycast,
+      // blue/orange alternation, fire vs fail cue) is resolved by main.firePortal.
+      this.cooldown = (60 / d.rpm) * this.fireRateMult;
+      this.kick = 0.07;
+      this.onShoot?.(d, 0);
+      return true;
+    }
     if (!d.melee && a.mag <= 0) { if (!d.throwable) this.reload(); return false; }
 
     this.cooldown = (60 / d.rpm) * this.fireRateMult;
@@ -268,7 +277,8 @@ export class WeaponSystem {
 
     // keep the weapon-mounted ammo counter in step (it redraws only when the readout changes)
     const d = this.def(), a = this.ammo[this.current];
-    this.ammoTag.set(a.mag, a.reserve, this.reloading > 0, !!d.melee, !!d.throwable, d.mag);
+    // the portal gun reads as melee here (∞ readout) — it has no magazine to count
+    this.ammoTag.set(a.mag, a.reserve, this.reloading > 0, !!d.melee || !!d.portal, !!d.throwable, d.mag);
   }
 
   // ─── visuals ────────────────────────────────────────────────────────────────

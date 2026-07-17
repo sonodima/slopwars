@@ -77,6 +77,10 @@ export class Projectiles {
   onFlash: ((p: Vec3) => void) | null = null;
   /** a smoke grenade deployed at `p` (for its pop sfx) */
   onSmoke: ((p: Vec3) => void) | null = null;
+  /** called at the top of every fixed step per nade: the portal system may translate
+   *  pos + vel through the owner's portal pair in place (returns true when it did) —
+   *  the projectile crosses seamlessly instead of bouncing off the wall behind it */
+  onPortalRoute: ((owner: string, pos: Vec3, vel: Vec3, step: number) => boolean) | null = null;
 
   private nades: Nade[] = [];
   private fires: Fire[] = [];
@@ -277,6 +281,8 @@ export class Projectiles {
       const n = this.nades[i];
       n.life += STEP;
       n.fuse -= STEP;
+      // portal crossing first — it must beat the bounce off the wall behind the portal
+      this.onPortalRoute?.(n.owner, n.pos, n.vel, STEP);
       n.vel.y -= 14 * STEP;
 
       let bounced = false;

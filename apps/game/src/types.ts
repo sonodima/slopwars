@@ -122,7 +122,7 @@ export function randomPowerup(): PowerupKind {
 
 export type WeaponId =
   | "knife" | "usp" | "ak47" | "awp" | "he" | "mol"
-  | "m4a1" | "shotgun" | "grease" | "suomi" | "luger" | "flash" | "smoke";
+  | "m4a1" | "shotgun" | "grease" | "suomi" | "luger" | "flash" | "smoke" | "portalgun";
 
 /** Loadout slot a weapon occupies. Drives the class system (one pick per slot) and the
  *  order weapons appear on the HUD / weapon wheel. `utility` holds throwables (a class may
@@ -155,6 +155,7 @@ export interface WeaponDef {
   scope?: boolean;
   melee?: boolean;
   throwable?: boolean;
+  portal?: boolean; // fires portal placements (portals.ts) instead of rays/projectiles
   auto: boolean;
 }
 
@@ -224,12 +225,20 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     reserve: 0, reloadTime: 0, spread: 0, spreadMove: 0, recoil: 0,
     penetration: 0, penDamageKeep: 0, falloff: [999, 1000, 1], range: 0, moveFactor: 1.05, throwable: true, auto: false,
   },
+  // fires no rays: each trigger pull places the next portal of the blue/orange pair
+  // (see main.firePortal / portals.ts). `range` is the placement raycast reach; the
+  // -1 mag is the melee-style "infinite" sentinel — a portal gun never runs dry.
+  portalgun: {
+    id: "portalgun", name: "Portal Gun", category: "utility", damage: 0, headMult: 1, rpm: 75, mag: -1,
+    reserve: -1, reloadTime: 0, spread: 0, spreadMove: 0, recoil: 0,
+    penetration: 0, penDamageKeep: 0, falloff: [999, 1000, 1], range: 48, moveFactor: 1.05, portal: true, auto: false,
+  },
 };
 
 /** every weapon that exists, in canonical order (viewmodels + weapon-wheel ordering).
  *  A player's *active* inventory is a per-class subset — see classes.ts / WeaponSystem. */
 export const ALL_WEAPONS: WeaponId[] = [
-  "knife", "usp", "luger", "ak47", "m4a1", "suomi", "grease", "shotgun", "awp", "he", "mol", "flash", "smoke",
+  "knife", "usp", "luger", "ak47", "m4a1", "suomi", "grease", "shotgun", "awp", "he", "mol", "flash", "smoke", "portalgun",
 ];
 
 /** the default inventory used before a class is applied (and by the gungame ladder /
@@ -307,6 +316,8 @@ export type Msg =
   | { t: "bexp"; i: number }              // host → all: barrel i exploded
   | { t: "pwspawn"; i: number; k: PowerupKind }              // host → all: powerup i appeared
   | { t: "pwtake"; i: number; who: string; k: PowerupKind }  // host → all: player took powerup i
+  | { t: "portal"; id: string; s: 0 | 1; o: [number, number, number]; n: [number, number, number] } // player id placed portal s (0 blue / 1 orange) at o with surface normal n
+  | { t: "pgone"; id: string; s: 0 | 1 }                     // player id's portal s expired (death/leave are inferred locally)
   | { t: "mapvote"; map: string }                            // guest → host: vote for next map
   | { t: "votes"; counts: Record<string, number> }           // host → all: live vote tally
   | { t: "mode"; mode: ModeId }                              // host → all: lobby mode selection
