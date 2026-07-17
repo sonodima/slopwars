@@ -873,6 +873,7 @@ class Game {
     this.selfOperator = new RemotePlayer(
       this.engine, root, "self", this.names.get(this.net.myId) ?? "", this.net.colorOf(this.net.myId), this.models,
     );
+    if (this.weaponLib) this.selfOperator.setWeaponLibrary(this.weaponLib);
     return this.selfOperator;
   }
 
@@ -1044,6 +1045,10 @@ class Game {
 
   /** the disguise-prop pool for the current map (models flagged usable for prop hunt) */
   private propPool: string[] = propHuntPool();
+  /** material library the third-person held weapons shade against (built by
+   *  applyWeaponMaterials; null until its textures resolve) */
+  private weaponLib: MaterialLibrary | null = null;
+
   /** material library the Prop-Hunt disguises shade against (built once; see ensureDisguiseMaterials) */
   private disguiseLib: MaterialLibrary | null = null;
 
@@ -2687,6 +2692,11 @@ class Game {
     // the thrown-grenade models (wep_frag / wep_molotov) are among these weapon models,
     // so the same library shades the projectiles a player throws.
     this.nades.setMaterialLibrary(lib);
+    // remotes hold the SAME weapon models in third person — shade them against this
+    // library too, or the gun in everyone else's hands renders untextured.
+    this.weaponLib = lib;
+    for (const r of this.remotes.values()) r.setWeaponLibrary(lib);
+    this.selfOperator?.setWeaponLibrary(lib);
   }
 
   /** shade the Prop-Hunt disguise props with their models' assigned MAIN materials.
@@ -2964,6 +2974,7 @@ class Game {
     let r = this.remotes.get(id);
     if (!r) {
       r = new RemotePlayer(this.engine, this.engine.sceneManager.activeScene.getRootEntity()!, id, name, this.net.colorOf(id), this.models);
+      if (this.weaponLib) r.setWeaponLibrary(this.weaponLib);
       this.remotes.set(id, r);
     }
     return r;

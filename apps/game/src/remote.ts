@@ -13,7 +13,7 @@ import {
 import { modelAnchor } from "@slopwars/shared";
 import { AABB, rayAABB } from "./map";
 import { GameModels, buildProp, instantiate, modelMetaOf } from "./models";
-import type { MaterialLibrary } from "./materials";
+import { shadeModelSlots, type MaterialLibrary } from "./materials";
 import { INTERP_DELAY, PlayerState, Vec3, WeaponId, clamp } from "./types";
 
 interface Sample { time: number; p: [number, number, number]; yaw: number; pitch: number; g?: boolean }
@@ -40,10 +40,13 @@ const TP_WEAPON: Partial<Record<WeaponId, string>> = {
 };
 
 // The weapon is parented to `mixamorig:RightHand` so it follows the arm through every
-// clip. Each model seats by its own meta scale (its authored orientation already faces
-// forward); the hand-bone's rest frame differs from that forward frame, so a fixed
-// correction rotates the weapon into the hand's aim frame. Tuned once; shared by all.
-const TP_HAND_ROT: [number, number, number] = [-87, -155, 59];
+// clip. Every weapon's geometry sits barrel-down-−Z / top-up-+Y in the mount's frame
+// (some glTFs carry their own root rotation, but their `muzzle` anchors — authored in
+// this same frame — all point −Z, so the mount frame is uniform across the set). The
+// hand bone's frame differs from that, so this fixed correction rotates the weapon into
+// the hand's aim frame. Measured against the operator's weapon-hold pose: it puts the
+// barrel on the avatar's facing (dot 0.99) with the gun's top up (dot 0.99).
+const TP_HAND_ROT: [number, number, number] = [90, 90, 0];
 // small extra offset (metres, hand frame) to seat the weapon in the palm rather than
 // dead-centre on the bone pivot.
 const TP_HAND_OFFSET: [number, number, number] = [0, 0, 0];
@@ -116,7 +119,7 @@ export class RemotePlayer {
   private handBone: Entity | null = null;
   private heldWeapon: WeaponId | null = null;
   private heldEntity: Entity | null = null;
-  private weaponMat: BlinnPhongMaterial;
+  private weaponLib: MaterialLibrary | null = null;  // shades the held weapon's slot materials
 
   private disguise: Entity | null = null;   // prop-hunt disguise prop (built lazily)
   private disguiseModel: string | null = null;  // which model the current disguise is
@@ -143,9 +146,6 @@ export class RemotePlayer {
     this.engine = engine;
     this.models = models;
     this.entity = parent.createChild("rp-" + id);
-
-    this.weaponMat = new BlinnPhongMaterial(engine);
-    this.weaponMat.baseColor = new Color(0.08, 0.08, 0.09, 1);
 
     const char = instantiate(models[CHARACTER_MODEL]);
     if (char) this.buildCharacter(char);
@@ -252,6 +252,16 @@ export class RemotePlayer {
 
   // ── held weapon ─────────────────────────────────────────────────────────────
 
+  /** the library the held weapon shades against. It loads async at startup (see
+   *  main.applyWeaponMaterials), so a weapon built before it was ready is re-shaded
+   *  here rather than staying untextured. */
+  setWeaponLibrary(lib: MaterialLibrary): void {
+    if (this.weaponLib === lib) return;
+    this.weaponLib = lib;
+    const folder = this.heldWeapon ? TP_WEAPON[this.heldWeapon] : undefined;
+    if (this.heldEntity && folder) shadeModelSlots(this.heldEntity, modelMetaOf(folder), lib);
+  }
+
   /** rebuild the hand weapon when the player's current weapon changes */
   private syncWeapon(): void {
     if (this.weapon === this.heldWeapon) return;
@@ -269,12 +279,13 @@ export class RemotePlayer {
     const grip = modelAnchor(meta, "grip");
     const m = instantiate(this.models[folder]);
     if (!m) return;
-    // geometry-only weapon glTFs render with a flat default material — give the
-    // third-person weapon a plain dark matte so it reads as a gun at a distance.
-    for (const r of m.getComponentsIncludeChildren(MeshRenderer, [])) {
-      r.castShadows = true;
-      for (let i = 0; i < r.getMaterials().length; i++) r.setMaterial(i, this.weaponMat);
-    }
+    // Guns are geometry-only glTFs — their surfaces come from the model's assigned
+    // materials, exactly like the first-person viewmodel (weapons.applyModelMaterials).
+    // Shade against the same library so the gun in a remote's hands matches the one you
+    // carry. The library loads async at startup; setWeaponLibrary re-shades if it lands
+    // after this build.
+    for (const r of m.getComponentsIncludeChildren(MeshRenderer, [])) r.castShadows = true;
+    if (this.weaponLib) shadeModelSlots(m, meta, this.weaponLib);
     // Parent to the hand bone via a "mount" whose fixed rotation corrects the bone's
     // rest frame to the aim frame (TP_HAND_ROT), matching the model's forward-facing
     // authored orientation. Fall back to the yaw-aligned holder if the bone is missing.
