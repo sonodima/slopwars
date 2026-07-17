@@ -120,10 +120,6 @@
     #btn-join:hover::before,.end-actions button.ghost:hover::before,#lobby-adv-toggle:hover::before{
       background:rgba(12,26,32,.82)}
   }
-  /* gamepad focus ring lives outside the clip on chamfered controls — swap it for an inset ring */
-  .lobby-foot button.gp-focus,.end-actions button.gp-focus,#btn-join.gp-focus,#set-done.gp-focus,
-  #set-leave.gp-focus,.tgl.gp-focus{outline:none!important;
-    box-shadow:inset 0 0 0 2px var(--sand),inset 0 0 16px rgba(155,236,255,.3)!important}
   button.ghost{background:transparent;border:1px solid var(--line);color:var(--sand)}
   .row2{display:flex;gap:10px}
   .or-sep{display:flex;align-items:center;gap:10px;margin:16px 0 2px;color:var(--sand-dim);
@@ -518,9 +514,6 @@
   .lp .plat{margin-left:2px}
   .plat-bot{opacity:.55} /* AI bots read a touch quieter than human devices */
 
-  /* ═══ gamepad menu-navigation focus ring (square, no rounding) ═══ */
-  .gp-focus{outline:2px solid var(--sand)!important;outline-offset:3px;border-radius:0!important;
-    box-shadow:0 0 0 4px rgba(155,236,255,.25)!important}
   /* muted qualifier on a settings label (e.g. which devices a control applies to) */
   .set-sub{color:var(--sand-dim);font-size:9px;letter-spacing:1.5px;text-transform:uppercase;font-weight:400}
 
