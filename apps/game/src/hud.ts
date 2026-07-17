@@ -491,6 +491,39 @@ export class Hud {
     el.textContent = text;
   }
 
+  /** hardpoint capture-state line (CAPTURING / CONTESTED / …), tinted by the hill's
+   *  holder. Empty text hides. */
+  private hillSig = "";
+  hardpointHud(text: string, color: number): void {
+    const el = $("hud-hill");
+    if (!text) { el.classList.add("hidden"); this.hillSig = ""; return; }
+    // called every frame — skip the DOM writes unless something actually changed
+    const sig = `${color}|${text}`;
+    if (sig === this.hillSig) return;
+    this.hillSig = sig;
+    el.classList.remove("hidden");
+    el.style.color = hex(color);
+    el.style.borderColor = hex(color);
+    el.textContent = text;
+  }
+
+  /** world-anchored hardpoint waypoint: `x`/`y` are viewport fractions (already
+   *  edge-clamped by the caller), `dist` metres to the hill, tinted by its holder.
+   *  Position updates per-frame like the nametags; text only when it changes. */
+  private hillMarkSig = "";
+  hillMarker(on: boolean, x = 0, y = 0, dist = 0, color = 0xffffff): void {
+    const el = $("hill-marker");
+    el.classList.toggle("hidden", !on);
+    if (!on) { this.hillMarkSig = ""; return; }
+    el.style.left = `${(x * 100).toFixed(2)}%`;
+    el.style.top = `${(y * 100).toFixed(2)}%`;
+    const sig = `${color}|${Math.round(dist)}`;
+    if (sig === this.hillMarkSig) return;
+    this.hillMarkSig = sig;
+    el.style.color = hex(color);
+    $("hill-marker-t").textContent = `${Math.round(dist)}m`;
+  }
+
   /** gun-game tier + current weapon. tier < 0 hides. */
   private tierSig = "";
   tierHud(tier: number, max: number, weapon: string): void {

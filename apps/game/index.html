@@ -761,6 +761,22 @@
     background:var(--holo-deep);border:1px solid var(--holo-line);padding:6px 18px;
     text-shadow:0 0 10px var(--holo-glow);-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px)}
   #hud-tier .tp{display:inline-block;margin-left:8px;color:var(--holo-dim);font-family:var(--mono)}
+  /* hardpoint capture-state line — same glass module as #hud-role, tinted (color +
+     border set inline by hud.hardpointHud to the hill holder's colour) */
+  #hud-hill{position:absolute;top:126px;left:50%;transform:translateX(-50%);
+    font-family:var(--hud-font);font-size:14px;letter-spacing:3px;
+    text-transform:uppercase;font-weight:700;text-align:center;color:#eafaff;
+    background:var(--holo-deep);border:1px solid var(--holo-line);padding:6px 18px;
+    text-shadow:0 0 10px currentColor;
+    -webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px)}
+  /* hardpoint waypoint — a glowing diamond + range readout floated over the hill
+     (world-anchored like the nametags; colour set inline to the holder's tint) */
+  #hill-marker{position:absolute;transform:translate(-50%,-100%);display:flex;flex-direction:column;
+    align-items:center;gap:3px;pointer-events:none;z-index:4}
+  #hill-marker .hm-d{width:11px;height:11px;background:currentColor;transform:rotate(45deg);
+    box-shadow:0 0 12px currentColor;opacity:.92}
+  #hill-marker-t{font-family:var(--hud-font);font-size:10px;letter-spacing:2px;font-weight:700;
+    color:currentColor;text-shadow:0 0 8px currentColor,0 1px 2px rgba(0,0,0,.8)}
 
   /* ═══ settings overlay ═══ */
   /* settings button — a chamfered "kit" tile (matches the panels), a touch flatter than
@@ -992,7 +1008,7 @@
   body.touch #hud-round{font-size:8px}
   body.touch #hud-teams{top:calc(max(8px,env(safe-area-inset-top)) + 46px);font-size:15px;padding:3px 12px}
   body.touch #hud-teams .tn{font-size:9px}
-  body.touch #hud-role,body.touch #hud-tier{top:calc(max(8px,env(safe-area-inset-top)) + 82px);font-size:11px;padding:4px 12px}
+  body.touch #hud-role,body.touch #hud-tier,body.touch #hud-hill{top:calc(max(8px,env(safe-area-inset-top)) + 82px);font-size:11px;padding:4px 12px}
   /* buff stays in the left .hud-tl column on touch too, never centred */
   body.touch #buff{font-size:11px;padding:4px 12px}
   /* round-start banner is far less bulky on phones */
@@ -1242,6 +1258,9 @@
   <!-- floating damage numbers — world-anchored like the nametags, so they track the
        3D hit point exactly (never drift with the HUD parallax) -->
   <div id="dmgnums"></div>
+  <!-- hardpoint waypoint — world-anchored to the hill (edge-clamped when off-screen),
+       so it stays outside the parallax layer like the nametags -->
+  <div id="hill-marker" class="hidden"><i class="hm-d"></i><span id="hill-marker-t"></span></div>
   <!-- holographic HUD chrome — drifts as one layer, opposite to the player's look
        (see Hud.parallax). Gameplay-critical / full-screen overlays (crosshair, scope,
        vignettes, scoreboard, respawn, touch controls) stay OUTSIDE so they never drift. -->
@@ -1250,6 +1269,7 @@
   <div id="hud-teams" class="hidden"></div>
   <div id="hud-role" class="hidden"></div>
   <div id="hud-tier" class="hidden"></div>
+  <div id="hud-hill" class="hidden"></div>
   <!-- top-left column: perf stats → frame graph → mic → powerup buff, stacked in one
        flex column so hidden entries collapse and the visible ones never overlap -->
   <div class="hud-tl">

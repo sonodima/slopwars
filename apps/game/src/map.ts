@@ -76,6 +76,8 @@ export class GameMap {
   spawns: { p: Vec3; yaw: number }[] = [];
   pickupSpots: Vec3[] = [];
   powerupSpots: Vec3[] = [];
+  /** authored Hardpoint capture-zone centres (empty → the mode derives its own) */
+  hardpointSpots: Vec3[] = [];
   barrels: Barrel[] = [];
   sounds: MapSound[] = [];
   /** sounds from the previous build, kept alive so a rebuild can re-adopt a matching
@@ -115,6 +117,7 @@ export class GameMap {
     this.spawns = [];
     this.pickupSpots = [];
     this.powerupSpots = [];
+    this.hardpointSpots = [];
     this.barrels = [];
     this.sounds = [];
     this.particles = [];

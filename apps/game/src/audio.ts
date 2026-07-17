@@ -201,6 +201,12 @@ class Sfx {
   pickup(): void { const d = this.out(); this.thump(0.09, 660, 660, 0.22, d); this.thump(0.12, 990, 990, 0.22, d, 0.08); }
   draw(): void { this.burst(0.05, 2000, 4, 0.2, this.out()); }
 
+  // ── hardpoint ──
+  /** the hill is about to relocate — an urgent double blip */
+  hillWarn(): void { const d = this.out(); this.thump(0.07, 760, 760, 0.22, d); this.thump(0.07, 760, 760, 0.22, d, 0.16); }
+  /** the hill moved — a rising two-tone sting (inverse of the pickup chirp) */
+  hillMove(): void { const d = this.out(); this.thump(0.1, 520, 520, 0.26, d); this.thump(0.16, 880, 880, 0.28, d, 0.11); }
+
   // ── portals ──
   /** a portal snapped open (real sample). Orange (slot 1) plays a touch higher so the
    *  pair still reads as two distinct colours, like the old synth cue did. */
