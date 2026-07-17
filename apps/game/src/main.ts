@@ -430,7 +430,7 @@ class Game {
     this.nades.onFireTick = (c, _owner, local) => { if (local) this.fireTickDamage(c); };
     this.nades.onFlash = (p) => this.onFlashDetonate(p);
     this.nades.onSmoke = (p) => { const r = this.relAudio(p); sfx.nadeBounce(r.pan, r.dist); };
-    this.portals = new Portals(engine, root, (p) => this.relAudio(p));
+    this.portals = new Portals(engine, root, this.camera, (p) => this.relAudio(p));
     this.portals.onTraverse = () => sfx.portalEnter();
     this.portals.onExpire = (s) => { // owner announces natural expiry (death/leave are inferred)
       const m: Msg = { t: "pgone", id: this.net.myId, s };
@@ -656,6 +656,22 @@ class Game {
     return this.cfg.thirdPerson && !this.ws.scoped;
   }
 
+  /** third-person camera position: pulled back along the aim, over the right shoulder,
+   *  with the pull-back clamped by a wall raycast so it never clips through geometry.
+   *  Shared by the camera rig (updateSelfView) and by shot aiming (fireHitscan) so the
+   *  bullet and the screen-center crosshair start from the same viewpoint. */
+  thirdPersonCamPos(eye: number, pitch: number): Vec3 {
+    const cp = Math.cos(pitch), sp = Math.sin(pitch);
+    const dir: Vec3 = { x: -Math.sin(this.body.yaw) * cp, y: sp, z: -Math.cos(this.body.yaw) * cp };
+    const rx = Math.cos(this.body.yaw), rz = -Math.sin(this.body.yaw); // right vector
+    let back = 3.0;
+    const o: Vec3 = { x: this.body.pos.x, y: eye, z: this.body.pos.z };
+    const nd: Vec3 = { x: -dir.x, y: -dir.y, z: -dir.z };
+    const hit = this.map.raycast(o, nd, back + 0.4);
+    if (hit) back = Math.max(0.6, hit.dist - 0.4);
+    return { x: o.x + nd.x * back + rx * 0.55, y: o.y + nd.y * back + 0.35, z: o.z + nd.z * back + rz * 0.55 };
+  }
+
   /** build the local player's third-person avatar container (a Prop-Hunt disguise) */
   buildSelfAvatar(root: Entity): void {
     this.selfAvatar = root.createChild("self-avatar");
@@ -738,18 +754,8 @@ class Game {
     // third person (alive OR the death-cam): pull the camera back along the aim, over
     // the right shoulder. When dead the body is frozen where you fell, so the camera
     // holds behind your operator while it plays out the Death clip.
-    const cp = Math.cos(pitch), sp = Math.sin(pitch);
-    const dir: Vec3 = { x: -Math.sin(this.body.yaw) * cp, y: sp, z: -Math.cos(this.body.yaw) * cp };
-    const rx = Math.cos(this.body.yaw), rz = -Math.sin(this.body.yaw); // right vector
-    let back = 3.0;
-    const o: Vec3 = { x: this.body.pos.x, y: eye, z: this.body.pos.z };
-    const nd: Vec3 = { x: -dir.x, y: -dir.y, z: -dir.z };
-    const hit = this.map.raycast(o, nd, back + 0.4);
-    if (hit) back = Math.max(0.6, hit.dist - 0.4);
-    const cx = o.x + nd.x * back + rx * 0.55;
-    const cy = o.y + nd.y * back + 0.35;
-    const cz = o.z + nd.z * back + rz * 0.55;
-    this.camEntity.transform.setPosition(cx, cy, cz);
+    const c = this.thirdPersonCamPos(eye, pitch);
+    this.camEntity.transform.setPosition(c.x, c.y, c.z);
 
     if (this.isHider()) {
       // Prop-Hunt hider: the crate disguise standing at the player's feet (alive only)
@@ -1498,17 +1504,14 @@ class Game {
   }
 
   private setNavFocus(el: HTMLElement): void {
-    if (this.navFocusEl && this.navFocusEl !== el) this.navFocusEl.classList.remove("gp-focus");
     this.navFocusEl = el;
-    el.classList.add("gp-focus");
     el.scrollIntoView({ block: "nearest" });
-    // hand the control to the reticle so the pad gets the same animated lock-on
-    // brackets the mouse gets on hover
+    // the reticle's animated lock-on brackets are the only focus indicator — the
+    // pad gets the same smooth marker the mouse gets on hover
     cursor.lockTo(el);
   }
 
   private clearNav(): void {
-    this.navFocusEl?.classList.remove("gp-focus");
     this.navFocusEl = null;
     cursor.lockTo(null);
   }
@@ -1877,11 +1880,39 @@ class Game {
 
   // ─── shooting ───────────────────────────────────────────────────────────────
 
+  /** the world point under the screen-center crosshair: the nearest thing the camera ray
+   *  meets (map, player, barrel or prop), or a point at max range when it meets nothing. */
+  crosshairAim(camPos: Vec3, dir: Vec3, range: number): Vec3 {
+    let dist = this.map.raycast(camPos, dir, range)?.dist ?? range;
+    for (const r of this.remotes.values()) {
+      const h = r.hitTest(camPos, dir, dist);
+      if (h) dist = h.dist;
+    }
+    const bh = this.map.raycastBarrel(camPos, dir, dist);
+    if (bh) dist = bh.dist;
+    const pbh = this.physics.raycast(camPos, dir, dist);
+    if (pbh) dist = pbh.dist;
+    return { x: camPos.x + dir.x * dist, y: camPos.y + dir.y * dist, z: camPos.z + dir.z * dist };
+  }
+
   fireHitscan(def: WeaponDef, spread: number): void {
     const o: Vec3 = { x: this.body.pos.x, y: this.body.eyeY, z: this.body.pos.z };
     const pitch = this.body.pitch + this.ws.recoilPitch;
     const cp = Math.cos(pitch);
-    const base: Vec3 = { x: -Math.sin(this.body.yaw) * cp, y: Math.sin(pitch), z: -Math.cos(this.body.yaw) * cp };
+    let base: Vec3 = { x: -Math.sin(this.body.yaw) * cp, y: Math.sin(pitch), z: -Math.cos(this.body.yaw) * cp };
+
+    // In third person the camera sits behind and beside the head, so the screen-center
+    // crosshair is a different ray than the body forward. Firing straight down the body
+    // forward lands the shot off the crosshair (parallax to the left, growing with range).
+    // Re-aim from the muzzle-eye toward the point the crosshair is actually over so the
+    // bullet converges on what you're pointing at.
+    if (this.thirdPersonActive()) {
+      const camPos = this.thirdPersonCamPos(this.body.viewEyeY, pitch);
+      const aim = this.crosshairAim(camPos, base, def.range);
+      const dx = aim.x - o.x, dy = aim.y - o.y, dz = aim.z - o.z;
+      const l = Math.hypot(dx, dy, dz) || 1;
+      base = { x: dx / l, y: dy / l, z: dz / l };
+    }
 
     this.broadcastShot(o, base, def.id);
     // start the local player's tracer at the gun muzzle so it reads as leaving the gun.

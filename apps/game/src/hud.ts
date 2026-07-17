@@ -612,26 +612,31 @@ export class Hud {
   respawnOverlay(t: number | null): void {
     const e = $("respawn");
     e.classList.toggle("hidden", t === null);
-    if (t !== null) $("respawn-t").textContent = Math.ceil(t).toString();
+    if (t !== null) {
+      // a real death always shows the centred counter (deploy may have hidden it)
+      document.querySelector(".respawn-count")?.classList.remove("hidden");
+      $("respawn-t").textContent = Math.ceil(t).toString();
+    }
   }
 
   private deployMode = false;
-  /** pre-round deploy overlay (match/round start): reuses the death screen's class strip +
-   *  countdown, with the label flipped to "round starts in". Driven per-frame while the
-   *  deploy phase runs (so a stray respawnOverlay(null) from the initial spawn burst can't
-   *  permanently hide it); null restores the overlay to its respawn wording and hides it. */
+  /** pre-round deploy overlay (match/round start): shows the class-picker strip in the
+   *  centre overlay, but NOT a big countdown number — the round-start countdown is the
+   *  top HUD clock ("get ready" → match timer), so the centred counter is suppressed to
+   *  avoid two counters on screen. Driven per-frame while the deploy phase runs (so a
+   *  stray respawnOverlay(null) from the initial spawn burst can't permanently hide it);
+   *  null releases the deploy latch and hides the overlay. */
   deployOverlay(t: number | null): void {
     if (t === null) {
       if (!this.deployMode) return; // don't touch the overlay when a real death owns it
       this.deployMode = false;
       $("respawn").classList.add("hidden");
-      $("respawn-label").textContent = "respawn in";
       return;
     }
     this.deployMode = true;
     $("respawn").classList.remove("hidden");
-    $("respawn-label").textContent = "round starts in";
-    $("respawn-t").textContent = Math.max(1, Math.ceil(t)).toString();
+    // suppress the centred count during deploy — the top HUD clock owns the countdown
+    document.querySelector(".respawn-count")?.classList.add("hidden");
   }
 
   /** show/hide the death-screen "choose your class" strip and (when shown) render it with

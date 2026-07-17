@@ -120,10 +120,6 @@
     #btn-join:hover::before,.end-actions button.ghost:hover::before,#lobby-adv-toggle:hover::before{
       background:rgba(12,26,32,.82)}
   }
-  /* gamepad focus ring lives outside the clip on chamfered controls — swap it for an inset ring */
-  .lobby-foot button.gp-focus,.end-actions button.gp-focus,#btn-join.gp-focus,#set-done.gp-focus,
-  #set-leave.gp-focus,.tgl.gp-focus{outline:none!important;
-    box-shadow:inset 0 0 0 2px var(--sand),inset 0 0 16px rgba(155,236,255,.3)!important}
   button.ghost{background:transparent;border:1px solid var(--line);color:var(--sand)}
   .row2{display:flex;gap:10px}
   .or-sep{display:flex;align-items:center;gap:10px;margin:16px 0 2px;color:var(--sand-dim);
@@ -377,7 +373,6 @@
   /* ── death-screen "choose your class" strip (deploys on respawn) ── */
   #respawn-deploy{display:flex;flex-direction:column;align-items:center;gap:8px;max-width:min(900px,96vw);pointer-events:none}
   .rd-title{font-size:13px;letter-spacing:5px;text-transform:uppercase;color:var(--sand);font-weight:700}
-  .rd-sub{font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--sand-dim)}
   #respawn-classes{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;pointer-events:auto;
     max-width:96vw;padding:2px}
   #respawn-classes .class-card{position:relative;width:134px;padding:9px 11px 10px;
@@ -518,9 +513,6 @@
   .lp .plat{margin-left:2px}
   .plat-bot{opacity:.55} /* AI bots read a touch quieter than human devices */
 
-  /* ═══ gamepad menu-navigation focus ring (square, no rounding) ═══ */
-  .gp-focus{outline:2px solid var(--sand)!important;outline-offset:3px;border-radius:0!important;
-    box-shadow:0 0 0 4px rgba(155,236,255,.25)!important}
   /* muted qualifier on a settings label (e.g. which devices a control applies to) */
   .set-sub{color:var(--sand-dim);font-size:9px;letter-spacing:1.5px;text-transform:uppercase;font-weight:400}
 
@@ -713,7 +705,6 @@
     /* death-screen class strip: keep it to a single tidy row on short landscape phones */
     #respawn{gap:10px}
     .rd-title{font-size:10px;letter-spacing:2px}
-    .rd-sub{font-size:8px}
     #respawn-classes .class-card{width:104px;padding:6px 8px 7px}
     body.touch #respawn-t{font-size:34px}
   }
