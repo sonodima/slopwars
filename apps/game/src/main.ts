@@ -1682,10 +1682,11 @@ class Game {
       // slower than running forward. Only the dominant wish direction matters.
       const back = inp.fwd < -0.01, sideDom = Math.abs(inp.right) > Math.abs(inp.fwd) + 0.01;
       const dirFactor = sideDom ? MOVE_STRAFE_FACTOR : back ? MOVE_BACK_FACTOR : 1;
+      // own-portal traversal — BEFORE the move step, so the frame that would slam the
+      // capsule into the wall (zeroing the approach velocity) teleports with momentum
+      // intact instead; firing + the camera then use the exit-side position/yaw
+      if (canPlay) this.portals.tryTraverse(this.body, inp.fwd, inp.right, now, dt);
       this.body.update(dt, canPlay ? inp : { fwd: 0, right: 0, jump: false, sprint: false }, this.ws.def().moveFactor * speedBuff * this.cfg.speed * dirFactor);
-      // own-portal traversal — before firing + the camera transform so a shot taken and
-      // the view this frame both use the exit-side position/yaw
-      if (canPlay) this.portals.tryTraverse(this.body, inp.fwd, inp.right, now);
 
       if (this.body.jumped) sfx.jump();
       if (this.body.landed) sfx.land();

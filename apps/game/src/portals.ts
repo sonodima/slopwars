@@ -9,14 +9,26 @@
 // their hitscan rays hop through it (rayThrough, resolveRay's wallbang recursion).
 // Remote players simply pass straight through — a portal is never a solid.
 //
+// Visuals: an HDR torus ring (bloom halo) around a custom-shader vortex disc —
+// spiral arms twisted around a dark event-horizon core, a hot inner rim, all
+// animated off the engine's global clock (scene_ElapsedTime, like slop-water) so
+// the swirl costs zero per-frame JS — plus a soft additive wisp emitter breathing
+// energy out of the surface. Remaining lifespan is legible from every layer: the
+// swirl spins faster and flickers, the ring pulses harder and dims, the wisps
+// thin out, and the hum fades over the last seconds (ROADMAP §2.2).
+//
 // Frames: map surfaces are AABB faces, so a portal's normal is axis-aligned. Each
 // portal carries a right-handed basis (t, b, n) — n the outward surface normal, b
 // the in-plane "up", t = b × n — matching the entity rotation that renders it, so
 // the traversal math and the visual agree by construction. Crossing entry→exit is
 // the rigid transform t1→−t2, b1→b2, n1→−n2 (you go in the front of one and come
 // out the front of the other), applied to offsets, velocities and ray directions.
-import { Color, Engine, Entity, MeshRenderer, ModelMesh, PrimitiveMesh, UnlitMaterial } from "@galacean/engine";
+import {
+  BlendFactor, Color, CullMode, Engine, Entity, Material, MeshRenderer, ModelMesh,
+  PrimitiveMesh, RenderQueueType, Shader, UnlitMaterial, Vector4,
+} from "@galacean/engine";
 import { PortalHum, sfx } from "./audio";
+import { buildParticles } from "./particles";
 import { PlayerBody } from "./player";
 import { MOVE, Vec3, clamp } from "./types";
 
@@ -28,14 +40,74 @@ export const PORTAL_GAP = 0.06;   // lift off the surface so the ring never z-fi
 const REENTRY = 0.3;   // s the pair is inert after a traversal (no teleport ping-pong)
 const NEAR = 0.45;     // plane distance at which the owner's body counts as "in"
 const HUM_FADE = 6;    // s before expiry over which the hum fades out (ROADMAP §2.2)
-const ANIM_DIST = 60;  // m beyond which the pulse/shimmer animation is skipped (culled)
+const ANIM_DIST = 60;  // m beyond which the per-frame pulse/uniform writes are skipped (culled)
 
 // blue / orange base colours; the ring gets the ×4 HDR boost (bloom picks it up,
-// same trick as the powerup gems), the shimmer disc stays dim + translucent.
+// same trick as the powerup gems), the vortex shader shapes its own intensity.
 const BASE: [number, number, number][] = [[0.25, 0.62, 1.0], [1.0, 0.45, 0.12]];
 
 const dot = (a: Vec3, b: Vec3): number => a.x * b.x + a.y * b.y + a.z * b.z;
 const cross = (a: Vec3, b: Vec3): Vec3 => ({ x: a.y * b.z - a.z * b.y, y: a.z * b.x - a.x * b.z, z: a.x * b.y - a.y * b.x });
+
+// ── the vortex shader ─────────────────────────────────────────────────────────
+// Alpha-composited, double-sided, no depth write: the disc paints a dark void with
+// HDR spiral arms over it, so the swirl keeps contrast against bright walls AND
+// bloom catches the arms. Everything animates off scene_ElapsedTime; per-frame JS
+// only nudges u_portalLive (intensity + urgency).
+
+const PORTAL_VS = /* glsl */ `
+attribute vec3 POSITION;
+attribute vec2 TEXCOORD_0;
+uniform mat4 renderer_MVPMat;
+varying vec2 v_uv;
+void main() {
+  v_uv = TEXCOORD_0;
+  gl_Position = renderer_MVPMat * vec4(POSITION, 1.0);
+}
+`;
+
+const PORTAL_FS = /* glsl */ `
+#include <common>
+uniform vec4 scene_ElapsedTime;  // (t, sin t, cos t, 0) — engine global clock
+uniform vec4 u_portalColor;      // rgb: base colour · a: phase seed (desyncs pairs)
+uniform vec4 u_portalLive;       // x: intensity (dims toward expiry) · y: urgency 0→1
+varying vec2 v_uv;
+
+void main() {
+  vec2 p = v_uv * 2.0 - 1.0;
+  float r = length(p);
+  float t = scene_ElapsedTime.x + u_portalColor.a;
+  float urgency = u_portalLive.y;
+
+  // spiral arms: angle twisted by radius, spinning faster as expiry nears, with a
+  // counter-rotating filament layer so the eye never locks onto one rotation
+  float ang = atan(p.y, p.x);
+  float twist = ang + t * (1.4 + urgency * 3.0) + (1.0 - r) * 5.5;
+  float arms = pow(0.5 + 0.5 * sin(twist * 3.0), 2.2);
+  float fil = 0.5 + 0.5 * sin(twist * 9.0 - t * (3.0 + urgency * 5.0));
+
+  // radial profile: dark event-horizon core → glowing body → hot rim at the ring
+  float core = smoothstep(0.06, 0.55, r);
+  float body = (arms * 0.85 + fil * 0.22) * core;
+  float rim = pow(smoothstep(0.5, 1.0, r) * smoothstep(1.0, 0.85, r), 1.5) * 3.2;
+
+  // expiry flicker: calm portals barely breathe, dying ones strobe
+  float pulse = 1.0 + (0.06 + urgency * 0.4) * sin(t * (5.0 + urgency * 16.0));
+  float edge = smoothstep(1.02, 0.96, r); // clean oval cutoff just inside the torus
+  vec3 col = u_portalColor.rgb * (body * 1.6 + rim) * pulse;
+  // white-hot spark at the singularity
+  col += vec3(0.9) * pow(max(0.0, 1.0 - r * 3.0), 3.0) * (0.7 + 0.3 * sin(t * 4.6));
+  // alpha-composited, not additive: the gaps between the arms stay a dark void (you
+  // can't see through a portal), which is what gives the swirl its contrast against
+  // bright walls — while the arm colours run HDR (>1) so bloom still catches them.
+  float alpha = edge * clamp(u_portalLive.x, 0.0, 1.0) * (0.62 + body * 0.38);
+  gl_FragColor = outputSRGBCorrection(vec4(col * u_portalLive.x, alpha));
+}
+`;
+
+function portalShader(): Shader {
+  return Shader.find("slop-portal") ?? Shader.create("slop-portal", PORTAL_VS, PORTAL_FS);
+}
 
 interface Portal {
   owner: string;
@@ -50,7 +122,7 @@ interface Portal {
   phase: number;    // running pulse phase (rate ramps up as expiry nears)
   root: Entity;
   ringMat: UnlitMaterial;
-  discMat: UnlitMaterial;
+  live: Vector4;    // u_portalLive backing store (mutated in place — shaderData keeps the ref)
   ring: Entity;
   hum: PortalHum | null; // spun up lazily when within earshot (see update)
 }
@@ -71,7 +143,25 @@ export class Portals {
     // shared unit meshes, sized per portal by entity scale (zero geometry per spawn).
     // The torus lies in the XY plane (normal +Z) — exactly the portal's local frame.
     this.ringMesh = PrimitiveMesh.createTorus(this.engine, 1, 0.07, 18, 40);
-    this.discMesh = PrimitiveMesh.createSphere(this.engine, 1, 14);
+    this.discMesh = PrimitiveMesh.createPlane(this.engine, 2, 2); // XZ plane, uv 0..1
+  }
+
+  /** the vortex material: alpha-blended dark-void + HDR swirl — no depth write, both faces */
+  private vortexMaterial(slot: 0 | 1, live: Vector4): Material {
+    const m = new Material(this.engine, portalShader());
+    m.renderState.renderQueueType = RenderQueueType.Transparent;
+    m.renderState.depthState.writeEnabled = false;
+    m.renderState.rasterState.cullMode = CullMode.Off;
+    const tb = m.renderState.blendState.targetBlendState;
+    tb.enabled = true;
+    tb.sourceColorBlendFactor = BlendFactor.SourceAlpha;
+    tb.destinationColorBlendFactor = BlendFactor.OneMinusSourceAlpha;
+    tb.sourceAlphaBlendFactor = BlendFactor.One;
+    tb.destinationAlphaBlendFactor = BlendFactor.OneMinusSourceAlpha;
+    const [br, bg, bb] = BASE[slot];
+    m.shaderData.setVector4("u_portalColor", new Vector4(br, bg, bb, Math.random() * 20)); // a = phase seed
+    m.shaderData.setVector4("u_portalLive", live);
+    return m;
   }
 
   /** spawn (or replace) `owner`'s portal `slot` at centre `c` on a surface facing `n` */
@@ -98,23 +188,32 @@ export class Portals {
     rr.receiveShadows = false;
     ring.transform.setScale(PORTAL_HALF_W, PORTAL_HALF_H, 1);
 
-    // shimmer: a translucent flattened sphere filling the oval (reads from both sides)
-    const discMat = new UnlitMaterial(this.engine);
-    discMat.baseColor = new Color(br * 0.9, bg * 0.9, bb * 0.9, 0.32);
-    discMat.isTransparent = true;
+    // vortex disc: the shared XZ plane stood up into the portal's XY frame
+    // (rot +90° X maps local Z → −Y, so scale is W along X, H along local Z)
+    const live = new Vector4(1, 0, 0, 0);
     const disc = root.createChild("disc");
+    disc.transform.setRotation(90, 0, 0);
+    disc.transform.setScale(PORTAL_HALF_W, 1, PORTAL_HALF_H);
     const dr = disc.addComponent(MeshRenderer);
     dr.mesh = this.discMesh;
-    dr.setMaterial(discMat);
+    dr.setMaterial(this.vortexMaterial(slot, live));
     dr.castShadows = false;
     dr.receiveShadows = false;
-    disc.transform.setScale(PORTAL_HALF_W * 0.82, PORTAL_HALF_H * 0.82, 0.05);
+
+    // wisps: soft additive motes breathing out of the surface (cone → local +Y,
+    // so pitching the emitter +90° X aims it along the portal normal, +Z)
+    const wisps = buildParticles(this.engine, root, 0, 0, 0.05, {
+      rate: 14, lifetime: 1.3, speed: 0.5, size: 0.09, growth: 0.3, spread: 55,
+      emitRadius: 0.8, gravity: 0, color: [br * 2.5, bg * 2.5, bb * 2.5], opacity: 0.85,
+      additive: true, world: false,
+    });
+    wisps.transform.setRotation(90, 0, 0);
 
     const now = performance.now() / 1000;
     this.portals.push({
       owner, slot, local, c: { ...c }, n: { ...n }, t, b,
       until: now + PORTAL_LIFE, cdUntil: now + 0.2, phase: 0,
-      root, ringMat, discMat, ring, hum: null,
+      root, ringMat, live, ring, hum: null,
     });
   }
 
@@ -143,10 +242,11 @@ export class Portals {
     return this.portals.find((q) => q.owner === p.owner && q.slot !== p.slot) ?? null;
   }
 
-  /** per-frame: expiry, and the visual + audible lifespan cues — the ring pulses
-   *  faster and dims as expiry nears, the hum fades over the last seconds. Animation
-   *  is skipped beyond ANIM_DIST of the camera (like the avatar's culling); the hum
-   *  handles its own earshot cutoff. */
+  /** per-frame: expiry, and the visual + audible lifespan cues — the vortex spins
+   *  faster + flickers (urgency uniform), the ring pulses harder and dims, the hum
+   *  fades over the last seconds. Per-frame writes are skipped beyond ANIM_DIST of
+   *  the camera (like the avatar's culling) — the shader keeps animating on its own
+   *  clock; the hum handles its own earshot cutoff. */
   update(dt: number, now: number, cam: Vec3): void {
     for (let i = this.portals.length - 1; i >= 0; i--) {
       const p = this.portals[i];
@@ -165,17 +265,17 @@ export class Portals {
       else if (p.hum) { p.hum.stop(); p.hum = null; }
       const dx = p.c.x - cam.x, dy = p.c.y - cam.y, dz = p.c.z - cam.z;
       if (dx * dx + dy * dy + dz * dz > ANIM_DIST * ANIM_DIST) continue;
-      const pulse = 1 + 0.05 * Math.sin(p.phase * 2);
+      const pulse = 1 + (0.03 + 0.08 * (1 - lifeFrac)) * Math.sin(p.phase * 2);
       p.ring.transform.setScale(PORTAL_HALF_W * pulse, PORTAL_HALF_H * pulse, 1);
-      // emissive dims toward expiry (mutate + reassign to flag the material dirty)
+      // vortex urgency + brightness (shaderData holds the ref — mutate in place)
+      p.live.x = 0.35 + 0.65 * lifeFrac;
+      p.live.y = 1 - lifeFrac;
+      // ring emissive dims toward expiry (mutate + reassign to flag the material dirty)
       const k = (0.3 + 0.7 * lifeFrac) * 4;
       const [br, bg, bb] = BASE[p.slot];
       const rc = p.ringMat.baseColor;
       rc.r = br * k; rc.g = bg * k; rc.b = bb * k;
       p.ringMat.baseColor = rc;
-      const dc = p.discMat.baseColor;
-      dc.a = 0.22 + 0.12 * Math.sin(p.phase * 3.4);
-      p.discMat.baseColor = dc;
     }
   }
 
@@ -205,12 +305,15 @@ export class Portals {
     return (lx * lx) / (a * a) + (ly * ly) / (b * b) <= 1;
   }
 
-  /** owner-only, per-frame: walk the local player through their pair. Momentum carries
-   *  (velocity is rotated between the frames), the camera yaw rotates by the same delta
-   *  so you exit facing "through", pitch is untouched. fwd/right are the raw move inputs
-   *  — the wish direction also counts as "approaching" so a player pinned against the
-   *  wall (velocity zeroed by collision) still goes through. */
-  tryTraverse(body: PlayerBody, fwd: number, right: number, now: number): void {
+  /** owner-only, called BEFORE body.update each frame: walk the local player through
+   *  their pair. Running pre-move with a velocity lookahead is what preserves
+   *  momentum — the frame that would slam the capsule into the wall (zeroing the
+   *  approach velocity) instead teleports with that velocity intact, remapped into
+   *  the exit frame. The camera yaw rotates by the frame delta so you exit facing
+   *  "through"; pitch is untouched. fwd/right are the raw move inputs — the wish
+   *  direction also counts as "approaching" so a player already pinned against the
+   *  wall still goes through (their velocity reads zero). */
+  tryTraverse(body: PlayerBody, fwd: number, right: number, now: number, dt: number): void {
     for (const p of this.portals) {
       if (!p.local || now < p.cdUntil) continue;
       const out = this.linked(p);
@@ -219,15 +322,19 @@ export class Portals {
       // feet on a floor portal, head under a ceiling one (mid-body never gets within
       // NEAR of a floor plane while standing, so a uniform probe would miss those)
       const py = p.n.y > 0.9 ? body.pos.y + 0.1 : p.n.y < -0.9 ? body.pos.y + MOVE.height - 0.1 : body.pos.y + MOVE.height * 0.5;
-      const mid = { x: body.pos.x, y: py, z: body.pos.z };
-      const rel = { x: mid.x - p.c.x, y: mid.y - p.c.y, z: mid.z - p.c.z };
+      const rel = { x: body.pos.x - p.c.x, y: py - p.c.y, z: body.pos.z - p.c.z };
       const s = dot(rel, p.n);
-      if (s < -0.1 || s > NEAR) continue;
+      if (s < -0.1 || s > 1.4) continue; // 1.4 covers one clamped-dt step at bhop speed
       const lx = dot(rel, p.t), ly = dot(rel, p.b);
       if (!this.inOval(lx, ly, 1.1)) continue;
       const sy = Math.sin(body.yaw), cy = Math.cos(body.yaw);
       const wish = { x: -sy * fwd + cy * right, y: 0, z: -cy * fwd - sy * right };
-      if (dot(body.vel, p.n) > -0.4 && dot(wish, p.n) > -0.4) continue; // not moving in
+      const vn = dot(body.vel, p.n);
+      // entering = this frame's motion reaches the plane zone (momentum path), or
+      // already inside the band and pressing/moving in (pinned-against-wall path)
+      const entering = (vn < -0.4 && s + vn * dt <= 0.34)
+        || (s <= NEAR && (vn < -0.4 || dot(wish, p.n) < -0.4));
+      if (!entering) continue;
 
       // exit feet: in front of a wall portal at its mid-height; on top of a floor
       // portal; dropped clear of a ceiling one.
@@ -311,9 +418,9 @@ export class Portals {
     };
   }
 
-  /** compile the portal materials' shader variants (HDR unlit ring + transparent disc)
-   *  during the loading screen, so the first placement doesn't hitch — same pattern as
-   *  the weapon/tracer/nade prewarms. Rendered far underground, then torn down. */
+  /** compile the portal shaders (vortex + HDR ring + wisp particles) during the
+   *  loading screen, so the first placement doesn't hitch — same pattern as the
+   *  weapon/tracer/nade prewarms. Rendered far underground, then torn down. */
   prewarm(): void {
     this.place("__warm", 0, { x: 0, y: -120, z: 0 }, { x: 0, y: 0, z: 1 }, false);
     window.setTimeout(() => this.clearOwner("__warm"), 400);
