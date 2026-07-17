@@ -143,8 +143,8 @@ export function scanAssets(root: string): AssetCatalog {
 
 // Maps live alongside every other asset, under public/assets/maps/. Because that's inside
 // the game's publicDir, Vite serves them in dev and copies them into the build with no
-// custom plumbing — exactly like models/textures/audio. A map is either a flat
-// `maps/<id>.json` or a `maps/<id>/` folder holding the map JSON + screenshot images.
+// custom plumbing — exactly like models/textures/audio. A map is a `maps/<id>/` folder
+// holding the map JSON + screenshot images.
 const MAPS_SUBDIR = path.join("public", "assets", "maps");
 /** served-root-relative prefix a map (or its previews) is fetched under */
 const MAPS_URL = "assets/maps";
@@ -177,16 +177,7 @@ export function scanMaps(root: string): MapCatalogEntry[] {
   const dir = path.join(root, MAPS_SUBDIR);
   if (!fs.existsSync(dir)) return [];
   const out: MapCatalogEntry[] = [];
-  // flat maps: assets/maps/<id>.json
-  for (const f of readFilesFlat(dir)) {
-    if (!f.endsWith(".json")) continue;
-    try {
-      const def = JSON.parse(fs.readFileSync(path.join(dir, f), "utf8"));
-      const meta = def?.meta ?? {};
-      out.push({ id: meta.id ?? f.replace(/\.json$/, ""), name: meta.name ?? f, theme: meta.theme ?? "", file: `${MAPS_URL}/${f}` });
-    } catch { /* skip malformed */ }
-  }
-  // folder maps: assets/maps/<id>/(map.json | <id>.json) + screenshot images
+  // assets/maps/<id>/(map.json | <id>.json) + screenshot images
   for (const d of readDirs(dir)) {
     const sub = path.join(dir, d);
     const mapFile = folderMapFile(sub, d);

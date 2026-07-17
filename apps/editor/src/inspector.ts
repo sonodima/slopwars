@@ -268,8 +268,8 @@ function modelInspector(host: HTMLElement, name: string): void {
 
   // Materials — one slot per glTF material (the model's MAIN materials). Assigning a
   // material shades that surface with it; clearing a slot falls back to the glTF's own
-  // material (e.g. keep a transparent glass part). A model with no named slots (a .glb,
-  // or a legacy single-material meta) gets one "all surfaces" slot.
+  // material (e.g. keep a transparent glass part). A model with no named slots (a .glb —
+  // binary, so its materials aren't scanned) gets one "all surfaces" slot.
   group(host, "Materials");
   const slots = asset.slots ?? [];
   if (slots.length) {
