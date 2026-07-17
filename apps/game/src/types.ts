@@ -9,6 +9,7 @@ export const ROUNDS_PER_GAME = 4;
 export const INTERMISSION = 10; // s
 export const DEPLOY_TIME = 6;   // s — pre-round freeze: everyone spawned but locked, picking a class
 export const RESPAWN_TIME = 3; // s
+export const SPAWN_PROT = 3;   // s of post-spawn invulnerability — ends early on your first shot
 export const MAX_HP = 100;
 
 // ─── Host-configurable match rules (set in the lobby, mirrored to guests) ─────
@@ -294,6 +295,7 @@ export interface GameSnapshot {
   teams?: Record<string, number>;  // tdm/hardpoint: 0/1 side · prophunt: 0 seeker / 1 hider
   teamScore?: [number, number];    // tdm/hardpoint: side scores · prophunt: [seeker, hider] round wins
   tiers?: Record<string, number>;  // gungame: player → weapon-ladder tier
+  props?: Record<string, number>;  // prophunt: player → disguise roll (host-rolled per round; mod pool length at use)
   hill?: { i: number; owner: HillOwner; progress: number }; // hardpoint: active spot, holder, 0..1 of the rotate window
   platforms?: Record<string, Platform>; // per-player current input device (icons in lists)
 }

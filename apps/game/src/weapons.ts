@@ -296,6 +296,11 @@ export class WeaponSystem {
       const meta = modelMetaOf(folder);
       const s = meta.scale ?? 1;
       m.transform.setScale(s, s, s);
+      // honour a meta-authored default orientation (baseRot), so a weapon whose glTF
+      // ships tilted can be re-posed in its meta.json without touching the mesh.
+      // (Anchors are mapped by scale only — fine while no rotated model carries one.)
+      const br = meta.baseRot;
+      if (br && (br[0] || br[1] || br[2])) m.transform.setRotation(br[0], br[1], br[2]);
       this.vm.addChild(m);
       this.models[id] = m;
       this.modelFolders[id] = folder;

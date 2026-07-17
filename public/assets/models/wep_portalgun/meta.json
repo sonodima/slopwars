@@ -1,5 +1,10 @@
 {
-  "scale": 0.2,
+  "scale": 0.17,
+  "baseRot": [
+    0,
+    -45,
+    -10
+  ],
   "materials": {
     "PortalGun": "wep_portalgun"
   },

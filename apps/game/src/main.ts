@@ -33,7 +33,7 @@ import {
   BOT_TUNING, DEFAULT_CONFIG, DEPLOY_TIME, GamePhase, GameSnapshot, HillOwner, INTERMISSION, MatchConfig, MAX_HP, ModeId,
   MOVE_BACK_FACTOR, MOVE_STRAFE_FACTOR, Msg,
   PICKUP_HEAL, PICKUP_RADIUS, PICKUP_RESPAWN, Platform, PlayerState, POWERUPS, POWERUP_INTERVAL,
-  POWERUP_RADIUS, PowerupKind, QUAD_MULT, RAPID_MULT, SPEED_MULT, TICK_RATE,
+  POWERUP_RADIUS, PowerupKind, QUAD_MULT, RAPID_MULT, SPAWN_PROT, SPEED_MULT, TICK_RATE,
   MOVE, Vec3, WEAPONS, WeaponDef, WeaponId, DeathCause, deathCauseLabel, clamp, rand, randomPowerup,
 } from "./types";
 import {
@@ -252,6 +252,7 @@ class Game {
   teams: Record<string, number> = {};   // tdm/hardpoint: side 0/1 · prophunt: 0 seeker / 1 hide
   teamScore: [number, number] = [0, 0]; // tdm/hardpoint side scores · prophunt [seeker, hider] wins
   tiers: Record<string, number> = {};   // gungame: player → weapon-ladder tier
+  props: Record<string, number> = {};   // prophunt: player → disguise roll (host-rolled per round)
   myRole = ROLE_SEEK;                    // prophunt: local role (mirror of teams[myId])
 
   // ── hardpoint ──
@@ -271,6 +272,11 @@ class Game {
   myHp = MAX_HP;
   alive = true;
   respawnAt = 0;
+  // spawn protection: player id → perf-clock deadline. Set on every spawn, cleared by
+  // that player's first shot/throw/portal — every client derives the same state from
+  // the broadcast spawn/shot/nade/portal msgs (renders the ghost); the host is the
+  // authority where it matters (hostApplyHit ignores damage to a protected victim).
+  prot: Record<string, number> = {};
   // holographic HUD parallax: smoothed look velocity (rad/frame) + last look angles, so
   // the HUD chrome drifts opposite to where the player is looking (a floating-hologram feel)
   private hudLookVX = 0;
@@ -1120,11 +1126,15 @@ class Game {
   /** material library the Prop-Hunt disguises shade against (built once; see ensureDisguiseMaterials) */
   private disguiseLib: MaterialLibrary | null = null;
 
-  /** deterministic disguise-prop model for a player id (host + guests agree without any
-   *  extra networking). null when the pool is empty → callers fall back to the crate. */
+  /** disguise-prop model for a player: the host's per-round roll (synced via snapshot +
+   *  the role msg), with the old deterministic id-hash only as a sync-gap fallback —
+   *  as the primary path it meant a given id (the host's literal "host" above all) wore
+   *  the SAME disguise every round of every match. null → callers fall back to the crate. */
   propForPlayer(id: string): string | null {
     const pool = this.propPool;
     if (!pool.length) return null;
+    const rolled = this.props[id];
+    if (rolled !== undefined) return pool[rolled % pool.length];
     let h = 0;
     for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
     return pool[h % pool.length];
@@ -1760,11 +1770,14 @@ class Game {
       const voiceOn = this.voice.hasAudio;
       for (const r of this.remotes.values()) {
         r.update(now);
+        r.setGhost(this.isProt(r.id)); // spawn-protected → translucent (change-guarded)
         if (voiceOn) {
           const rel = this.relAudio(r.pos);
           this.voice.setSpatial(r.id, rel.pan, rel.dist);
         }
       }
+      // your own third-person body ghosts too, so you can see your protection running
+      this.selfOperator?.setGhost(this.isProt(this.net.myId));
       this.updateNametags();
       this.updateDamageNumbers(dt);
 
@@ -2076,6 +2089,7 @@ class Game {
   }
 
   broadcastShot(o: Vec3, d: Vec3, w: WeaponId): void {
+    this.clearProt(this.net.myId); // firing forfeits spawn protection
     const m: Msg = { t: "shot", id: this.net.myId, o: [o.x, o.y, o.z], d: [d.x, d.y, d.z], w };
     if (this.net.isHost) this.net.broadcast(m);
     else this.net.send(m);
@@ -2115,6 +2129,7 @@ class Game {
       const o: Vec3 = { x: this.body.pos.x + d.x * 0.35, y: this.body.eyeY - 0.05, z: this.body.pos.z + d.z * 0.35 };
       const spd = kind === "he" ? 16 : 14;
       const v: Vec3 = { x: d.x * spd, y: d.y * spd + 3.2, z: d.z * spd };
+      this.clearProt(this.net.myId); // throwing forfeits spawn protection
       this.nades.throw_(kind, o, v, this.net.myId, true);
       const m: Msg = { t: "nade", id: this.net.myId, k: kind, o: [o.x, o.y, o.z], v: [v.x, v.y, v.z] };
       if (this.net.isHost) this.net.broadcast(m);
@@ -2152,10 +2167,18 @@ class Game {
       y: o.y + d.y * hit.dist + n.y * PORTAL_GAP,
       z: o.z + d.z * hit.dist + n.z * PORTAL_GAP,
     };
-    // a wall shot at the skirting would sink half the oval underground — lift it clear
-    if (Math.abs(n.y) < 0.5) c.y = Math.max(c.y, this.map.floorY(c.x, c.z) + PORTAL_HALF_H * 0.9);
+    // a wall shot at the skirting would sink half the oval underground — lift it just
+    // clear of the floor DIRECTLY beneath the hit. A local down-ray, not the map-wide
+    // floorY query: under a covered walkway floorY returned the roof top and beached
+    // the portal on top of the cover.
+    if (Math.abs(n.y) < 0.5) {
+      const lift = PORTAL_HALF_H * 0.9;
+      const down = this.map.raycast(c, { x: 0, y: -1, z: 0 }, lift);
+      if (down) c.y += lift - down.dist;
+    }
     const s = this.portalSlot;
     this.portalSlot = s === 0 ? 1 : 0;
+    this.clearProt(this.net.myId); // placing a portal forfeits spawn protection
     this.portals.place(this.net.myId, s, c, n, true);
     sfx.portalFire(s);
     const m: Msg = { t: "portal", id: this.net.myId, s, o: [c.x, c.y, c.z], n: [n.x, n.y, n.z] };
@@ -2263,6 +2286,8 @@ class Game {
     if (this.phase !== "play") return;
     const hp = this.hpMap[victim];
     if (hp === undefined || hp <= 0) return;
+    // spawn protection: a fresh spawn can't be damaged until they fire or the timer lapses
+    if (this.isProt(victim)) return;
     // team modes: no friendly fire (TDM sides / Prop Hunt roles)
     if (MODES[this.mode].teams && attacker !== victim && this.teams[attacker] === this.teams[victim]) return;
     // prep phase: seekers can't hurt hiders while the hiders are still scattering
@@ -2583,6 +2608,13 @@ class Game {
     return this.remotes.get(id)?.pos ?? { x: 0, y: 0, z: 0 };
   }
 
+  // ─── spawn protection ─────────────────────────────────────────────────────────
+
+  /** is `id` still inside their post-spawn invulnerability window? */
+  isProt(id: string): boolean { return (this.prot[id] ?? 0) > performance.now() / 1000; }
+  /** `id` fired/threw/placed — their spawn protection ends now */
+  clearProt(id: string): void { this.prot[id] = 0; }
+
   hostSpawn(id: string): void {
     // deploy counts: the round-start burst spawns everyone in during the pre-round freeze
     if (this.phase !== "play" && this.phase !== "deploy") return;
@@ -2605,7 +2637,7 @@ class Game {
     this.net.broadcast(m);
     // deliver the mode loadout directly (unreliable channel → don't rely on snapshot order)
     if (id !== this.net.myId) {
-      if (this.mode === "prophunt") this.net.sendTo(id, { t: "role", role: this.teams[id] ?? ROLE_SEEK, prop: 0 });
+      if (this.mode === "prophunt") this.net.sendTo(id, { t: "role", role: this.teams[id] ?? ROLE_SEEK, prop: this.props[id] ?? 0 });
       else if (this.mode === "gungame") this.net.sendTo(id, { t: "tier", tier: this.tiers[id] ?? 0 });
     }
     this.applyLocal(m);
@@ -2733,6 +2765,10 @@ class Game {
       const shuffled = [...ids].sort(() => Math.random() - 0.5);
       const seekers = seekerCount(ids.length);
       shuffled.forEach((id, i) => { this.teams[id] = i < seekers ? ROLE_SEEK : ROLE_HIDE; });
+      // fresh disguise roll each round (synced via snapshot + the role msg) — the old
+      // id-hash disguise was deterministic, so e.g. the host was the same prop forever
+      this.props = {};
+      for (const id of ids) this.props[id] = (Math.random() * 4096) | 0;
     } else if (this.mode === "gungame") {
       for (const id of ids) if (this.tiers[id] === undefined) this.tiers[id] = 0;
     }
@@ -2750,6 +2786,7 @@ class Game {
       phase: this.phase, round: this.round, timeLeft: this.timeLeft, scores: this.scores,
       pk: this.pkTimers.map((t) => Math.ceil(t)), map: this.currentMapId,
       mode: this.mode, cfg: this.cfg, teams: this.teams, teamScore: this.teamScore, tiers: this.tiers,
+      props: this.mode === "prophunt" ? this.props : undefined,
       platforms: this.platforms,
       hill: this.mode === "hardpoint"
         ? { i: this.hillIndex, owner: this.hillOwner, progress: Math.min(1, this.hillProgress) }
@@ -2771,6 +2808,7 @@ class Game {
     if (g.teams) this.teams = g.teams;
     if (g.teamScore) this.teamScore = g.teamScore;
     if (g.tiers) this.tiers = g.tiers;
+    if (g.props) this.props = g.props; // prophunt disguise rolls (updateModeVisuals reads them)
     // hardpoint hill: relocations usually land via the "hill" msg — the snapshot is the
     // catch-up path (late joiners, dropped datagrams). Owner/clock stay host-authoritative.
     if (g.hill) {
@@ -3424,6 +3462,7 @@ class Game {
         break;
       }
       case "shot": {
+        this.clearProt(m.id); // they fired → spawn protection over (mirrored on every client)
         const r = this.remotes.get(m.id);
         const o: Vec3 = { x: m.o[0], y: m.o[1], z: m.o[2] };
         const d: Vec3 = { x: m.d[0], y: m.d[1], z: m.d[2] };
@@ -3455,6 +3494,7 @@ class Game {
         break;
       }
       case "nade": {
+        this.clearProt(m.id); // they threw → spawn protection over
         this.nades.throw_(m.k, { x: m.o[0], y: m.o[1], z: m.o[2] }, { x: m.v[0], y: m.v[1], z: m.v[2] }, m.id, false);
         sfx.nadeThrow();
         if (this.net.isHost) this.net.broadcast(m, fromId);
@@ -3495,6 +3535,7 @@ class Game {
         break;
       }
       case "portal": {
+        this.clearProt(m.id); // they placed a portal → spawn protection over
         // render-only mirror of a remote player's portal (no collision/traversal here —
         // traversal is resolved by the owner and arrives through the position stream)
         this.portals.place(m.id, m.s, { x: m.o[0], y: m.o[1], z: m.o[2] }, { x: m.n[0], y: m.n[1], z: m.n[2] }, false);
@@ -3531,9 +3572,10 @@ class Game {
         break;
       }
       case "role": {
-        // host → me: prop-hunt role for this round
+        // host → me: prop-hunt role + disguise roll for this round
         this.myRole = m.role;
         this.teams[this.net.myId] = m.role;
+        this.props[this.net.myId] = m.prop;
         if (this.inGame && this.alive) this.applyLoadout();
         break;
       }
@@ -3618,6 +3660,8 @@ class Game {
         if (r) { r.markDead(m.hs === 1); r.alive = false; }
       }
     } else if (m.t === "spawn") {
+      // fresh life → spawn protection (all clients track it; host enforces the damage gate)
+      this.prot[m.id] = performance.now() / 1000 + SPAWN_PROT;
       if (m.id === this.net.myId) {
         this.alive = true;
         this.myHp = MAX_HP;
@@ -4139,6 +4183,7 @@ class Game {
 
   botTryShoot(bot: BotAI, tgt: Vec3, dist: number, eye: Vec3): void {
     if (bot.reloadCd > 0) return; // mid-reload — can't shoot
+    this.clearProt(bot.id); // a firing bot forfeits its spawn protection like anyone else
     const tune = BOT_TUNING[this.cfg.difficulty];
     const wid = this.botWeapon(bot);
     const def = WEAPONS[wid];
@@ -4219,6 +4264,7 @@ class Game {
       this.teams[id] = a <= b ? 0 : 1; // fill the smaller side
     } else if (this.mode === "prophunt") {
       this.teams[id] = ROLE_SEEK; // mid-round joiners hunt
+      this.props[id] ??= (Math.random() * 4096) | 0; // a roll anyway — next round may hide them
     } else if (this.mode === "gungame") {
       this.tiers[id] = this.tiers[id] ?? 0;
     }

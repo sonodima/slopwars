@@ -251,6 +251,38 @@ export class RemotePlayer {
     for (const r of this.heldEntity.getComponentsIncludeChildren(MeshRenderer, [])) r.enabled = this.renderVisible;
   }
 
+  // ── spawn-protection ghosting ───────────────────────────────────────────────
+
+  /** while spawn-protected, the whole avatar (body, held weapon, disguise) fades to a
+   *  translucent hologram so an untouchable player reads as untouchable. Change-guarded —
+   *  the caller drives it per frame off the protection clock. */
+  private ghost = false;
+  setGhost(on: boolean): void {
+    if (on === this.ghost) return;
+    this.ghost = on;
+    this.applyGhost(this.entity);
+  }
+
+  /** (re)apply the current ghost alpha to a subtree. Materials are per-renderer INSTANCE
+   *  clones (getInstanceMaterials) — the shared model/library materials, used by the map
+   *  and every other avatar, are never mutated. Also called for a freshly built held
+   *  weapon / disguise so a rebuild mid-protection stays translucent. */
+  private static readonly GHOST_ALPHA = 0.45;
+  private applyGhost(root: Entity): void {
+    const apply = (r: SkinnedMeshRenderer | MeshRenderer): void => {
+      for (const m of r.getInstanceMaterials()) {
+        const bm = m as unknown as { isTransparent?: boolean; baseColor?: Color };
+        if (!bm || !bm.baseColor) continue;
+        bm.isTransparent = this.ghost;
+        const c = bm.baseColor;
+        c.a = this.ghost ? RemotePlayer.GHOST_ALPHA : 1;
+        bm.baseColor = c; // reassign to flag the material dirty
+      }
+    };
+    for (const r of root.getComponentsIncludeChildren(SkinnedMeshRenderer, [])) apply(r);
+    for (const r of root.getComponentsIncludeChildren(MeshRenderer, [])) apply(r);
+  }
+
   // ── held weapon ─────────────────────────────────────────────────────────────
 
   /** the library the held weapon shades against. It loads async at startup (see
@@ -318,6 +350,7 @@ export class RemotePlayer {
     host.addChild(m);
     this.heldEntity = mount; // destroying the mount drops the weapon with it
     this.applyWeaponVisible(); // a freshly-built weapon inherits the avatar's visibility
+    if (this.ghost) this.applyGhost(mount); // …and its spawn-protection translucency
   }
 
   // ── disguise (prop hunt) ─────────────────────────────────────────────────────
@@ -359,6 +392,7 @@ export class RemotePlayer {
     }
     holder.isActive = this.disguised;
     this.disguise = holder;
+    if (this.ghost) this.applyGhost(holder); // rebuilt mid-protection → stays translucent
   }
 
   push(s: PlayerState, time: number, hpOverride?: number): void {
