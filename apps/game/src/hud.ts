@@ -801,7 +801,10 @@ export class Hud {
       `<span class="c-k">${s.k}</span><span class="c-d">${s.d}</span><span class="c-r">${ratio}</span></div>`;
   }
 
-  private hudRoot: HTMLElement | null = document.getElementById("hud-parallax");
+  /** the parallax vars live on #scr-game (not #hud-parallax) so every heads-up layer under
+   *  it — the drifting chrome wrapper AND the centred round-start banner — reads the same
+   *  --hud-px/--hud-py via inheritance and leans into the turn together. */
+  private hudRoot: HTMLElement | null = document.getElementById("scr-game");
   /** drift the whole in-game HUD chrome with the player's look, for a floating holographic
    *  parallax. `vx`/`vy` are the smoothed per-frame look deltas (yaw/pitch, in rad); the
    *  chrome leans into the turn (same direction as the camera pan) so it reads as a heads-up
