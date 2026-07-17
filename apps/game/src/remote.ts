@@ -273,9 +273,9 @@ export class RemotePlayer {
     const folder = TP_WEAPON[this.weapon];
     if (!folder) return; // grenades etc. — nothing held
     const meta = modelMetaOf(folder);
-    // where the hand grips this model (model-local). OPTIONAL — without one the weapon
-    // seats at the mount origin by scale only (the model origin lands on the hand),
-    // which for models whose origin isn't the grip makes the gun float in the hand.
+    // where the hand grips this model. OPTIONAL — without one the weapon seats at the
+    // mount origin by scale only (the model origin lands on the hand), which for models
+    // whose origin isn't the grip makes the gun float in the hand.
     const grip = modelAnchor(meta, "grip");
     const m = instantiate(this.models[folder]);
     if (!m) return;
@@ -300,17 +300,21 @@ export class RemotePlayer {
     const bump = THROWABLES.includes(this.weapon) ? TP_THROWABLE_SCALE : TP_WEAPON_SCALE;
     const s = (meta.scale ?? 1) * inv * bump;
     m.transform.setScale(s, s, s);
-    // Seat by the grip anchor: orient the model by the grip's rotation, then offset it
-    // so the grip point lands at the mount origin (the hand) — P = −R·S·gripPos. With
-    // no grip authored, leave the model at the mount origin (scale only).
-    if (grip) {
-      const gr = grip.rot ?? [0, 0, 0];
-      m.transform.setRotation(gr[0], gr[1], gr[2]);
-      const g = new Vector3(grip.at[0] * s, grip.at[1] * s, grip.at[2] * s);
-      Vector3.transformByQuat(g, m.transform.rotationQuaternion, g);
-      m.transform.setPosition(-g.x, -g.y, -g.z);
+    // Seat by the grip anchor. `grip.at` is authored in the model's own displayed frame —
+    // the same frame as `muzzle` — so it takes the model's scale but NOT its rotation:
+    // offsetting the model by −at·s drops that point onto the hand. Never set the model's
+    // own rotation here. Several weapon glTFs bake one in (the luger's 180° among them),
+    // and the set only reads barrel-−Z with it intact; overwriting it held those weapons
+    // backwards. `grip.rot` is instead an optional extra turn *about the grip point* (the
+    // knife needs one to point its blade forward; the guns need none) — a wrapper entity
+    // carries it so the engine composes the rotation and the model keeps its own.
+    let host = mount;
+    if (grip?.rot) {
+      host = mount.createChild("wep-grip");
+      host.transform.setRotation(grip.rot[0], grip.rot[1], grip.rot[2]);
     }
-    mount.addChild(m);
+    if (grip) m.transform.setPosition(-grip.at[0] * s, -grip.at[1] * s, -grip.at[2] * s);
+    host.addChild(m);
     this.heldEntity = mount; // destroying the mount drops the weapon with it
     this.applyWeaponVisible(); // a freshly-built weapon inherits the avatar's visibility
   }

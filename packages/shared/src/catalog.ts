@@ -36,8 +36,8 @@ export type CollisionMode = "auto" | "manual";
  *  anchors map is deliberately keyed by name so more anchors (sight, …) can be added
  *  later with no schema change. */
 export interface ModelAnchor {
-  at: Tuple3;         // model-local position of the anchor
-  rot?: Tuple3;       // model-local euler degrees applied when the anchor is used
+  at: Tuple3;         // position of the anchor, in the model's own displayed frame
+  rot?: Tuple3;       // euler degrees, applied on top of the model's own orientation
 }
 
 /** one authorable anchor kind, driving the editor's anchor UI (the picker label, help
@@ -51,7 +51,7 @@ export interface AnchorKind { key: string; label: string; help: string; rot: boo
 export const ANCHOR_KINDS: readonly AnchorKind[] = [
   {
     key: "grip", label: "Held point", rot: true,
-    help: "Where a character's hand grips the model in third person. The hand snaps to this point; its rotation sets the held orientation. Not used by the first-person viewmodel.",
+    help: "Where a character's hand grips the model in third person — the hand snaps to this point. Rotation is an optional extra turn about it, on top of how the model already sits; leave it at zero unless the model needs re-aiming in the hand. Not used by the first-person viewmodel.",
   },
   {
     key: "muzzle", label: "Muzzle", rot: false,

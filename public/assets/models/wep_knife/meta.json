@@ -2,5 +2,19 @@
   "scale": 0.01,
   "materials": {
     "Combat_Knife_Material": "wep_knife"
+  },
+  "anchors": {
+    "grip": {
+      "at": [
+        0,
+        -8,
+        0
+      ],
+      "rot": [
+        -90,
+        0,
+        0
+      ]
+    }
   }
 }
