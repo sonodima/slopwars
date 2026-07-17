@@ -427,7 +427,7 @@ export class Hud {
     const kit = c.loadout.map((w) => WEAPONS[w].name).join(" · ");
     const key = n ? `<span class="ck">${n}</span>` : "";
     return `<div class="mode-card class-card${c.id === selectedId ? " on" : ""}" data-class="${c.id}">` +
-      `${key}<div class="mn">${esc(c.name)}</div><div class="mb">${esc(c.blurb)}</div>` +
+      `${key}<div class="mn">${esc(c.name)}</div>` +
       `<span class="kit">${esc(kit)}</span></div>`;
   }
 
@@ -626,13 +626,11 @@ export class Hud {
       this.deployMode = false;
       $("respawn").classList.add("hidden");
       $("respawn-label").textContent = "respawn in";
-      $("rd-sub-when").textContent = "deploys on respawn";
       return;
     }
     this.deployMode = true;
     $("respawn").classList.remove("hidden");
     $("respawn-label").textContent = "round starts in";
-    $("rd-sub-when").textContent = "deploys now"; // a pick during the freeze applies immediately
     $("respawn-t").textContent = Math.max(1, Math.ceil(t)).toString();
   }
 

@@ -375,7 +375,7 @@
     text-shadow:0 0 22px var(--holo-glow)}
   .respawn-count{display:flex;flex-direction:column;align-items:center;gap:4px}
   /* ── death-screen "choose your class" strip (deploys on respawn) ── */
-  #respawn-deploy{display:flex;flex-direction:column;align-items:center;gap:8px;max-width:min(760px,96vw);pointer-events:none}
+  #respawn-deploy{display:flex;flex-direction:column;align-items:center;gap:8px;max-width:min(900px,96vw);pointer-events:none}
   .rd-title{font-size:13px;letter-spacing:5px;text-transform:uppercase;color:var(--sand);font-weight:700}
   .rd-sub{font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--sand-dim)}
   #respawn-classes{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;pointer-events:auto;
@@ -1287,7 +1287,6 @@
   <div id="respawn" class="hidden">
     <div id="respawn-deploy">
       <div class="rd-title">choose your class</div>
-      <div class="rd-sub"><span id="rd-sub-when">deploys on respawn</span> · <span class="kbd-only">press 1–5</span><span class="touch-only">tap a class</span></div>
       <div id="respawn-classes"></div>
     </div>
     <div class="respawn-count"><div class="d" id="respawn-label">respawn in</div><div id="respawn-t">3</div></div>
