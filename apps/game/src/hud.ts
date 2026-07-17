@@ -812,7 +812,7 @@ export class Hud {
     if (!el) return;
     const K = 260, MAX = 18; // px per rad/frame, clamped so a fast flick can't fling it far
     const px = Math.max(-MAX, Math.min(MAX, vx * K));
-    const py = Math.max(-MAX, Math.min(MAX, -vy * K));
+    const py = Math.max(-MAX, Math.min(MAX, vy * K)); // +: HUD drifts the same vertical way as the pan
     el.style.setProperty("--hud-px", `${px.toFixed(1)}px`);
     el.style.setProperty("--hud-py", `${py.toFixed(1)}px`);
   }
