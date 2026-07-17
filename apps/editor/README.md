@@ -24,21 +24,54 @@ pnpm dev:editor      # → http://localhost:5210
 - **Agent-native.** The host exposes an MCP server, so everything below — from
   placing objects to taking viewport screenshots — is scriptable by AI tools.
 
-## What it does
+## Features
 
-- **Tabbed viewport** — several maps plus interactive **material / model /
-  texture** preview tabs open at once; double-click any asset in the browser
-  dock to open its tab.
-- **Materials-first pipeline** — a texture is never applied to a model
-  directly: import texture sets, build **materials** from them, assign those
-  to a model's surface slots. Imported models are stripped to pure geometry
-  and wired to library materials automatically.
-- **Per-model collision authoring** — `auto` (one box hugging the mesh) or
-  `manual`: author the solids yourself so only a tree's trunk blocks the
-  player, not its canopy.
+### Viewport
+
+- **Tabbed, Unreal-style.** Several maps plus interactive **material / model /
+  texture** preview tabs open side by side — double-click any asset in the
+  browser dock to open its tab. Fly camera, move/rotate/scale gizmos with
+  rotation snapping, multi-select, copy/paste, grouping, and full undo/redo.
+- **First-class groups.** Objects group into transformable parents (move,
+  rotate and scale a whole structure as a unit, nested arbitrarily); a group
+  flagged *dynamic body* becomes a single PhysX rigid body in-game — mesh,
+  light and all.
+- **Preview environments.** Material and model tabs render inside a selectable
+  HDRI environment; a graphics-quality switch previews maps at any tier.
+
+### World authoring
+
+- A map's whole **environment** is edited in the inspector: HDRI or
+  solid-color sky, sun direction / color / brightness, ambient light and
+  reflections, shadow quality, distance fog — plus the map meta (name, theme,
+  rotation flag) that drives the in-game map pool.
+- Every placeable comes from the game's `defineObject()` registry — geometry,
+  spawns, pickups, power-ups, lights, sounds, particles. New object types
+  defined in the game show up in the editor automatically, their params
+  rendered as inspector fields.
 - **Drag & drop placement** — drag a model in for a prop, an audio file for a
-  positional sound, an object type for anything else; transform with
-  move/rotate/scale gizmos, group, duplicate, undo.
+  positional sound, an object type for anything else.
+
+### Asset pipeline
+
+- **Asset browser.** Objects · Models · Materials · Textures · Skyboxes ·
+  Audio · Maps, searchable, with live-rendered thumbnails; audio cards carry a
+  scrubbable waveform preview.
+- **Materials-first.** A texture is never applied to a model directly: import
+  texture sets, build **materials** (standard / water / glass) from them,
+  assign those to a model's surface slots. Imported models are stripped to
+  pure geometry and wired to auto-created library materials, so they render
+  the moment they land.
+- **Model calibration.** Per-model base offset / rotation / scale, per-surface
+  material slots, and **collision authoring**: `auto` (one box hugging the
+  mesh) or `manual` — place the solids yourself so only a tree's trunk blocks
+  the player, not its canopy. Named **anchors** (e.g. a weapon's `muzzle`) and
+  a Prop-Hunt disguise opt-in round out the metadata.
+- **Texture sets** are PBR groups (color / normal / arm) assembled in the
+  texture tab; materials reference the whole set.
+- **Maps are folders** — saved as pretty JSON to `public/assets/maps/<id>/`;
+  drop screenshot images next to `map.json` and the in-game map picker grows
+  a gallery.
 
 ## MCP server
 
@@ -64,17 +97,3 @@ Tools come in two flavors:
   editor page (you'll see an "MCP connected" toast).
 
 Every geometry edit an agent makes is undoable in the editor with Ctrl+Z.
-
-## Controls
-
-| Input | Action |
-|---|---|
-| **Hold RMB + WASD / Q E** | Fly the camera |
-| **Q / W / E / R** | Select / Move / Rotate / Scale tool |
-| **Left-click** (drag) | Select an object (transform it with the active tool) |
-| **Shift** while rotating | Snap to 30° steps |
-| **F** | Frame the selected object |
-| **Ctrl+G · Ctrl+C/V/X · Del** | Group · copy/paste/cut · delete |
-| **Drag from browser** | Place a model / sound / object |
-| **Double-click asset** | Open its preview tab |
-| **Drag in a preview tab** | Orbit; scroll to zoom |

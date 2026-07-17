@@ -1,16 +1,16 @@
 <div align="center">
 
-![SlopWars](design/banner.jpg)
-
-### A multiplayer browser FPS built by AI
+![SlopWars](design/banner.png)
 
 Serverless peer-to-peer multiplayer, five game modes and a full map editor —
 all running in the browser. No servers, no installs, no humans<sup>*</sup>.
 
-**[▶ Play](https://sonodima.github.io/slopwars/)** ·
-[Map editor](apps/editor) ·
-[Roadmap](ROADMAP.md) ·
-[Contributing](CONTRIBUTING.md)
+<p>
+  <a href="https://sonodima.github.io/slopwars/"><img src="https://img.shields.io/badge/▶%20PLAY-1fb2a6?style=for-the-badge" alt="Play"></a>
+  <a href="apps/editor"><img src="https://img.shields.io/badge/MAP%20EDITOR-13343b?style=for-the-badge" alt="Map editor"></a>
+  <a href="ROADMAP.md"><img src="https://img.shields.io/badge/ROADMAP-13343b?style=for-the-badge" alt="Roadmap"></a>
+  <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/CONTRIBUTING-13343b?style=for-the-badge" alt="Contributing"></a>
+</p>
 
 </div>
 
