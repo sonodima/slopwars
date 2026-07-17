@@ -749,8 +749,15 @@
   #btn-gear:hover{border-color:var(--sand)}
   body[data-screen="game"] #btn-gear,body[data-screen="loading"] #btn-gear{display:none}
   #settings{z-index:50;background:rgba(3,7,9,.86);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)}
-  /* fixed width so the panel doesn't resize when switching sub-pages */
-  .set-panel{width:min(540px,94vw);min-width:0;max-width:94vw}
+  /* fixed width so the panel doesn't resize when switching sub-pages. Laid out as a
+     flex column so the header (title + tab bar) and the Done/Leave footer stay PINNED
+     while only the active page scrolls — on a short (landscape phone) screen the tab bar
+     must never scroll out of view. Overrides the generic .panel scroll. */
+  .set-panel{width:min(540px,94vw);min-width:0;max-width:94vw;
+    display:flex;flex-direction:column;overflow:hidden;
+    height:min(560px,calc(100dvh - 28px));max-height:calc(100dvh - 28px)}
+  .set-panel > .set-title,.set-panel > .set-tabs,
+  .set-panel > #set-done,.set-panel > #set-leave{flex:0 0 auto}
   .set-title{font-size:22px;letter-spacing:6px;color:var(--sand);text-transform:uppercase;font-weight:700;
     text-align:center;margin-bottom:6px}
   /* segmented preset control */
@@ -795,8 +802,10 @@
   .set-tabs button.on{color:var(--sand);text-shadow:0 0 10px rgba(155,236,255,.4)}
   .set-tabs button.on::after{content:"";position:absolute;left:8%;right:8%;bottom:-1px;height:2px;
     background:linear-gradient(90deg,transparent,var(--sand),transparent);box-shadow:0 0 8px var(--holo-glow)}
-  /* a floor on the page height keeps the panel (and Done button) from jumping between tabs */
-  .set-page{min-height:min(320px,48vh)}
+  /* the active sub-page is the ONLY scrolling region — the header (tabs) + footer (Done)
+     stay pinned around it. The panel's own fixed height keeps it from jumping between tabs. */
+  .set-page{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;
+    margin:0 -6px;padding:2px 6px}
   /* toggle switch — angular kit slab: chamfered track + sliding chamfered pip, with the
      same painted diagonal edges as the panels (the clip eats the border at the cuts) */
   .set-toggle{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:18px;
