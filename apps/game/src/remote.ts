@@ -37,7 +37,7 @@ const TP_WEAPON: Partial<Record<WeaponId, string>> = {
   mol: "wep_molotov",
   flash: "wep_flashbang",
   smoke: "wep_smoke",
-  portalgun: "wep_grease", // same placeholder the first-person viewmodel uses (ROADMAP §3.1)
+  portalgun: "wep_grease", // same placeholder the first-person viewmodel uses
 };
 
 // The weapon is parented to `mixamorig:RightHand` so it follows the arm through every

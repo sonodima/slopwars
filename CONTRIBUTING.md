@@ -48,6 +48,5 @@ Content is files, not code:
 ## Pull requests
 
 - Explain *what* and *why*; screenshots or clips for anything visible.
-- If your change touches a [ROADMAP.md](ROADMAP.md) item, update its status.
 - New object types, materials or asset kinds should work in **both** the game
   and the editor — the shared package is the contract between them.

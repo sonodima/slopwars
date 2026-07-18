@@ -12,8 +12,6 @@ PhysX wasm, Vite + TypeScript, pnpm workspaces.
 - `packages/shared` holds the map schema, asset-catalog types and the
   filesystem asset scanner used by both apps. Game and editor must agree
   through `shared`, never by duplicating logic.
-- `ROADMAP.md` is the plan of record: when you ship or change something a
-  roadmap section covers, update that section's **Status** note.
 
 ## Ground rules
 

@@ -16,7 +16,7 @@
 // swirl costs zero per-frame JS — plus wisp + nebula-mist emitters breathing
 // energy out of the surface. Remaining lifespan is legible from every layer: the
 // swirl spins faster and flickers, the ring pulses harder and dims, the wisps
-// thin out, and the hum fades over the last seconds (ROADMAP §2.2).
+// thin out, and the hum fades over the last seconds.
 //
 // See-through: the LOCAL pair doubles as a window — renderView() draws the scene
 // from behind the linked portal (water-reflection recipe: manual RTT camera,
@@ -48,7 +48,7 @@ export const PORTAL_GAP = 0.06;   // lift off the surface so the ring never z-fi
 
 const REENTRY = 0.3;   // s the pair is inert after a traversal (no teleport ping-pong)
 const NEAR = 0.45;     // plane distance at which the owner's body counts as "in"
-const HUM_FADE = 6;    // s before expiry over which the hum fades out (ROADMAP §2.2)
+const HUM_FADE = 6;    // s before expiry over which the hum fades out
 const ANIM_DIST = 60;  // m beyond which the per-frame pulse/uniform writes are skipped (culled)
 const VIEW_DIST = 45;  // m within which the see-through view renders (local pair only)
 const VIEW_BIAS = 0.02; // oblique clip lift off the exit plane (< PORTAL_GAP — keeps the wall out)
