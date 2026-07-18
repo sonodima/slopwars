@@ -13,25 +13,32 @@
 // (apps/game/src/main.ts registerServiceWorker) rejects on this scheme and is
 // already .catch()ed, so the PWA update/reload machinery stays inert without
 // touching game code. Offline is moot — the bundle ships on disk.
-import { app, BrowserWindow, protocol, session, shell } from "electron";
+import { app, BrowserWindow, dialog, protocol, session, shell } from "electron";
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { Readable } from "node:stream";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { cleanupBundles, initUpdater, pickBundle } from "./updater.js";
+
 const here = path.dirname(fileURLToPath(import.meta.url));
 // Packaged: electron-builder copies the game via extraResources → resources/game.
-const gameDist = app.isPackaged
+// That copy is the read-only FALLBACK — the updater may have staged a newer bundle
+// under userData, chosen once at startup (never swapped mid-session; see updater.js).
+const packagedDist = app.isPackaged
   ? path.join(process.resourcesPath, "game")
   : path.resolve(here, "../game/dist");
+let gameDist = packagedDist; // resolved for real in whenReady (needs app paths)
 // Dev loop: SLOP_DEV_URL=http://localhost:5211 loads the game's Vite dev
 // server instead of dist (HMR works; the SW never registers — not PROD).
 const devUrl = process.env.SLOP_DEV_URL;
 
-// Must be called before app ready.
+// Must be called before app ready. codeCache lets V8 persist compiled JS/wasm
+// across launches (userData/Code Cache) like http(s) gets for free — without it
+// every launch re-parses the whole game bundle and re-compiles the PhysX wasm.
 protocol.registerSchemesAsPrivileged([
-  { scheme: "app", privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } },
+  { scheme: "app", privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, codeCache: true } },
 ]);
 
 // Explicit MIME map instead of a lookup dependency: application/wasm is
@@ -51,6 +58,13 @@ const MIME = {
 if (!app.requestSingleInstanceLock()) app.quit();
 
 app.whenReady().then(() => {
+  // pick the newest complete bundle BEFORE anything streams from disk, and sweep
+  // stale ones while their files are guaranteed unlocked (Windows locks open files)
+  if (!devUrl) {
+    gameDist = pickBundle(packagedDist);
+    cleanupBundles(gameDist);
+  }
+
   protocol.handle("app", async (req) => {
     const rel = path.normalize(decodeURIComponent(new URL(req.url).pathname)).replace(/^[/\\]+/, "");
     const file = path.join(gameDist, rel === "" ? "index.html" : rel);
@@ -92,7 +106,27 @@ app.whenReady().then(() => {
     if (!url.startsWith("app://") && !(devUrl && url.startsWith(devUrl))) e.preventDefault();
   });
 
+  // Close-confirm, zero-IPC: the game's own beforeunload preventDefaults ONLY while a
+  // match is running (main.ts), which surfaces here as will-prevent-unload. So the
+  // dialog appears exactly when closing would cost something — X/⌘Q from the menu
+  // quits instantly, and every quit path funnels through the one unload, no
+  // before-quit flag dance. preventDefault() on the EVENT means "allow the unload".
+  win.webContents.on("will-prevent-unload", (e) => {
+    const choice = dialog.showMessageBoxSync(win, {
+      type: "question",
+      buttons: ["Quit", "Stay in match"],
+      defaultId: 1,
+      cancelId: 1,
+      title: "SlopWars",
+      message: "A match is in progress — quit anyway?",
+    });
+    if (choice === 0) e.preventDefault();
+  });
+
   void win.loadURL(devUrl ?? "app://game/");
+
+  // keep the game bundle current against the Pages deploy (no-op in dev)
+  if (!devUrl) initUpdater(win, gameDist);
 });
 
 app.on("window-all-closed", () => app.quit());

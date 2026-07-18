@@ -13,6 +13,11 @@ PhysX wasm, Vite + TypeScript, pnpm workspaces.
   locally on demand, never in CI). It serves `apps/game/dist` over a custom
   `app://` protocol — never `file://`, which would silently break the PhysX
   wasm fetch — and must stay a zero-IPC wrapper: no preload, no game logic.
+  Shell *infrastructure* is fine: `updater.js` keeps the game bundle current
+  against the Pages deploy (version.json + dist-manifest.json, per-file sha256,
+  atomic per-version dirs under userData with the packaged copy as fallback),
+  and the in-match close-confirm rides the game's own beforeunload via
+  `will-prevent-unload` — still no IPC in either direction.
 - `packages/shared` holds the map schema, asset-catalog types and the
   filesystem asset scanner used by both apps. Game and editor must agree
   through `shared`, never by duplicating logic.

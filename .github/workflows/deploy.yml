@@ -19,6 +19,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # full history: the build derives its version from `git rev-list --count`,
+          # which silently reports 1 on a shallow clone (the vite config throws on it)
+          fetch-depth: 0
 
       - uses: pnpm/action-setup@v4
         with:

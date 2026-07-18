@@ -20,6 +20,14 @@ export default defineConfig({
       "@game": path.resolve(repoRoot, "apps/game/src"),
     },
   },
+  // Insurance: the game's build-identity tokens (defined for real in the game's vite
+  // config) so a future refactor that leaks them into an editor-imported @game module
+  // fails soft here instead of breaking the editor build.
+  define: {
+    __GAME_VERSION__: JSON.stringify("dev"),
+    __GIT_SHA__: JSON.stringify("dev"),
+    __PKG_VERSION__: JSON.stringify("dev"),
+  },
   plugins: [
     assetCatalogPlugin({ root: repoRoot }),
     editorHostPlugin({ root: repoRoot }),

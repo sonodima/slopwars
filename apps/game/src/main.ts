@@ -15,7 +15,7 @@ import { resolveTextures } from "./textures";
 import { mapTextureFolders } from "./objects";
 import { MaterialLibrary, materialTextureFolders } from "./materials";
 import { GameModels } from "./models";
-import { MapEnv, ModelMeta, ShadowQuality, envSunColor, modelMaterials } from "./maps/schema";
+import { MapEnv, ModelMeta, envSunColor, modelMaterials } from "./maps/schema";
 import { applyFogFalloff, applyPost, applyShadows } from "./rendersettings";
 import {
   DEFAULT_MAP, loadMapPool, mapById, mapMetas, mapPreviews, pickVotedMap, randomMapId, ROTATION, tallyVotes,
@@ -211,6 +211,7 @@ class Game {
   // ── host match rules (mirrored to guests) ──
   cfg: MatchConfig = { ...DEFAULT_CONFIG };
   leaving = false; // set during an intentional leave (suppresses the unload prompt)
+  rejected = false; // host refused our join (version gate) — mutes the follow-up conn-close error
 
   // third-person self avatar. Prop-Hunt hiders show a disguise crate (selfAvatar);
   // a match with the third-person camera enabled shows the local player as the same
@@ -343,7 +344,8 @@ class Game {
     this.engine = engine;
     this.usePhysx = physx;
     engine.canvas.resizeByClientSize();
-    window.addEventListener("resize", () => this.applyResolution());
+    window.addEventListener("resize", () => { this.applyResolution(); this.probeRefresh(); });
+    this.probeRefresh();
 
     const scene = engine.sceneManager.activeScene;
     const root = scene.createRootEntity("root");
@@ -499,6 +501,17 @@ class Game {
     this.tracers.prewarm();
     this.nades.prewarm();
     this.portals.prewarm();
+
+    // build identity, dim and out of the way (menu footer): pkg version + git-derived
+    // build id — the same string the P2P join gate compares, so "update to join"
+    // errors are checkable against what each player sees here.
+    document.getElementById("ver-line")!.textContent = `v${__PKG_VERSION__} · ${__GAME_VERSION__}`;
+
+    // a notice stashed before the previous page's teardown reload (kicked / host left)
+    try {
+      const notice = sessionStorage.getItem("slopwars.notice");
+      if (notice) { sessionStorage.removeItem("slopwars.notice"); this.hud.menuError(notice); }
+    } catch { /* storage unavailable */ }
 
     this.hud.show("menu");
     this.enterMenu();   // 3D showcase backdrop behind the create/join menu
@@ -1332,24 +1345,18 @@ class Game {
     this.gamepad.binds = this.settings.padBinds(); // pick up remapped controller buttons
   }
 
-  /** the device quality preset as a ceiling on the map's authored shadow tier
-   *  (so a low-end device never pays for a map's ultra shadows) */
-  private shadowCap(): ShadowQuality {
-    const q = this.settings.state.quality;
-    return q === "low" ? "off" : q === "medium" ? "medium" : "ultra";
-  }
-
-  /** map the device quality preset onto camera knobs (MSAA / HDR / post / render
-   *  scale), then re-apply the current map's shadows clamped to that preset. The
-   *  map's env owns the *look*; this preset only trades quality for framerate. */
+  /** map the granular video knobs onto camera/scene state and re-apply the map's
+   *  shadows clamped to the player's cap. The presets are just knob batches applied
+   *  by settings.ts (PRESETS); this only ever reads the knobs. The map's env owns
+   *  the *look*; these knobs only trade quality for framerate. */
   applyGraphics(): void {
     const scene = this.engine.sceneManager.activeScene;
     const cam = this.camera;
-    const q = this.settings.state.quality;
-    cam.msaaSamples = q === "low" ? MSAASamples.None : q === "medium" ? MSAASamples.TwoX : MSAASamples.FourX;
-    cam.enableHDR = q !== "low";
-    cam.enablePostProcess = q !== "low";
-    if (this.map?.env) applyShadows(scene, this.sun, this.map.env, this.shadowCap());
+    const s = this.settings.state;
+    cam.msaaSamples = s.msaa === 0 ? MSAASamples.None : s.msaa === 2 ? MSAASamples.TwoX : MSAASamples.FourX;
+    cam.enableHDR = s.hdr;
+    cam.enablePostProcess = s.post;
+    if (this.map?.env) applyShadows(scene, this.sun, this.map.env, s.shadowCap);
     this.applyResolution();
   }
 
@@ -1358,14 +1365,61 @@ class Game {
    *  a 2× Retina display (e.g. an M1 Pro MacBook) renders 4× the pixels — with
    *  MSAA 4× + HDR + bloom that saturates fill-rate, which is why the game runs
    *  fine at half a window but lags at fullscreen. Capping to 1.5× cuts that pixel
-   *  count almost in half while staying crisp; low-DPI screens are unaffected. */
+   *  count almost in half while staying crisp; low-DPI screens are unaffected.
+   *
+   *  The 1.5 cap was tuned for a 16.7ms (60Hz) budget. On a 120Hz panel the
+   *  budget halves, and 1.5× fullscreen sits right on the 8.3ms edge: measured
+   *  on an M1 Pro (2700×1689) the frame time oscillates across the vsync
+   *  boundary — ~9% of frames slip to 16.7ms, which reads as constant stutter
+   *  even though the average fps looks fine. 1.25× (2250×1408) locks a flat
+   *  120fps, so high-refresh displays get the tighter cap. */
   applyResolution(): void {
-    const DPR_CAP = 1.5;
-    const scale = this.settings.state.quality === "low" ? 0.6
-      : this.settings.state.quality === "medium" ? 0.85 : 1;
+    const DPR_CAP = this.highRefresh ? 1.25 : 1.5;
+    const scale = this.settings.state.renderScale;
     const dpr = Math.min(window.devicePixelRatio || 1, DPR_CAP);
-    const canvas = this.engine.canvas as unknown as { resizeByClientSize(pixelRatio?: number): void };
+    const canvas = this.engine.canvas as unknown as { resizeByClientSize(pixelRatio?: number): void; width: number; height: number };
     canvas.resizeByClientSize(dpr * scale);
+    // surface the resulting buffer size in Settings (the honest "resolution" control:
+    // the desktop shell is zero-IPC, so the page can't resize the OS window anyway)
+    const res = document.getElementById("set-res-val");
+    if (res) res.textContent = `${Math.round(canvas.width)}×${Math.round(canvas.height)}`; // engine wrapper reports floats
+  }
+
+  /** display refresh class driving DPR_CAP; false (60Hz-ish) until a probe
+   *  proves otherwise, so unknown = today's behavior */
+  private highRefresh = false;
+  private refreshProbing = false; // one probe (incl. its retry waits) at a time
+
+  /** Classify the display as high-refresh (>90Hz) from rAF cadence: median of
+   *  24 intervals, accepted only when the p25–p75 spread is tight (±20% of the
+   *  median) — a loading main thread or a 120↔60 oscillating match produces a
+   *  wide spread and must not (mis)classify. Rejected samples retry (probing at
+   *  boot overlaps the asset load, whose long tasks stretch every interval);
+   *  bounded so an ever-janky session just keeps the conservative cap. Re-run
+   *  on resize, which catches window drags onto a different-Hz monitor and
+   *  fullscreen toggles. */
+  private probeRefresh(retries = 10): void {
+    if (this.refreshProbing) return;
+    this.refreshProbing = true;
+    const iv: number[] = [];
+    let last: number | undefined;
+    const step = (t: number): void => {
+      if (last !== undefined) iv.push(t - last);
+      last = t;
+      if (iv.length < 24) { requestAnimationFrame(step); return; }
+      iv.sort((a, b) => a - b);
+      const med = iv[12];
+      if (iv[6] > med * 0.8 && iv[18] < med * 1.2) {
+        this.refreshProbing = false;
+        const high = 1000 / med > 90;
+        if (high !== this.highRefresh) { this.highRefresh = high; this.applyResolution(); }
+      } else if (retries > 0) {
+        setTimeout(() => { this.refreshProbing = false; this.probeRefresh(retries - 1); }, 2000);
+      } else {
+        this.refreshProbing = false;
+      }
+    };
+    requestAnimationFrame(step);
   }
 
   // ─── touch controls + device adaptation ───────────────────────────────────────
@@ -1530,8 +1584,16 @@ class Game {
       const el = document.getElementById(id);
       return el && !el.classList.contains("hidden") && el.offsetParent !== null ? el : null;
     };
+    // an alert card with real ACTION buttons (consent, hud.alert actions) is navigable;
+    // a progress toast whose only control is the dismiss × must not steal pad focus
+    const alertCard = ((): HTMLElement | null => {
+      for (const card of document.querySelectorAll<HTMLElement>("#alerts .ai-toast:not(.hidden):not(.ai-out)")) {
+        if (card.querySelector(".ai-btn") && card.offsetParent !== null) return card;
+      }
+      return null;
+    })();
     // priority: modal pop-ups first, then the settings overlay, then whole screens
-    return vis("ai-consent") ?? (this.settings.isOpen() ? document.getElementById("settings") : null)
+    return alertCard ?? (this.settings.isOpen() ? document.getElementById("settings") : null)
       ?? vis("vote") ?? vis("scr-end") ?? vis("scr-lobby") ?? vis("scr-menu");
   }
 
@@ -1863,7 +1925,7 @@ class Game {
       this.hud.parallax(this.hudLookVX, this.hudLookVY);
 
       this.hud.timer(this.phase, this.round, this.timeLeft, this.cfg.rounds);
-      this.hud.scoreboard(this.sbOpen || this.phase === "inter", this.net.players, this.scores, this.net.myId, this.platforms);
+      this.hud.scoreboard(this.sbOpen || this.phase === "inter", this.net.players, this.scores, this.net.myId, this.platforms, this.net.isHost);
       this.updateModeVisuals();
       this.updateHill(dt);
       this.updateModeHud();
@@ -1876,6 +1938,7 @@ class Game {
     // stats overlay
     this.fpsE += (1 / Math.max(dt, 1e-4) - this.fpsE) * 0.08;
     this.framePeak = Math.max(this.framePeak, dt);
+    this.trackLowFps(dt);
     // frame-time graph: fed every frame (unlike the 0.25 s text refresh below) so
     // single-frame drops show up as spikes
     if (this.inGame && this.settings.state.showStats) this.hud.perfSample(dt * 1000);
@@ -1896,6 +1959,38 @@ class Game {
         `<b>${this.fpsE.toFixed(0)}</b> fps · ${(1000 / this.fpsE).toFixed(1)}ms · ${(tris / 1000).toFixed(1)}k tris · ${ping}`
       );
     }
+  }
+
+  // ─── sustained-low-fps alert ────────────────────────────────────────────────
+  // Nudge struggling players toward the video settings via the alert stack. Armed
+  // only after ~10s of actual play (map load / shader compile / first spawns hitch
+  // legitimately), accumulates time below the threshold with a 2× decay on good
+  // frames (so 44↔46 oscillation still converges), fires once per match, and stays
+  // silent when the knobs are already floored — the advice would be useless.
+  // Threshold is a fixed 45 fps rather than refresh-relative: a locked 90 on a
+  // 120Hz panel is a GOOD experience, while sub-45 is bad on any display.
+  private lowFpsPlay = 0;   // seconds spent in the play phase this match
+  private lowFpsAcc = 0;    // accumulated seconds below threshold
+  private lowFpsFired = false;
+
+  private trackLowFps(dt: number): void {
+    if (!this.inGame || this.phase !== "play") { this.lowFpsAcc = 0; return; }
+    this.lowFpsPlay += dt;
+    if (this.lowFpsFired || this.lowFpsPlay < 10) return;
+    if (this.fpsE < 45) this.lowFpsAcc += dt;
+    else this.lowFpsAcc = Math.max(0, this.lowFpsAcc - dt * 2);
+    if (this.lowFpsAcc < 8) return;
+    this.lowFpsFired = true;
+    const s = this.settings.state;
+    const floored = s.msaa === 0 && !s.hdr && !s.post && s.shadowCap === "off" && s.renderScale <= 0.6;
+    if (floored) return;
+    this.hud.alert({
+      title: "Performance is low",
+      msg: "Frame rate has been under 45 fps for a while — lowering the video settings can help.",
+      icon: "▼",
+      ttl: 15000,
+      action: { label: "Open video settings", onClick: () => { this.openSettings(); this.settings.openPage("video"); } },
+    });
   }
 
   myState(): PlayerState {
@@ -2953,7 +3048,7 @@ class Game {
     this.amb.diffuseSolidColor = new Color(env.ambient.color[0], env.ambient.color[1], env.ambient.color[2], 1);
     this.amb.diffuseIntensity = env.ambient.intensity;
     this.amb.specularIntensity = env.ambient.specular ?? 0.85;
-    applyShadows(scene, this.sun, env, this.shadowCap());   // clamped to device preset
+    applyShadows(scene, this.sun, env, this.settings.state.shadowCap); // clamped to the player's cap
     applyPost(env, this.bloom, this.tone);                  // tonemapping + bloom from env
     if (env.fog) applyFogFalloff(scene, env.fog);
     else scene.fogMode = FogMode.None;
@@ -3355,6 +3450,9 @@ class Game {
     };
 
     n.onError = (err) => {
+      // a version reject already told the user exactly why — don't let the follow-up
+      // connection close overwrite that message with a generic "Lost connection"
+      if (this.rejected) return;
       this.hud.connecting(false);
       const established = this.net.players.length > 0; // we already received the host's init
       const lost = err.includes("Lost connection") || err.includes("Connection failed");
@@ -3374,18 +3472,21 @@ class Game {
     n.onMessage = (m, fromId) => this.handleMsg(m, fromId);
   }
 
-  /** guest side: the host is gone (explicit `hostleave`, a dropped connection, or the
-   *  heartbeat timeout). The lobby/match can't continue, so bail home and reload. Idempotent
-   *  — the `leaving` guard keeps the several triggers from stacking up reloads. */
-  private hostGone(): void {
+  /** guest side: the session is over for us — the host is gone (explicit `hostleave`,
+   *  a dropped connection, the heartbeat timeout) or we were kicked. Bail home and
+   *  reload. The message is stashed in sessionStorage so it survives the reload
+   *  (menuError alone would flash for 1.2s and vanish with the page). Idempotent —
+   *  the `leaving` guard keeps the several triggers from stacking up reloads. */
+  private hostGone(msg = "Host left — lobby closed."): void {
     if (this.net.isHost || this.leaving) return;
     this.hud.connecting(false);
     this.inGame = false;
     this.leaving = true;
     this.exitLobby();
     this.releasePointerLock();
-    this.hud.menuError("Host left — lobby closed.");
+    this.hud.menuError(msg);
     this.hud.show("menu");
+    try { sessionStorage.setItem("slopwars.notice", msg); } catch { /* storage unavailable */ }
     window.setTimeout(() => location.reload(), 1200);
   }
 
@@ -3439,6 +3540,20 @@ class Game {
       }
       case "hostleave": {
         this.hostGone(); // host closed the lobby — bail immediately, no need to wait out the timeout
+        break;
+      }
+      case "reject": {
+        // host refused the join (version gate). No reload needed — we never entered
+        // the lobby; the flag stops the follow-up conn close from replacing the message.
+        this.rejected = true;
+        this.hud.connecting(false);
+        this.hud.menuError(`Lobby is on ${m.hostV} — you're on ${__GAME_VERSION__}. Update to join.`);
+        this.hud.show("menu");
+        this.net.destroy();
+        break;
+      }
+      case "kicked": {
+        this.hostGone("You were removed by the host.");
         break;
       }
       case "state": {
@@ -3716,9 +3831,17 @@ class Game {
 
     this.hud.onJoin = (code, name) => {
       sfx.unlock();
+      this.rejected = false; // fresh attempt — re-arm the error path muted by a prior reject
       this.hud.connecting(true);
       this.net.join(code, name);
       // init message will drive the rest
+    };
+
+    this.hud.onKick = (id) => {
+      if (!this.net.isHost || id === this.net.myId) return;
+      const name = this.names.get(id) ?? "player";
+      this.net.kick(id);
+      this.hud.banner(`${name} was removed`);
     };
 
     this.hud.onStart = () => {
@@ -4442,6 +4565,7 @@ class Game {
     this.inGame = true;
     this.alive = true;
     this.deathReleasedLock = false; // any pending death-screen unlock is void now
+    this.lowFpsPlay = 0; this.lowFpsAcc = 0; this.lowFpsFired = false; // fresh match, fresh nudge budget
     this.myHp = MAX_HP;
     this.exitMenu();
     this.exitLobby();

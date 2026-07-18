@@ -9,5 +9,5 @@
     "target": "es2023",
     "skipLibCheck": true
   },
-  "include": ["main.js"]
+  "include": ["main.js", "updater.js"]
 }

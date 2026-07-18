@@ -2,6 +2,7 @@
 // Pure state + persistence + the settings-overlay DOM. Engine-agnostic: main.ts
 // maps `quality` onto concrete camera/scene knobs via its own applyGraphics(), and
 // reads the (remappable) key/pad bindings when interpreting input.
+import type { ShadowQuality } from "@slopwars/shared";
 import {
   DEFAULT_KEYS, DEFAULT_PADS, KEY_ACTIONS, KeyAction, keyLabel, PAD_ACTIONS, PadAction, padLabel,
 } from "./keybinds";
@@ -9,10 +10,19 @@ import { syncRanges } from "./range";
 
 const $ = (id: string): HTMLElement => document.getElementById(id)!;
 
-export type Quality = "low" | "medium" | "high";
+// "custom" = the player touched an individual knob; presets are just knob batches.
+// (An old client reading persisted "custom" falls through its ternaries to the high
+// branch — graceful, so the union widening needs no storage migration.)
+export type Quality = "low" | "medium" | "high" | "custom";
+export type Msaa = 0 | 2 | 4;
 
 export interface SettingsState {
   quality: Quality;
+  msaa: Msaa; // camera MSAA samples
+  hdr: boolean; // HDR rendering
+  post: boolean; // post-processing (bloom/tonemap — their *look* stays map-authored)
+  shadowCap: ShadowQuality; // ceiling on the map's authored shadow tier
+  renderScale: number; // render-buffer scale 0.5–1 (multiplies the device DPR cap)
   sensitivity: number; // mouse + touch look-speed multiplier
   padSensitivity: number; // controller (right-stick) look-speed multiplier
   invertY: boolean; // invert the vertical look axis (mouse + controller)
@@ -27,6 +37,14 @@ export interface SettingsState {
   pads: Partial<Record<PadAction, number>>; // gamepad button rebindings (over DEFAULT_PADS)
 }
 
+/** what each preset means in knobs — the single source for preset clicks AND for
+ *  migrating pre-granular storage (which persisted only `quality`) */
+export const PRESETS: Record<Exclude<Quality, "custom">, Pick<SettingsState, "msaa" | "hdr" | "post" | "shadowCap" | "renderScale">> = {
+  low:    { msaa: 0, hdr: false, post: false, shadowCap: "off",    renderScale: 0.6 },
+  medium: { msaa: 2, hdr: true,  post: true,  shadowCap: "medium", renderScale: 0.85 },
+  high:   { msaa: 4, hdr: true,  post: true,  shadowCap: "ultra",  renderScale: 1 },
+};
+
 const KEY = "slopwars.settings";
 
 // aiChat defaults OFF: the model is a heavy one-time download, so it stays opt-in —
@@ -34,7 +52,7 @@ const KEY = "slopwars.settings";
 // aimAssist defaults ON: it's a comfort feature for controller/touch players and does
 // nothing on mouse+keyboard, so there's no downside to shipping it enabled.
 const DEFAULTS: SettingsState = {
-  quality: "high", sensitivity: 1, padSensitivity: 1, invertY: false, fov: 75, aimAssist: true,
+  quality: "high", ...PRESETS.high, sensitivity: 1, padSensitivity: 1, invertY: false, fov: 75, aimAssist: true,
   showStats: true, aiChat: false, aiPrompted: false, name: "", loadoutClass: "assault", keys: {}, pads: {},
 };
 
@@ -42,8 +60,22 @@ function load(): SettingsState {
   let s: SettingsState = { ...DEFAULTS };
   try {
     const raw = localStorage.getItem(KEY);
-    if (raw) s = { ...DEFAULTS, ...JSON.parse(raw) };
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<SettingsState>;
+      s = { ...DEFAULTS, ...parsed };
+      // pre-granular storage carried only `quality` — derive the knobs it implied
+      if (parsed.msaa === undefined && parsed.quality && parsed.quality !== "custom") {
+        Object.assign(s, PRESETS[parsed.quality] ?? PRESETS.high);
+      }
+    }
   } catch { /* ignore corrupt / unavailable storage */ }
+  // clamp knobs: the forgiving merge above happily admits garbage from old/edited storage
+  if (!["low", "medium", "high", "custom"].includes(s.quality)) s.quality = "high";
+  if (![0, 2, 4].includes(s.msaa)) s.msaa = 4;
+  if (!["off", "low", "medium", "high", "ultra"].includes(s.shadowCap)) s.shadowCap = "ultra";
+  s.renderScale = Math.min(1, Math.max(0.5, Number(s.renderScale) || 1));
+  s.hdr = !!s.hdr;
+  s.post = !!s.post;
   if (!s.keys || typeof s.keys !== "object") s.keys = {};
   if (!s.pads || typeof s.pads !== "object") s.pads = {};
   if (!s.name) s.name = "player" + ((Math.random() * 900 + 100) | 0);
@@ -90,8 +122,47 @@ export class Settings {
       b.addEventListener("click", () => this.showPage((b as HTMLElement).dataset.tab!));
     }
     for (const b of $("set-quality").querySelectorAll("button")) {
-      b.addEventListener("click", () => this.set({ quality: (b as HTMLElement).dataset.v as Quality }));
+      b.addEventListener("click", () => {
+        const q = (b as HTMLElement).dataset.v as Quality;
+        // a preset click batches all its knobs in ONE set(); "custom" just labels
+        // the current hand-picked knobs (clicking it changes nothing else)
+        this.set(q === "custom" ? { quality: q } : { quality: q, ...PRESETS[q] });
+      });
     }
+    // individual knobs: any edit flips the preset to "custom" in the same patch
+    for (const b of $("set-msaa").querySelectorAll("button")) {
+      b.addEventListener("click", () => this.set({ quality: "custom", msaa: Number((b as HTMLElement).dataset.v) as Msaa }));
+    }
+    for (const b of $("set-shadows").querySelectorAll("button")) {
+      b.addEventListener("click", () => this.set({ quality: "custom", shadowCap: (b as HTMLElement).dataset.v as ShadowQuality }));
+    }
+    $("set-hdr").addEventListener("click", () => this.set({ quality: "custom", hdr: !this.state.hdr }));
+    $("set-post").addEventListener("click", () => this.set({ quality: "custom", post: !this.state.post }));
+    const scale = $("set-scale") as HTMLInputElement;
+    // label live while dragging, but apply on release only: every apply reallocates
+    // the render buffer, and a drag fires dozens of input events per second
+    scale.addEventListener("input", () => { $("set-scale-val").textContent = `${Math.round(parseFloat(scale.value) * 100)}%`; });
+    scale.addEventListener("change", () => this.set({ quality: "custom", renderScale: parseFloat(scale.value) }));
+
+    // Fullscreen is a stateless ACTION, not a persisted setting: requestFullscreen
+    // needs a user gesture (can't re-apply at boot) and Esc/F11 would desync a stored
+    // value. Hidden where the API is missing (iOS) and on app:// (the desktop shell
+    // manages an OS-fullscreen window; F11 lives there).
+    const fsBtn = $("set-fullscreen");
+    const fsRow = fsBtn.closest(".set-toggle") as HTMLElement;
+    if (!document.documentElement.requestFullscreen || location.protocol === "app:") {
+      fsRow.classList.add("hidden");
+    } else {
+      const fsLabel = (): void => { fsBtn.textContent = document.fullscreenElement ? "exit" : "enter"; };
+      fsBtn.addEventListener("click", () => {
+        if (document.fullscreenElement) void document.exitFullscreen();
+        else void document.documentElement.requestFullscreen().catch(() => { /* gesture/permission denied */ });
+      });
+      document.addEventListener("fullscreenchange", fsLabel);
+      fsLabel();
+    }
+    $("set-ver").textContent = `v${__PKG_VERSION__} · ${__GAME_VERSION__}`;
+
     const sens = $("set-sens") as HTMLInputElement;
     sens.addEventListener("input", () => this.set({ sensitivity: parseFloat(sens.value) }));
     const padSens = $("set-padsens") as HTMLInputElement;
@@ -229,6 +300,16 @@ export class Settings {
     for (const b of $("set-quality").querySelectorAll("button")) {
       b.classList.toggle("on", (b as HTMLElement).dataset.v === s.quality);
     }
+    for (const b of $("set-msaa").querySelectorAll("button")) {
+      b.classList.toggle("on", Number((b as HTMLElement).dataset.v) === s.msaa);
+    }
+    for (const b of $("set-shadows").querySelectorAll("button")) {
+      b.classList.toggle("on", (b as HTMLElement).dataset.v === s.shadowCap);
+    }
+    this.toggleBtn("set-hdr", s.hdr);
+    this.toggleBtn("set-post", s.post);
+    ($("set-scale") as HTMLInputElement).value = String(s.renderScale);
+    $("set-scale-val").textContent = `${Math.round(s.renderScale * 100)}%`;
     ($("set-sens") as HTMLInputElement).value = String(s.sensitivity);
     ($("set-padsens") as HTMLInputElement).value = String(s.padSensitivity);
     ($("set-fov") as HTMLInputElement).value = String(s.fov);
@@ -278,6 +359,8 @@ export class Settings {
   }
 
   open(): void { this.refresh(); $("settings").classList.remove("hidden"); }
+  /** open directly on a sub-page (e.g. the low-fps alert jumps to "video") */
+  openPage(tab: string): void { this.open(); this.showPage(tab); }
   close(): void { this.cancelRebind(); $("settings").classList.add("hidden"); }
   toggle(): void { this.isOpen() ? this.close() : this.open(); }
   isOpen(): boolean { return !$("settings").classList.contains("hidden"); }

@@ -188,6 +188,12 @@
     border:1px solid var(--line);padding:2px 6px;margin-left:auto}
   .lp.me{background:linear-gradient(90deg,rgba(155,236,255,.13),transparent);box-shadow:inset 2px 0 0 var(--sand)}
   .lp.me .lp-name{color:var(--sand);font-weight:700}
+  /* host-only kick × — right-aligned in lobby rows and scoreboard name cells */
+  .kick-btn{flex:none;width:22px;height:22px;padding:0;margin:0 0 0 auto;display:inline-flex;
+    align-items:center;justify-content:center;background:transparent;border:1px solid transparent;
+    color:var(--sand-dim);font-size:11px;line-height:1;cursor:pointer;opacity:.55}
+  .kick-btn:hover{opacity:1;color:var(--red);border-color:var(--red);background:rgba(255,106,90,.08);filter:none}
+  .c-name .kick-btn{margin-left:6px;width:18px;height:18px;vertical-align:middle}
   .dot{width:10px;height:10px;border-radius:50%;flex:none;box-shadow:0 0 6px currentColor}
   #lobby-wait{margin-top:16px;text-align:center;color:var(--sand-dim);font-size:11px;letter-spacing:3px;animation:pulse 1.4s infinite}
   .lobby-foot #btn-start{margin-top:0}
@@ -954,12 +960,20 @@
     bottom:max(12px,env(safe-area-inset-bottom));display:flex;gap:6px;max-width:46vw;
     overflow-x:auto;padding:2px;scrollbar-width:none}
   #tc-weapons::-webkit-scrollbar{display:none}
+  /* weapon tiles share the chamfered "kit tile" language of #tc-util .tcb — a --line
+     border layer cut by clip-path with an inset ::before fill — instead of the old
+     generic rounded rect, so the strip reads as the same holo chrome as the HUD */
   .tc-wep{pointer-events:auto;touch-action:none;-webkit-user-select:none;user-select:none;flex:0 0 auto;
-    width:auto;min-width:46px;margin:0;padding:7px 8px;border-radius:8px;font-family:var(--font);font-weight:700;
-    font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--sand);background:rgba(8,16,20,.72);
-    border:1.5px solid var(--line);text-align:center}
-  .tc-wep .k{display:block;font-family:var(--mono);font-size:8px;color:var(--sand-dim)}
-  .tc-wep.on{background:rgba(155,236,255,.9);border-color:var(--sand);color:#04141b}
+    position:relative;isolation:isolate;
+    width:auto;min-width:50px;margin:0;padding:8px 9px 6px;border:none;border-radius:0;
+    font-family:var(--hud-font);font-weight:700;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;
+    color:var(--sand);background:var(--line);box-shadow:0 4px 14px rgba(0,0,0,.4);text-align:center;
+    clip-path:polygon(0 0,calc(100% - 7px) 0,100% 7px,100% 100%,7px 100%,0 calc(100% - 7px))}
+  .tc-wep::before{content:"";position:absolute;inset:1.5px;z-index:-1;background:rgba(8,16,20,.72);
+    clip-path:polygon(0 0,calc(100% - 6px) 0,100% 6px,100% 100%,6px 100%,0 calc(100% - 6px))}
+  .tc-wep .k{display:block;font-family:var(--hud-display);font-size:8px;letter-spacing:2px;color:var(--sand-dim);margin-top:2px}
+  .tc-wep.on{color:#04141b;background:var(--sand);box-shadow:0 4px 14px rgba(0,0,0,.4),0 0 14px rgba(155,236,255,.45)}
+  .tc-wep.on::before{background:rgba(155,236,255,.92)}
   .tc-wep.on .k{color:#0a2b38}
 
   /* top-left utility buttons (scores hold, chat, mic, settings) — chamfered "kit" tiles,
@@ -1041,16 +1055,22 @@
     body.touch[data-screen="game"] #rotate-hint{display:flex}
   }
 
-  /* ═══ NPC-AI toasts (download consent + progress) ═══
-     Docked BOTTOM-CENTRE so they never cover the centred menus/lobby panels or the
-     top/side HUD. In-game the bottom edge is clear on desktop (HP is bottom-left,
-     ammo bottom-right, centre is free); on touch we lift the card above the bottom
-     weapon strip + thumb clusters. `#ai-consent` asks before the heavy one-time
-     download; `#ai-dl` then tracks its progress. */
-  .ai-toast{position:fixed;z-index:60;
-    left:0;right:0;margin-left:auto;margin-right:auto;
+  /* ═══ the alert stack (#alerts) ═══
+     ONE fixed bottom-centre column; every alert card (.ai-toast — the NPC-AI consent
+     and download toasts live here too, plus dynamic hud.alert() cards) is a static
+     child, so simultaneous alerts stack instead of overlapping. Docked bottom-centre
+     so it never covers the centred menus/lobby panels or the top/side HUD; in-game
+     the bottom edge is clear on desktop (HP bottom-left, ammo bottom-right); on touch
+     we lift the whole column above the weapon strip + thumb clusters. The container
+     ignores pointer events (it spans the screen width) — the cards re-enable them. */
+  #alerts{position:fixed;z-index:60;left:0;right:0;margin:0 auto;
     bottom:max(14px,env(safe-area-inset-bottom));
-    width:min(340px,calc(100vw - 28px));padding:13px 15px 14px;
+    width:min(340px,calc(100vw - 28px));
+    display:flex;flex-direction:column;gap:10px;pointer-events:none}
+  /* in-game on touch: lift clear of the bottom-centre weapon strip + thumb sticks */
+  body.touch[data-screen="game"] #alerts{bottom:max(84px,calc(env(safe-area-inset-bottom) + 74px))}
+  .ai-toast{position:relative;pointer-events:auto;
+    padding:13px 15px 14px;
     background:var(--edge-tr) top right/10px 10px no-repeat,
       var(--edge-bl) bottom left/10px 10px no-repeat var(--panel);border:1px solid var(--line);
     box-shadow:0 18px 44px rgba(0,0,0,.55),0 0 20px rgba(80,190,235,.10),inset 0 2px 0 rgba(155,236,255,.3);
@@ -1060,12 +1080,10 @@
   @keyframes ai-toast-in{from{opacity:0;transform:translateY(12px) scale(.97)}to{opacity:1;transform:none}}
   .ai-toast.ai-out{animation:ai-toast-out .28s ease forwards}
   @keyframes ai-toast-out{to{opacity:0;transform:translateY(10px) scale(.97)}}
-  /* in-game on touch: lift clear of the bottom-centre weapon strip + thumb sticks */
-  body.touch[data-screen="game"] .ai-toast{bottom:max(84px,calc(env(safe-area-inset-bottom) + 74px))}
-  #ai-dl-x{position:absolute;top:6px;right:6px;width:24px;height:24px;padding:0;margin:0;
+  #ai-dl-x,.alert-x{position:absolute;top:6px;right:6px;width:24px;height:24px;padding:0;margin:0;
     background:transparent;border:none;color:var(--sand-dim);font-size:18px;line-height:1;
     display:flex;align-items:center;justify-content:center;border-radius:4px}
-  #ai-dl-x:hover{color:var(--sand);background:rgba(155,236,255,.12);filter:none}
+  #ai-dl-x:hover,.alert-x:hover{color:var(--sand);background:rgba(155,236,255,.12);filter:none}
   .ai-dl-head{display:flex;align-items:center;gap:8px;padding-right:20px}
   .ai-dl-ico{color:var(--sand);font-size:13px;line-height:1;filter:drop-shadow(0 0 6px rgba(155,236,255,.55));
     animation:ai-dl-pulse 1.6s ease-in-out infinite}
@@ -1215,6 +1233,7 @@
     <div class="lobby-foot">
       <button id="btn-create">Create lobby</button>
       <div class="menu-hint">host a new match</div>
+      <div id="ver-line" class="menu-hint"></div>
     </div>
   </div>
 </div>
@@ -1375,11 +1394,40 @@
     </div>
 
     <div class="set-page" data-page="video">
-      <label>Graphics quality</label>
+      <label>Quality preset <span class="set-sub">editing a knob below switches to custom</span></label>
       <div class="seg" id="set-quality">
         <button data-v="low">Low</button>
         <button data-v="medium">Medium</button>
         <button data-v="high">High</button>
+        <button data-v="custom">Custom</button>
+      </div>
+      <label>Anti-aliasing</label>
+      <div class="seg" id="set-msaa">
+        <button data-v="0">Off</button>
+        <button data-v="2">MSAA 2×</button>
+        <button data-v="4">MSAA 4×</button>
+      </div>
+      <label>Shadows</label>
+      <div class="seg" id="set-shadows">
+        <button data-v="off">Off</button>
+        <button data-v="low">Low</button>
+        <button data-v="medium">Med</button>
+        <button data-v="high">High</button>
+        <button data-v="ultra">Ultra</button>
+      </div>
+      <label>Render scale · <b id="set-scale-val">100%</b> <span class="set-sub" id="set-res-val"></span></label>
+      <input type="range" class="rng" id="set-scale" min="0.5" max="1" step="0.05">
+      <div class="set-toggle">
+        <span>HDR</span>
+        <button class="tgl" id="set-hdr" role="switch" aria-pressed="true"><i></i></button>
+      </div>
+      <div class="set-toggle">
+        <span>Post-processing <span class="set-sub">bloom · tonemap</span></span>
+        <button class="tgl" id="set-post" role="switch" aria-pressed="true"><i></i></button>
+      </div>
+      <div class="set-toggle">
+        <span>Fullscreen</span>
+        <button id="set-fullscreen" class="bind-key" type="button">enter</button>
       </div>
       <label>Field of view · <b id="set-fov-val">75</b>°</label>
       <input type="range" class="rng" id="set-fov" min="60" max="100" step="1">
@@ -1387,6 +1435,7 @@
         <span>Performance stats</span>
         <button class="tgl" id="set-stats" role="switch" aria-pressed="true"><i></i></button>
       </div>
+      <p class="set-note" id="set-ver"></p>
     </div>
 
     <div class="set-page hidden" data-page="input">
@@ -1424,21 +1473,23 @@
   </div>
 </div>
 
-<!-- ── NPC-AI toasts (top-left, over everything): download consent + progress ── -->
-<div id="ai-consent" class="ai-toast hidden" role="dialog" aria-label="Enable NPC AI chat">
-  <div class="ai-dl-head"><span class="ai-dl-ico">✦</span><span class="ai-title">Enable NPC AI chat?</span></div>
-  <div class="ai-dl-msg">Bots can trash-talk using an on-device AI model. It's a one-time download (a few hundred MB) that runs entirely in your browser — nothing leaves your device.</div>
-  <div class="ai-consent-btns">
-    <button id="ai-consent-no" class="ai-btn ghost">Not now</button>
-    <button id="ai-consent-yes" class="ai-btn">Download</button>
+<!-- ── the alert stack: NPC-AI consent/progress + dynamic hud.alert() cards ── -->
+<div id="alerts">
+  <div id="ai-consent" class="ai-toast hidden" role="dialog" aria-label="Enable NPC AI chat">
+    <div class="ai-dl-head"><span class="ai-dl-ico">✦</span><span class="ai-title">Enable NPC AI chat?</span></div>
+    <div class="ai-dl-msg">Bots can trash-talk using an on-device AI model. It's a one-time download (a few hundred MB) that runs entirely in your browser — nothing leaves your device.</div>
+    <div class="ai-consent-btns">
+      <button id="ai-consent-no" class="ai-btn ghost">Not now</button>
+      <button id="ai-consent-yes" class="ai-btn">Download</button>
+    </div>
   </div>
-</div>
-<div id="ai-dl" class="ai-toast hidden" role="status" aria-live="polite">
-  <button id="ai-dl-x" aria-label="Dismiss">×</button>
-  <div class="ai-dl-head"><span class="ai-dl-ico">✦</span><span id="ai-dl-title" class="ai-title">Preparing NPC AI</span></div>
-  <div id="ai-dl-msg" class="ai-dl-msg">Downloading the on-device model — you can keep playing.</div>
-  <div class="ai-dl-track"><div id="ai-dl-fill"></div></div>
-  <div class="ai-dl-meta"><span id="ai-dl-pct">0%</span><span id="ai-dl-eta"></span></div>
+  <div id="ai-dl" class="ai-toast hidden" role="status" aria-live="polite">
+    <button id="ai-dl-x" aria-label="Dismiss">×</button>
+    <div class="ai-dl-head"><span class="ai-dl-ico">✦</span><span id="ai-dl-title" class="ai-title">Preparing NPC AI</span></div>
+    <div id="ai-dl-msg" class="ai-dl-msg">Downloading the on-device model — you can keep playing.</div>
+    <div class="ai-dl-track"><div id="ai-dl-fill"></div></div>
+    <div class="ai-dl-meta"><span id="ai-dl-pct">0%</span><span id="ai-dl-eta"></span></div>
+  </div>
 </div>
 
 <script type="module" src="/src/main.ts"></script>
