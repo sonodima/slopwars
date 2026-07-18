@@ -49,7 +49,7 @@ PhysX wasm, Vite + TypeScript, pnpm workspaces.
 
 ```bash
 pnpm dev              # game   → http://localhost:5211
-pnpm dev:editor       # editor → http://localhost:5210 (+ MCP at /mcp)
+pnpm editor           # editor → http://localhost:5210 (+ MCP at /mcp)
 pnpm build            # deployable game bundle
 pnpm typecheck        # all workspaces
 ```
@@ -78,7 +78,7 @@ fine for testing. Hide `#click-to-play, #stats, #perf-graph` via CSS for clean
 screenshots. Expect ~10–20 fps under SwiftShader; that's the renderer, not a
 regression.
 
-**Editor** — start `pnpm dev:editor`, open `http://localhost:5210`, and drive
+**Editor** — start `pnpm editor`, open `http://localhost:5210`, and drive
 it through the built-in MCP server (`.mcp.json` is already configured):
 `editor_load_map` / `editor_add_object` / `editor_camera_*` /
 `editor_screenshot` give you a full place-look-verify loop. File tools

@@ -12,7 +12,7 @@ Node ≥ 24 and pnpm (or just `mise install` — see [mise.toml](mise.toml)):
 ```bash
 pnpm install
 pnpm dev              # game   → http://localhost:5211
-pnpm dev:editor       # editor → http://localhost:5210
+pnpm editor           # editor → http://localhost:5210
 ```
 
 Read [CLAUDE.md](CLAUDE.md) before writing code — it's the working agreement

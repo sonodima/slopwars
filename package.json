@@ -10,7 +10,7 @@
   },
   "scripts": {
     "dev": "pnpm --filter @slopwars/game dev",
-    "dev:editor": "pnpm --filter @slopwars/editor dev",
+    "editor": "pnpm --filter @slopwars/editor dev",
     "build": "pnpm --filter @slopwars/game build",
     "typecheck": "pnpm -r typecheck"
   },

@@ -11,7 +11,7 @@
     {
       "name": "editor",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["dev:editor"],
+      "runtimeArgs": ["editor"],
       "port": 5210,
       "autoPort": false
     }
