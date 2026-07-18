@@ -13,7 +13,7 @@ import {
 import { modelAnchor } from "@slopwars/shared";
 import { AABB, rayAABB } from "./map";
 import { GameModels, buildProp, instantiate, modelMetaOf } from "./models";
-import type { MaterialLibrary } from "./materials";
+import { shadeModelSlots, type MaterialLibrary } from "./materials";
 import { INTERP_DELAY, PlayerState, Vec3, WeaponId, clamp } from "./types";
 
 interface Sample { time: number; p: [number, number, number]; yaw: number; pitch: number; g?: boolean }
@@ -37,13 +37,17 @@ const TP_WEAPON: Partial<Record<WeaponId, string>> = {
   mol: "wep_molotov",
   flash: "wep_flashbang",
   smoke: "wep_smoke",
+  portalgun: "wep_grease", // same placeholder the first-person viewmodel uses
 };
 
 // The weapon is parented to `mixamorig:RightHand` so it follows the arm through every
-// clip. Each model seats by its own meta scale (its authored orientation already faces
-// forward); the hand-bone's rest frame differs from that forward frame, so a fixed
-// correction rotates the weapon into the hand's aim frame. Tuned once; shared by all.
-const TP_HAND_ROT: [number, number, number] = [-87, -155, 59];
+// clip. Every weapon's geometry sits barrel-down-−Z / top-up-+Y in the mount's frame
+// (some glTFs carry their own root rotation, but their `muzzle` anchors — authored in
+// this same frame — all point −Z, so the mount frame is uniform across the set). The
+// hand bone's frame differs from that, so this fixed correction rotates the weapon into
+// the hand's aim frame. Measured against the operator's weapon-hold pose: it puts the
+// barrel on the avatar's facing (dot 0.99) with the gun's top up (dot 0.99).
+const TP_HAND_ROT: [number, number, number] = [90, 90, 0];
 // small extra offset (metres, hand frame) to seat the weapon in the palm rather than
 // dead-centre on the bone pivot.
 const TP_HAND_OFFSET: [number, number, number] = [0, 0, 0];
@@ -116,7 +120,7 @@ export class RemotePlayer {
   private handBone: Entity | null = null;
   private heldWeapon: WeaponId | null = null;
   private heldEntity: Entity | null = null;
-  private weaponMat: BlinnPhongMaterial;
+  private weaponLib: MaterialLibrary | null = null;  // shades the held weapon's slot materials
 
   private disguise: Entity | null = null;   // prop-hunt disguise prop (built lazily)
   private disguiseModel: string | null = null;  // which model the current disguise is
@@ -143,9 +147,6 @@ export class RemotePlayer {
     this.engine = engine;
     this.models = models;
     this.entity = parent.createChild("rp-" + id);
-
-    this.weaponMat = new BlinnPhongMaterial(engine);
-    this.weaponMat.baseColor = new Color(0.08, 0.08, 0.09, 1);
 
     const char = instantiate(models[CHARACTER_MODEL]);
     if (char) this.buildCharacter(char);
@@ -250,7 +251,49 @@ export class RemotePlayer {
     for (const r of this.heldEntity.getComponentsIncludeChildren(MeshRenderer, [])) r.enabled = this.renderVisible;
   }
 
+  // ── spawn-protection ghosting ───────────────────────────────────────────────
+
+  /** while spawn-protected, the whole avatar (body, held weapon, disguise) fades to a
+   *  translucent hologram so an untouchable player reads as untouchable. Change-guarded —
+   *  the caller drives it per frame off the protection clock. */
+  private ghost = false;
+  setGhost(on: boolean): void {
+    if (on === this.ghost) return;
+    this.ghost = on;
+    this.applyGhost(this.entity);
+  }
+
+  /** (re)apply the current ghost alpha to a subtree. Materials are per-renderer INSTANCE
+   *  clones (getInstanceMaterials) — the shared model/library materials, used by the map
+   *  and every other avatar, are never mutated. Also called for a freshly built held
+   *  weapon / disguise so a rebuild mid-protection stays translucent. */
+  private static readonly GHOST_ALPHA = 0.45;
+  private applyGhost(root: Entity): void {
+    const apply = (r: SkinnedMeshRenderer | MeshRenderer): void => {
+      for (const m of r.getInstanceMaterials()) {
+        const bm = m as unknown as { isTransparent?: boolean; baseColor?: Color };
+        if (!bm || !bm.baseColor) continue;
+        bm.isTransparent = this.ghost;
+        const c = bm.baseColor;
+        c.a = this.ghost ? RemotePlayer.GHOST_ALPHA : 1;
+        bm.baseColor = c; // reassign to flag the material dirty
+      }
+    };
+    for (const r of root.getComponentsIncludeChildren(SkinnedMeshRenderer, [])) apply(r);
+    for (const r of root.getComponentsIncludeChildren(MeshRenderer, [])) apply(r);
+  }
+
   // ── held weapon ─────────────────────────────────────────────────────────────
+
+  /** the library the held weapon shades against. It loads async at startup (see
+   *  main.applyWeaponMaterials), so a weapon built before it was ready is re-shaded
+   *  here rather than staying untextured. */
+  setWeaponLibrary(lib: MaterialLibrary): void {
+    if (this.weaponLib === lib) return;
+    this.weaponLib = lib;
+    const folder = this.heldWeapon ? TP_WEAPON[this.heldWeapon] : undefined;
+    if (this.heldEntity && folder) shadeModelSlots(this.heldEntity, modelMetaOf(folder), lib);
+  }
 
   /** rebuild the hand weapon when the player's current weapon changes */
   private syncWeapon(): void {
@@ -263,18 +306,19 @@ export class RemotePlayer {
     const folder = TP_WEAPON[this.weapon];
     if (!folder) return; // grenades etc. — nothing held
     const meta = modelMetaOf(folder);
-    // where the hand grips this model (model-local). OPTIONAL — without one the weapon
-    // seats at the mount origin by scale only (the model origin lands on the hand),
-    // which for models whose origin isn't the grip makes the gun float in the hand.
+    // where the hand grips this model. OPTIONAL — without one the weapon seats at the
+    // mount origin by scale only (the model origin lands on the hand), which for models
+    // whose origin isn't the grip makes the gun float in the hand.
     const grip = modelAnchor(meta, "grip");
     const m = instantiate(this.models[folder]);
     if (!m) return;
-    // geometry-only weapon glTFs render with a flat default material — give the
-    // third-person weapon a plain dark matte so it reads as a gun at a distance.
-    for (const r of m.getComponentsIncludeChildren(MeshRenderer, [])) {
-      r.castShadows = true;
-      for (let i = 0; i < r.getMaterials().length; i++) r.setMaterial(i, this.weaponMat);
-    }
+    // Guns are geometry-only glTFs — their surfaces come from the model's assigned
+    // materials, exactly like the first-person viewmodel (weapons.applyModelMaterials).
+    // Shade against the same library so the gun in a remote's hands matches the one you
+    // carry. The library loads async at startup; setWeaponLibrary re-shades if it lands
+    // after this build.
+    for (const r of m.getComponentsIncludeChildren(MeshRenderer, [])) r.castShadows = true;
+    if (this.weaponLib) shadeModelSlots(m, meta, this.weaponLib);
     // Parent to the hand bone via a "mount" whose fixed rotation corrects the bone's
     // rest frame to the aim frame (TP_HAND_ROT), matching the model's forward-facing
     // authored orientation. Fall back to the yaw-aligned holder if the bone is missing.
@@ -289,19 +333,24 @@ export class RemotePlayer {
     const bump = THROWABLES.includes(this.weapon) ? TP_THROWABLE_SCALE : TP_WEAPON_SCALE;
     const s = (meta.scale ?? 1) * inv * bump;
     m.transform.setScale(s, s, s);
-    // Seat by the grip anchor: orient the model by the grip's rotation, then offset it
-    // so the grip point lands at the mount origin (the hand) — P = −R·S·gripPos. With
-    // no grip authored, leave the model at the mount origin (scale only).
-    if (grip) {
-      const gr = grip.rot ?? [0, 0, 0];
-      m.transform.setRotation(gr[0], gr[1], gr[2]);
-      const g = new Vector3(grip.at[0] * s, grip.at[1] * s, grip.at[2] * s);
-      Vector3.transformByQuat(g, m.transform.rotationQuaternion, g);
-      m.transform.setPosition(-g.x, -g.y, -g.z);
+    // Seat by the grip anchor. `grip.at` is authored in the model's own displayed frame —
+    // the same frame as `muzzle` — so it takes the model's scale but NOT its rotation:
+    // offsetting the model by −at·s drops that point onto the hand. Never set the model's
+    // own rotation here. Several weapon glTFs bake one in (the luger's 180° among them),
+    // and the set only reads barrel-−Z with it intact; overwriting it held those weapons
+    // backwards. `grip.rot` is instead an optional extra turn *about the grip point* (the
+    // knife needs one to point its blade forward; the guns need none) — a wrapper entity
+    // carries it so the engine composes the rotation and the model keeps its own.
+    let host = mount;
+    if (grip?.rot) {
+      host = mount.createChild("wep-grip");
+      host.transform.setRotation(grip.rot[0], grip.rot[1], grip.rot[2]);
     }
-    mount.addChild(m);
+    if (grip) m.transform.setPosition(-grip.at[0] * s, -grip.at[1] * s, -grip.at[2] * s);
+    host.addChild(m);
     this.heldEntity = mount; // destroying the mount drops the weapon with it
     this.applyWeaponVisible(); // a freshly-built weapon inherits the avatar's visibility
+    if (this.ghost) this.applyGhost(mount); // …and its spawn-protection translucency
   }
 
   // ── disguise (prop hunt) ─────────────────────────────────────────────────────
@@ -343,14 +392,17 @@ export class RemotePlayer {
     }
     holder.isActive = this.disguised;
     this.disguise = holder;
+    if (this.ghost) this.applyGhost(holder); // rebuilt mid-protection → stays translucent
   }
 
-  push(s: PlayerState, time: number): void {
-    this.hp = s.hp;
+  push(s: PlayerState, time: number, hpOverride?: number): void {
+    this.hp = hpOverride ?? s.hp;
     this.weapon = s.w;
     if (s.g !== undefined) this.netGround = s.g;
     this.buf.push({ time, p: s.p, yaw: s.yaw, pitch: s.pitch, g: s.g });
-    if (this.buf.length > 30) this.buf.shift();
+    // keep only what interpolation can ever look at (~INTERP_DELAY at TICK_RATE, plus
+    // slack) — a deep buffer just made the per-frame search scan dead samples
+    if (this.buf.length > 8) this.buf.shift();
   }
 
   update(now: number): void {
@@ -452,7 +504,6 @@ export class RemotePlayer {
     // the operator rig is authored facing +Z, but the player's forward (body.yaw) points
     // −Z, so add 180° to turn the avatar to look where it's actually aiming/moving.
     this.entity.transform.setRotation(0, (this.yaw * 180) / Math.PI + 180, 0);
-    this.entity.transform.setScale(1, 1, 1);
   }
 
   /** pick Death / Jump / directional Run·Walk / Idle from the interpolated motion */

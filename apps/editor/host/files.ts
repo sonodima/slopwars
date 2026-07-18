@@ -48,10 +48,9 @@ const MODEL_EXT = new Set(["gltf", "glb", "bin"]);
 const AUDIO_EXT = new Set(["mp3", "wav", "ogg", "m4a"]);
 
 // ── map read / write ─────────────────────────────────────────────────────────
-// Maps live under public/assets/maps/, alongside every other asset. A map is either a flat
-// `<id>.json` file or a `<id>/` folder holding the map JSON (map.json / <id>.json) alongside
-// its screenshot images. These helpers handle both layouts and preserve whichever a given
-// map already uses on save.
+// Maps live under public/assets/maps/, alongside every other asset. A map is a
+// `<id>/` folder holding the map JSON (map.json / <id>.json) alongside its
+// screenshot images.
 
 /** absolute path of the maps directory (under public/assets/) */
 function mapsRoot(root: string): string { return path.join(root, "public", "assets", "maps"); }
@@ -75,22 +74,23 @@ export function loadMap(root: string, file: string): MapDef {
     abs = path.resolve(root, "public", raw);
     if (abs !== dir && !abs.startsWith(dir + path.sep)) throw new Error("path outside maps");
   } else {
-    // a bare id: prefer a folder map, fall back to the flat file
-    abs = folderMapJson(root, sanitize(raw)) ?? path.join(dir, `${sanitize(raw)}.json`);
+    // a bare id: resolve the map JSON inside its folder
+    const found = folderMapJson(root, sanitize(raw));
+    if (!found) throw new Error(`map not found: ${raw}`);
+    abs = found;
   }
   return JSON.parse(fs.readFileSync(abs, "utf8")) as MapDef;
 }
 
-/** write a map (git-first: pretty JSON + trailing newline). A map that already lives in a
- *  `maps/<id>/` folder is written back into that folder (keeping its previews); otherwise a
- *  flat `maps/<id>.json` is written. Returns the served-root-relative file path. */
+/** write a map (git-first: pretty JSON + trailing newline). An existing map is written
+ *  back to its own JSON file (keeping its previews); a new map gets a fresh
+ *  `maps/<id>/map.json` folder. Returns the served-root-relative file path. */
 export function saveMap(root: string, id: string, def: MapDef): { ok?: boolean; error?: string; file?: string } {
   const name = sanitize(id);
   if (!name) return { error: "invalid map id" };
-  const dir = mapsRoot(root);
-  fs.mkdirSync(dir, { recursive: true });
-  const folder = folderMapJson(root, name);
-  const target = folder ?? path.join(dir, `${name}.json`);
+  const existing = folderMapJson(root, name);
+  const target = existing ?? path.join(mapsRoot(root), name, "map.json");
+  fs.mkdirSync(path.dirname(target), { recursive: true });
   fs.writeFileSync(target, JSON.stringify(def, null, 2) + "\n");
   return { ok: true, file: path.relative(path.join(root, "public"), target).split(path.sep).join("/") };
 }
@@ -210,7 +210,7 @@ export function saveModelMeta(root: string, name: string, meta: ModelMeta): { ok
 // the glTF 404 on texture files that were never imported → Galacean aborts the load and
 // the model renders as nothing, and (b) bypasses the material library. `geometryOnlyModel`
 // strips all of that and writes meta.materials, so an imported model loads immediately.
-// Mirrors scripts/geometry-only-models.mjs (kept for batch repair). Idempotent.
+// Idempotent.
 
 const nearly = (a: number, b: number): boolean => Math.abs(a - b) < 0.02;
 
@@ -378,18 +378,14 @@ export function deleteAssetFile(root: string, file: string): { ok?: boolean; err
   return { ok: true };
 }
 
-/** delete a map — its flat `<id>.json` file, or the whole `<id>/` folder for a folder map
- *  (removing its previews too). Accepts a catalog `file` path or a bare id. */
+/** delete a map — the whole `<id>/` folder, previews included. Accepts a catalog
+ *  `file` path ("assets/maps/<id>/map.json") or a bare id. */
 export function deleteMap(root: string, file: string): { ok?: boolean; error?: string } {
-  const dir = mapsRoot(root);
   const raw = String(file).replace(/^\.?\//, "");
-  // a folder-map file path ("assets/maps/<id>/map.json") → delete the folder, not just the json
   const folderMatch = /(?:^|[/\\])maps[/\\]([^/\\]+)[/\\][^/\\]+$/.exec(raw);
   const id = folderMatch ? sanitize(folderMatch[1]) : sanitize(path.basename(raw).replace(/\.json$/, ""));
-  const folder = path.join(dir, id);
-  if (folderMapJson(root, id) && fs.existsSync(folder)) { fs.rmSync(folder, { recursive: true, force: true }); return { ok: true }; }
-  const flat = path.join(dir, `${id}.json`);
-  if (fs.existsSync(flat)) fs.rmSync(flat);
+  const folder = path.join(mapsRoot(root), id);
+  if (fs.existsSync(folder)) fs.rmSync(folder, { recursive: true, force: true });
   return { ok: true };
 }
 

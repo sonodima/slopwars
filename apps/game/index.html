@@ -84,13 +84,18 @@
   .screen h1{font-size:64px;letter-spacing:14px;color:var(--sand);font-weight:700;text-transform:uppercase;
     text-shadow:0 0 32px rgba(155,236,255,.35);margin-bottom:4px}
   .screen .sub{font-size:12px;letter-spacing:6px;color:var(--sand-dim);text-transform:uppercase;margin-bottom:42px}
-  .panel{background:var(--panel);border:1px solid var(--line);padding:28px 32px;min-width:340px;
-    box-shadow:0 24px 60px rgba(0,0,0,.6),0 0 26px rgba(80,190,235,.10),inset 0 2px 0 rgba(155,236,255,.35);
+  /* chamfered "kit" frame — a cut-corner border of uniform width. The old method
+     painted the two diagonals with gradients that left a hairline gap where they met
+     the straight edges; instead the element paints the border colour across the whole
+     cut silhouette and an inset ::before paints the fill a hair smaller, so the border
+     traces the chamfers exactly (see --edge-* note above for the retired approach). */
+  .panel{position:relative;isolation:isolate;background:var(--line);border:none;padding:28px 32px;min-width:340px;
+    box-shadow:0 24px 60px rgba(0,0,0,.6),0 0 26px rgba(80,190,235,.10);
     -webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px);
-    /* chamfered corners — the same "piece of kit" silhouette as the in-match holo modules */
-    clip-path:polygon(0 0,calc(100% - 14px) 0,100% 14px,100% 100%,14px 100%,0 calc(100% - 14px));
-    background-image:var(--edge-tr),var(--edge-bl);background-size:14px 14px;
-    background-position:top right,bottom left;background-repeat:no-repeat}
+    clip-path:polygon(0 0,calc(100% - 14px) 0,100% 14px,100% 100%,14px 100%,0 calc(100% - 14px))}
+  .panel::before{content:"";position:absolute;inset:1px;z-index:-1;background:var(--panel);
+    box-shadow:inset 0 2px 0 rgba(155,236,255,.35);
+    clip-path:polygon(0 0,calc(100% - 13px) 0,100% 13px,100% 100%,13px 100%,0 calc(100% - 13px))}
   .panel label{display:block;font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--sand-dim);margin:14px 0 5px}
   .panel input{width:100%;background:#061016;border:1px solid var(--line);color:#eafaff;padding:10px 12px;
     font-family:var(--mono);font-size:16px;letter-spacing:2px;outline:none;text-transform:uppercase}
@@ -99,15 +104,22 @@
     background:var(--sand);color:#04141b;border:none;padding:12px 22px;width:100%;margin-top:16px;transition:filter .1s}
   button:hover{filter:brightness(1.12)}
   /* primary CTAs get the chamfered holo-kit silhouette (round controls keep their shape) */
-  .lobby-foot button,.end-actions button,#btn-join,#set-done,#set-leave{
+  .lobby-foot button,.end-actions button,#btn-join,#lobby-adv-toggle,#set-done,#set-leave{
     clip-path:polygon(0 0,calc(100% - 9px) 0,100% 9px,100% 100%,9px 100%,0 calc(100% - 9px))}
-  /* bordered (ghost) chamfered CTAs: close the outline ring across the two cuts */
-  .end-actions button.ghost{background-image:var(--edge-tr),var(--edge-bl);background-size:9px 9px;
-    background-position:top right,bottom left;background-repeat:no-repeat}
-  /* gamepad focus ring lives outside the clip on chamfered controls — swap it for an inset ring */
-  .lobby-foot button.gp-focus,.end-actions button.gp-focus,#btn-join.gp-focus,#set-done.gp-focus,
-  #set-leave.gp-focus,.tgl.gp-focus{outline:none!important;
-    box-shadow:inset 0 0 0 2px var(--sand),inset 0 0 16px rgba(155,236,255,.3)!important}
+  /* bordered (ghost / outlined) chamfered CTAs draw their cut-corner outline with the frame
+     method — the button paints the border colour under the clip and an inset ::before paints
+     a subtle fill a hair smaller — so the outline traces both chamfers exactly (a plain
+     border leaves the diagonals open; the old gradient patch left a hairline gap). */
+  #btn-join,.end-actions button.ghost,#lobby-adv-toggle{
+    position:relative;isolation:isolate;background:var(--line);border:none}
+  #btn-join::before,.end-actions button.ghost::before,#lobby-adv-toggle::before{
+    content:"";position:absolute;inset:1px;z-index:-1;background:rgba(6,12,16,.72);
+    clip-path:polygon(0 0,calc(100% - 8px) 0,100% 8px,100% 100%,8px 100%,0 calc(100% - 8px))}
+  @media (hover:hover){
+    #btn-join:hover,.end-actions button.ghost:hover,#lobby-adv-toggle:hover{background:var(--sand)}
+    #btn-join:hover::before,.end-actions button.ghost:hover::before,#lobby-adv-toggle:hover::before{
+      background:rgba(12,26,32,.82)}
+  }
   button.ghost{background:transparent;border:1px solid var(--line);color:var(--sand)}
   .row2{display:flex;gap:10px}
   .or-sep{display:flex;align-items:center;gap:10px;margin:16px 0 2px;color:var(--sand-dim);
@@ -131,8 +143,9 @@
     padding:var(--vm) max(var(--lm),env(safe-area-inset-right))
             max(var(--vm),env(safe-area-inset-bottom)) max(var(--lm),env(safe-area-inset-left))}
   #scr-menu .menu-panel{position:relative;min-width:330px}
-  /* a thin accent strip across the top edge — reads as a piece of kit, not a plain box */
-  #scr-menu .menu-panel::before{content:"";position:absolute;top:-1px;left:-1px;right:-1px;height:2px;z-index:1;
+  /* a thin accent strip across the top edge — reads as a piece of kit, not a plain box
+     (::after: ::before is now the frame's inset fill layer) */
+  #scr-menu .menu-panel::after{content:"";position:absolute;top:0;left:1px;right:1px;height:2px;z-index:1;
     background:linear-gradient(90deg,transparent,var(--sand),transparent)}
   .lobby-foot #btn-create{margin-top:0}
   .menu-hint{margin-top:8px;font-size:9px;letter-spacing:2px;text-transform:uppercase;color:#587c88;text-align:center}
@@ -238,6 +251,7 @@
     color:var(--holo-dim);text-transform:uppercase}
   @media (prefers-reduced-motion:reduce){
     #hud-parallax{transform:none}
+    #banner{transform:translateX(-50%)}
     .holo-mod,.holo-mod::before{animation:none}
   }
   #killfeed{position:absolute;top:44px;right:20px;text-align:right;font-size:13px;
@@ -334,16 +348,22 @@
   #scope::before{content:"";position:absolute;left:50%;top:0;width:1.5px;height:100%;background:rgba(0,0,0,.9);transform:translateX(-50%)}
   #scope::after{content:"";position:absolute;top:50%;left:0;height:1.5px;width:100%;background:rgba(0,0,0,.9);transform:translateY(-50%)}
 
-  #banner{position:absolute;top:24%;left:50%;transform:translateX(-50%);
+  /* the centred round-start banner rides the same heads-up drift as #hud-parallax
+     (it reads the shared --hud-px/--hud-py off #scr-game) so it leans into the turn
+     with the rest of the chrome instead of sitting dead-still mid-screen */
+  #banner{position:absolute;top:24%;left:50%;isolation:isolate;
+    transform:translateX(-50%) translate(var(--hud-px,0px),var(--hud-py,0px));
     font-family:var(--hud-font);font-weight:700;font-size:20px;letter-spacing:5px;
     text-transform:uppercase;color:#eafaff;white-space:nowrap;text-align:center;
     text-shadow:0 0 16px var(--holo-glow),0 2px 8px rgba(0,0,0,.85);
-    background:var(--edge-holo-tr) top right/15px 15px no-repeat,
-      var(--edge-holo-bl) bottom left/15px 15px no-repeat,
-      linear-gradient(155deg,var(--holo-deep),rgba(6,12,15,.32));border:1px solid var(--holo-line);
-    box-shadow:0 0 26px rgba(80,190,235,.16),inset 0 1px 0 rgba(180,242,255,.28);
+    background:var(--holo-line);border:none;
+    box-shadow:0 0 26px rgba(80,190,235,.16);
     -webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px);padding:10px 30px;
     clip-path:polygon(0 0,calc(100% - 15px) 0,100% 15px,100% 100%,15px 100%,0 calc(100% - 15px))}
+  #banner::before{content:"";position:absolute;inset:1px;z-index:-1;
+    background:linear-gradient(155deg,var(--holo-deep),rgba(6,12,15,.32));
+    box-shadow:inset 0 1px 0 rgba(180,242,255,.28);
+    clip-path:polygon(0 0,calc(100% - 14px) 0,100% 14px,100% 100%,14px 100%,0 calc(100% - 14px))}
   #respawn{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
     gap:22px;padding:max(16px,env(safe-area-inset-top)) 12px max(16px,env(safe-area-inset-bottom));pointer-events:none}
   #respawn .d{font-size:16px;letter-spacing:6px;color:var(--sand);text-transform:uppercase;opacity:.8}
@@ -351,9 +371,8 @@
     text-shadow:0 0 22px var(--holo-glow)}
   .respawn-count{display:flex;flex-direction:column;align-items:center;gap:4px}
   /* ── death-screen "choose your class" strip (deploys on respawn) ── */
-  #respawn-deploy{display:flex;flex-direction:column;align-items:center;gap:8px;max-width:min(760px,96vw);pointer-events:none}
+  #respawn-deploy{display:flex;flex-direction:column;align-items:center;gap:8px;max-width:min(900px,96vw);pointer-events:none}
   .rd-title{font-size:13px;letter-spacing:5px;text-transform:uppercase;color:var(--sand);font-weight:700}
-  .rd-sub{font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--sand-dim)}
   #respawn-classes{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;pointer-events:auto;
     max-width:96vw;padding:2px}
   #respawn-classes .class-card{position:relative;width:134px;padding:9px 11px 10px;
@@ -367,6 +386,10 @@
   /* death cinematic: desaturate the whole scene while dead */
   #game-canvas{transition:filter .35s ease}
   body.dead #game-canvas{filter:grayscale(1) contrast(1.05) brightness(.92)}
+  /* while dead you hold no weapon, so the ammo module is meaningless — and on mobile it
+     floats up over the centred "choose your class" strip. Hide it so the respawn UI is
+     clear of overlap (it returns the moment you're back alive). */
+  body.dead .hud-br{display:none!important}
   #click-to-play{position:absolute;inset:0;background:rgba(8,6,4,.45);display:flex;align-items:center;justify-content:center;
     font-size:15px;letter-spacing:5px;text-transform:uppercase;color:var(--sand);pointer-events:auto;cursor:pointer}
 
@@ -405,16 +428,18 @@
     mask-image:radial-gradient(ellipse at center,#000 38%,transparent 76%);
     animation:load-dots 30s linear infinite}
 
-  .end-card{position:relative;z-index:1;width:min(500px,94vw);
-    background:var(--edge-tr) top right/16px 16px no-repeat,
-      var(--edge-bl) bottom left/16px 16px no-repeat,
-      linear-gradient(180deg,rgba(10,20,26,.94),rgba(6,12,16,.94));
-    border:1px solid var(--line);padding:0 30px 26px;
-    box-shadow:0 30px 80px rgba(0,0,0,.66),0 0 30px rgba(80,190,235,.12),0 0 0 1px rgba(0,0,0,.4),inset 0 1px 0 rgba(155,236,255,.28);
+  .end-card{position:relative;isolation:isolate;z-index:1;width:min(500px,94vw);
+    background:var(--line);border:none;padding:0 30px 26px;
+    box-shadow:0 30px 80px rgba(0,0,0,.66),0 0 30px rgba(80,190,235,.12);
     clip-path:polygon(0 0,calc(100% - 16px) 0,100% 16px,100% 100%,16px 100%,0 calc(100% - 16px));
     animation:end-card-in .5s cubic-bezier(.16,1,.3,1) both}
+  /* inset fill (frame method — border colour under the clip, fill a hair smaller) */
+  .end-card::before{content:"";position:absolute;inset:1px;z-index:-1;
+    background:linear-gradient(180deg,rgba(10,20,26,.94),rgba(6,12,16,.94));
+    box-shadow:inset 0 1px 0 rgba(155,236,255,.28);
+    clip-path:polygon(0 0,calc(100% - 15px) 0,100% 15px,100% 100%,15px 100%,0 calc(100% - 15px))}
   /* bright top accent bar, like the main-menu panel */
-  .end-card::before{content:"";position:absolute;top:-1px;left:-1px;right:-1px;height:2px;
+  .end-card::after{content:"";position:absolute;top:0;left:1px;right:1px;height:2px;z-index:1;
     background:linear-gradient(90deg,transparent,var(--sand),transparent)}
   @keyframes end-card-in{from{opacity:0;transform:translateY(16px) scale(.97)}to{opacity:1;transform:none}}
 
@@ -488,9 +513,6 @@
   .lp .plat{margin-left:2px}
   .plat-bot{opacity:.55} /* AI bots read a touch quieter than human devices */
 
-  /* ═══ gamepad menu-navigation focus ring (square, no rounding) ═══ */
-  .gp-focus{outline:2px solid var(--sand)!important;outline-offset:3px;border-radius:0!important;
-    box-shadow:0 0 0 4px rgba(155,236,255,.25)!important}
   /* muted qualifier on a settings label (e.g. which devices a control applies to) */
   .set-sub{color:var(--sand-dim);font-size:9px;letter-spacing:1.5px;text-transform:uppercase;font-weight:400}
 
@@ -683,7 +705,6 @@
     /* death-screen class strip: keep it to a single tidy row on short landscape phones */
     #respawn{gap:10px}
     .rd-title{font-size:10px;letter-spacing:2px}
-    .rd-sub{font-size:8px}
     #respawn-classes .class-card{width:104px;padding:6px 8px 7px}
     body.touch #respawn-t{font-size:34px}
   }
@@ -740,17 +761,47 @@
     background:var(--holo-deep);border:1px solid var(--holo-line);padding:6px 18px;
     text-shadow:0 0 10px var(--holo-glow);-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px)}
   #hud-tier .tp{display:inline-block;margin-left:8px;color:var(--holo-dim);font-family:var(--mono)}
+  /* hardpoint capture-state line — same glass module as #hud-role, tinted (color +
+     border set inline by hud.hardpointHud to the hill holder's colour) */
+  #hud-hill{position:absolute;top:126px;left:50%;transform:translateX(-50%);
+    font-family:var(--hud-font);font-size:14px;letter-spacing:3px;
+    text-transform:uppercase;font-weight:700;text-align:center;color:#eafaff;
+    background:var(--holo-deep);border:1px solid var(--holo-line);padding:6px 18px;
+    text-shadow:0 0 10px currentColor;
+    -webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px)}
+  /* hardpoint waypoint — a glowing diamond + range readout floated over the hill
+     (world-anchored like the nametags; colour set inline to the holder's tint) */
+  #hill-marker{position:absolute;transform:translate(-50%,-100%);display:flex;flex-direction:column;
+    align-items:center;gap:3px;pointer-events:none;z-index:4}
+  #hill-marker .hm-d{width:11px;height:11px;background:currentColor;transform:rotate(45deg);
+    box-shadow:0 0 12px currentColor;opacity:.92}
+  #hill-marker-t{font-family:var(--hud-font);font-size:10px;letter-spacing:2px;font-weight:700;
+    color:currentColor;text-shadow:0 0 8px currentColor,0 1px 2px rgba(0,0,0,.8)}
 
   /* ═══ settings overlay ═══ */
+  /* settings button — a chamfered "kit" tile (matches the panels), a touch flatter than
+     wide, with a monochromatic line icon in the UI colour (no emoji) */
   #btn-gear{position:fixed;top:max(14px,env(safe-area-inset-top));right:max(14px,env(safe-area-inset-right));
-    z-index:31;width:42px;height:42px;padding:0;margin:0;border-radius:50%;font-size:20px;line-height:1;
-    background:rgba(8,16,20,.6);border:1px solid var(--line);color:var(--sand);cursor:pointer;
-    display:flex;align-items:center;justify-content:center;backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)}
-  #btn-gear:hover{border-color:var(--sand)}
+    z-index:31;width:46px;height:34px;padding:0;margin:0;isolation:isolate;line-height:0;
+    background:var(--line);border:none;color:var(--sand);cursor:pointer;
+    display:flex;align-items:center;justify-content:center;backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);
+    clip-path:polygon(0 0,calc(100% - 7px) 0,100% 7px,100% 100%,7px 100%,0 calc(100% - 7px))}
+  #btn-gear::before{content:"";position:absolute;inset:1px;z-index:-1;background:rgba(8,16,20,.72);
+    clip-path:polygon(0 0,calc(100% - 6px) 0,100% 6px,100% 100%,6px 100%,0 calc(100% - 6px))}
+  #btn-gear svg{width:19px;height:19px;display:block}
+  #btn-gear:hover{background:var(--sand)}
+  #btn-gear:hover::before{background:rgba(12,26,32,.82)}
   body[data-screen="game"] #btn-gear,body[data-screen="loading"] #btn-gear{display:none}
   #settings{z-index:50;background:rgba(3,7,9,.86);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)}
-  /* fixed width so the panel doesn't resize when switching sub-pages */
-  .set-panel{width:min(540px,94vw);min-width:0;max-width:94vw}
+  /* fixed width so the panel doesn't resize when switching sub-pages. Laid out as a
+     flex column so the header (title + tab bar) and the Done/Leave footer stay PINNED
+     while only the active page scrolls — on a short (landscape phone) screen the tab bar
+     must never scroll out of view. Overrides the generic .panel scroll. */
+  .set-panel{width:min(540px,94vw);min-width:0;max-width:94vw;
+    display:flex;flex-direction:column;overflow:hidden;
+    height:min(560px,calc(100dvh - 28px));max-height:calc(100dvh - 28px)}
+  .set-panel > .set-title,.set-panel > .set-tabs,
+  .set-panel > #set-done,.set-panel > #set-leave{flex:0 0 auto}
   .set-title{font-size:22px;letter-spacing:6px;color:var(--sand);text-transform:uppercase;font-weight:700;
     text-align:center;margin-bottom:6px}
   /* segmented preset control */
@@ -787,16 +838,27 @@
     background:var(--sand);cursor:var(--cur,pointer);
     clip-path:polygon(0 0,calc(100% - 5px) 0,100% 5px,100% 100%,5px 100%,0 calc(100% - 5px));
     box-shadow:0 0 10px var(--holo-glow)}
-  /* sub-page tabs — Video / Input / Controls / AI, each page its own simple sheet */
-  .set-tabs{display:flex;gap:2px;margin-top:14px;border-bottom:1px solid var(--line)}
-  .set-tabs button{flex:1;width:auto;margin:0;padding:10px 4px;background:transparent;border:none;
-    color:var(--sand-dim);font-size:10px;letter-spacing:2px;font-weight:700;position:relative}
-  .set-tabs button:hover{filter:none;color:var(--sand)}
-  .set-tabs button.on{color:var(--sand);text-shadow:0 0 10px rgba(155,236,255,.4)}
-  .set-tabs button.on::after{content:"";position:absolute;left:8%;right:8%;bottom:-1px;height:2px;
-    background:linear-gradient(90deg,transparent,var(--sand),transparent);box-shadow:0 0 8px var(--holo-glow)}
-  /* a floor on the page height keeps the panel (and Done button) from jumping between tabs */
-  .set-page{min-height:min(320px,48vh)}
+  /* sub-page tabs — Video / Input / Controls / AI. Chamfered holo-kit chips (the panel
+     silhouette at tab scale, with the same painted diagonal edges) so the category picker
+     reads as kit chrome instead of bare text. The active tab lights up — cyan fill, bright
+     frame + glow — so the current page is unmistakable at a glance. */
+  .set-tabs{display:flex;gap:6px;margin-top:14px}
+  .set-tabs button{flex:1;width:auto;margin:0;padding:10px 4px;position:relative;
+    color:var(--sand-dim);font-size:10px;letter-spacing:2px;font-weight:700;
+    background:rgba(155,236,255,.05);border:1px solid var(--line);
+    background-image:var(--edge-tr),var(--edge-bl);background-size:6px 6px;
+    background-position:top right,bottom left;background-repeat:no-repeat;
+    clip-path:polygon(0 0,calc(100% - 6px) 0,100% 6px,100% 100%,6px 100%,0 calc(100% - 6px))}
+  .set-tabs button:hover{filter:none;color:var(--sand);border-color:var(--sand)}
+  .set-tabs button.on{color:var(--sand);border-color:var(--sand);background:rgba(155,236,255,.15);
+    background-image:var(--edge-tr),var(--edge-bl);background-size:6px 6px;
+    background-position:top right,bottom left;background-repeat:no-repeat;
+    box-shadow:0 0 14px var(--holo-glow),inset 0 0 12px rgba(155,236,255,.08);
+    text-shadow:0 0 10px rgba(155,236,255,.4)}
+  /* the active sub-page is the ONLY scrolling region — the header (tabs) + footer (Done)
+     stay pinned around it. The panel's own fixed height keeps it from jumping between tabs. */
+  .set-page{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;
+    margin:0 -6px;padding:2px 6px}
   /* toggle switch — angular kit slab: chamfered track + sliding chamfered pip, with the
      same painted diagonal edges as the panels (the clip eats the border at the cuts) */
   .set-toggle{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:18px;
@@ -825,10 +887,11 @@
   #set-aichat-status{color:var(--red);font-weight:700}
   #set-aichat-status:not(:empty){margin-right:5px}
   #set-done{margin-top:22px}
-  #set-leave{margin-top:18px;background:transparent;border:1px solid var(--red);color:var(--red);
-    background-image:var(--edge-red-tr),var(--edge-red-bl);background-size:9px 9px;
-    background-position:top right,bottom left;background-repeat:no-repeat}
-  #set-leave:hover{background-color:rgba(255,106,90,.14);filter:none}
+  #set-leave{margin-top:18px;position:relative;isolation:isolate;background:var(--red);border:none;color:var(--red)}
+  #set-leave::before{content:"";position:absolute;inset:1px;z-index:-1;background:rgba(20,8,8,.72);
+    clip-path:polygon(0 0,calc(100% - 8px) 0,100% 8px,100% 100%,8px 100%,0 calc(100% - 8px))}
+  #set-leave:hover{filter:none}
+  #set-leave:hover::before{background:rgba(255,106,90,.16)}
 
   /* ── remappable controls (keyboard + gamepad binding lists) ── */
   .bind-head{display:flex;align-items:center;justify-content:space-between;margin:14px 0 6px;
@@ -899,12 +962,21 @@
   .tc-wep.on{background:rgba(155,236,255,.9);border-color:var(--sand);color:#04141b}
   .tc-wep.on .k{color:#0a2b38}
 
-  /* top-left utility buttons (scores hold, chat, mic) */
+  /* top-left utility buttons (scores hold, chat, mic, settings) — chamfered "kit" tiles,
+     flatter than wide, with monochromatic line icons in the UI colour (no emoji) */
   #tc-util{position:absolute;pointer-events:none;display:flex;gap:8px;
     left:max(12px,env(safe-area-inset-left));top:max(12px,env(safe-area-inset-top))}
-  #tc-util .tcb{width:44px;height:44px;font-size:16px;letter-spacing:0}
-  #tc-mic.mic-on{border-color:var(--green);box-shadow:0 0 12px rgba(143,191,77,.4)}
-  #tc-muted,#tc-mic.mic-muted{border-color:var(--red)}
+  #tc-util .tcb{position:relative;isolation:isolate;width:48px;height:38px;font-size:0;letter-spacing:0;
+    border:none;border-radius:0;background:var(--line);box-shadow:0 4px 14px rgba(0,0,0,.4);
+    clip-path:polygon(0 0,calc(100% - 7px) 0,100% 7px,100% 100%,7px 100%,0 calc(100% - 7px))}
+  #tc-util .tcb::before{content:"";position:absolute;inset:1.5px;z-index:-1;background:rgba(8,16,20,.72);
+    clip-path:polygon(0 0,calc(100% - 6px) 0,100% 6px,100% 100%,6px 100%,0 calc(100% - 6px))}
+  #tc-util .tcb svg{width:20px;height:20px;display:block}
+  #tc-util .tcb.on{background:var(--sand)}
+  #tc-util .tcb.on::before{background:rgba(12,26,32,.85)}
+  #tc-mic.mic-on{background:var(--green)}
+  #tc-mic.mic-on::before{box-shadow:inset 0 0 12px rgba(143,191,77,.4)}
+  #tc-muted,#tc-mic.mic-muted{background:var(--red)}
   /* the floating text mic indicator is redundant on touch (state shown on the button) */
   body.touch #voice{display:none}
 
@@ -936,7 +1008,7 @@
   body.touch #hud-round{font-size:8px}
   body.touch #hud-teams{top:calc(max(8px,env(safe-area-inset-top)) + 46px);font-size:15px;padding:3px 12px}
   body.touch #hud-teams .tn{font-size:9px}
-  body.touch #hud-role,body.touch #hud-tier{top:calc(max(8px,env(safe-area-inset-top)) + 82px);font-size:11px;padding:4px 12px}
+  body.touch #hud-role,body.touch #hud-tier,body.touch #hud-hill{top:calc(max(8px,env(safe-area-inset-top)) + 82px);font-size:11px;padding:4px 12px}
   /* buff stays in the left .hud-tl column on touch too, never centred */
   body.touch #buff{font-size:11px;padding:4px 12px}
   /* round-start banner is far less bulky on phones */
@@ -1046,11 +1118,12 @@
     button:hover{box-shadow:0 0 16px rgba(120,214,255,.28)}
     button.ghost:hover{border-color:var(--sand);
       box-shadow:0 0 14px rgba(120,214,255,.18),inset 0 0 12px rgba(155,236,255,.06)}
-    #btn-gear:hover{transform:rotate(60deg)}
+    #btn-gear:hover svg{transform:rotate(45deg)}
   }
   button:not(.tgl):not(.tcb):active{transform:translateY(1px)}
   button:focus-visible{outline:1px solid var(--sand);outline-offset:2px}
-  #btn-gear{transition:transform .25s cubic-bezier(.2,1,.3,1),border-color .12s,box-shadow .16s}
+  #btn-gear{transition:background .14s,box-shadow .16s}
+  #btn-gear svg{transition:transform .25s cubic-bezier(.2,1,.3,1)}
 
   /* text inputs: focus lights the frame like a powered-on module */
   .panel input,#chat-inp{transition:border-color .15s,box-shadow .15s;caret-color:var(--sand)}
@@ -1185,6 +1258,9 @@
   <!-- floating damage numbers — world-anchored like the nametags, so they track the
        3D hit point exactly (never drift with the HUD parallax) -->
   <div id="dmgnums"></div>
+  <!-- hardpoint waypoint — world-anchored to the hill (edge-clamped when off-screen),
+       so it stays outside the parallax layer like the nametags -->
+  <div id="hill-marker" class="hidden"><i class="hm-d"></i><span id="hill-marker-t"></span></div>
   <!-- holographic HUD chrome — drifts as one layer, opposite to the player's look
        (see Hud.parallax). Gameplay-critical / full-screen overlays (crosshair, scope,
        vignettes, scoreboard, respawn, touch controls) stay OUTSIDE so they never drift. -->
@@ -1193,6 +1269,7 @@
   <div id="hud-teams" class="hidden"></div>
   <div id="hud-role" class="hidden"></div>
   <div id="hud-tier" class="hidden"></div>
+  <div id="hud-hill" class="hidden"></div>
   <!-- top-left column: perf stats → frame graph → mic → powerup buff, stacked in one
        flex column so hidden entries collapse and the visible ones never overlap -->
   <div class="hud-tl">
@@ -1221,7 +1298,6 @@
   <div id="respawn" class="hidden">
     <div id="respawn-deploy">
       <div class="rd-title">choose your class</div>
-      <div class="rd-sub"><span id="rd-sub-when">deploys on respawn</span> · <span class="kbd-only">press 1–5</span><span class="touch-only">tap a class</span></div>
       <div id="respawn-classes"></div>
     </div>
     <div class="respawn-count"><div class="d" id="respawn-label">respawn in</div><div id="respawn-t">3</div></div>
@@ -1245,10 +1321,10 @@
       </div>
     </div>
     <div id="tc-util">
-      <button class="tcb" id="tc-scores" title="scoreboard">▤</button>
-      <button class="tcb" id="tc-chat" title="chat">💬</button>
-      <button class="tcb" id="tc-mic" title="mic">🎙</button>
-      <button class="tcb" id="tc-settings" title="settings">⚙</button>
+      <button class="tcb" id="tc-scores" title="scoreboard" aria-label="scoreboard"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6.5h11M9 12h11M9 17.5h11" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><circle cx="4.5" cy="6.5" r="1.15" fill="currentColor"/><circle cx="4.5" cy="12" r="1.15" fill="currentColor"/><circle cx="4.5" cy="17.5" r="1.15" fill="currentColor"/></svg></button>
+      <button class="tcb" id="tc-chat" title="chat" aria-label="chat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5h16A1.5 1.5 0 0 1 21.5 7v8a1.5 1.5 0 0 1-1.5 1.5H9.5L5 20.5V16.5H4A1.5 1.5 0 0 1 2.5 15V7A1.5 1.5 0 0 1 4 5.5Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg></button>
+      <button class="tcb" id="tc-mic" title="mic" aria-label="mic"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="2.6" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M5.8 11a6.2 6.2 0 0 0 12.4 0M12 17.2v3.2M8.8 20.4h6.4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+      <button class="tcb" id="tc-settings" title="settings" aria-label="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.3" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M19.6 13.5a7.7 7.7 0 0 0 0-3l1.9-1.5-2-3.4-2.3.95a7.7 7.7 0 0 0-2.6-1.5L14.2 2H9.8l-.4 2.65a7.7 7.7 0 0 0-2.6 1.5l-2.3-.95-2 3.4L4.4 10.5a7.7 7.7 0 0 0 0 3l-1.9 1.5 2 3.4 2.3-.95a7.7 7.7 0 0 0 2.6 1.5L9.8 22h4.4l.4-2.65a7.7 7.7 0 0 0 2.6-1.5l2.3.95 2-3.4-1.9-1.5Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg></button>
     </div>
   </div>
 </div>
@@ -1285,7 +1361,7 @@
      match freezes for a few seconds while everyone picks a class, then the round goes live. -->
 
 <!-- ═══ SETTINGS OVERLAY ═══ -->
-<button id="btn-gear" title="settings" aria-label="settings">⚙</button>
+<button id="btn-gear" title="settings" aria-label="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.3" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M19.6 13.5a7.7 7.7 0 0 0 0-3l1.9-1.5-2-3.4-2.3.95a7.7 7.7 0 0 0-2.6-1.5L14.2 2H9.8l-.4 2.65a7.7 7.7 0 0 0-2.6 1.5l-2.3-.95-2 3.4L4.4 10.5a7.7 7.7 0 0 0 0 3l-1.9 1.5 2 3.4 2.3-.95a7.7 7.7 0 0 0 2.6 1.5L9.8 22h4.4l.4-2.65a7.7 7.7 0 0 0 2.6-1.5l2.3.95 2-3.4-1.9-1.5Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg></button>
 <div id="settings" class="screen hidden">
   <div class="panel set-panel">
     <h2 class="set-title">Settings</h2>

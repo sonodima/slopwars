@@ -9,6 +9,7 @@ export const ROUNDS_PER_GAME = 4;
 export const INTERMISSION = 10; // s
 export const DEPLOY_TIME = 6;   // s — pre-round freeze: everyone spawned but locked, picking a class
 export const RESPAWN_TIME = 3; // s
+export const SPAWN_PROT = 3;   // s of post-spawn invulnerability — ends early on your first shot
 export const MAX_HP = 100;
 
 // ─── Host-configurable match rules (set in the lobby, mirrored to guests) ─────
@@ -122,7 +123,7 @@ export function randomPowerup(): PowerupKind {
 
 export type WeaponId =
   | "knife" | "usp" | "ak47" | "awp" | "he" | "mol"
-  | "m4a1" | "shotgun" | "grease" | "suomi" | "luger" | "flash" | "smoke";
+  | "m4a1" | "shotgun" | "grease" | "suomi" | "luger" | "flash" | "smoke" | "portalgun";
 
 /** Loadout slot a weapon occupies. Drives the class system (one pick per slot) and the
  *  order weapons appear on the HUD / weapon wheel. `utility` holds throwables (a class may
@@ -155,6 +156,7 @@ export interface WeaponDef {
   scope?: boolean;
   melee?: boolean;
   throwable?: boolean;
+  portal?: boolean; // fires portal placements (portals.ts) instead of rays/projectiles
   auto: boolean;
 }
 
@@ -166,42 +168,42 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
   },
   usp: {
     id: "usp", name: "USP-S", category: "secondary", damage: 34, headMult: 4, rpm: 352, mag: 12,
-    reserve: 48, reloadTime: 2.0, spread: 0.006, spreadMove: 0.02, recoil: 0.9,
+    reserve: 48, reloadTime: 1.5, spread: 0.006, spreadMove: 0.02, recoil: 0.9,
     penetration: 0.28, penDamageKeep: 0.5, falloff: [14, 45, 0.55], range: 400, moveFactor: 1.0, auto: false,
   },
   luger: {
     id: "luger", name: "Luger P08", category: "secondary", damage: 30, headMult: 4, rpm: 400, mag: 8,
-    reserve: 48, reloadTime: 1.9, spread: 0.007, spreadMove: 0.022, recoil: 1.0,
+    reserve: 48, reloadTime: 1.4, spread: 0.007, spreadMove: 0.022, recoil: 1.0,
     penetration: 0.25, penDamageKeep: 0.5, falloff: [13, 42, 0.52], range: 380, moveFactor: 1.0, auto: false,
   },
   ak47: {
     id: "ak47", name: "AK-47", category: "primary", damage: 34, headMult: 4, rpm: 600, mag: 30,
-    reserve: 90, reloadTime: 2.4, spread: 0.008, spreadMove: 0.045, recoil: 1.35,
+    reserve: 90, reloadTime: 1.8, spread: 0.008, spreadMove: 0.045, recoil: 1.35,
     penetration: 0.45, penDamageKeep: 0.62, falloff: [20, 60, 0.6], range: 800, moveFactor: 0.92, auto: true,
   },
   m4a1: {
     id: "m4a1", name: "M4A1", category: "primary", damage: 30, headMult: 4, rpm: 666, mag: 30,
-    reserve: 90, reloadTime: 2.6, spread: 0.006, spreadMove: 0.04, recoil: 1.05,
+    reserve: 90, reloadTime: 1.9, spread: 0.006, spreadMove: 0.04, recoil: 1.05,
     penetration: 0.4, penDamageKeep: 0.6, falloff: [22, 64, 0.62], range: 800, moveFactor: 0.93, auto: true,
   },
   suomi: {
     id: "suomi", name: "Suomi KP/-31", category: "primary", damage: 22, headMult: 3, rpm: 750, mag: 36,
-    reserve: 108, reloadTime: 2.8, spread: 0.016, spreadMove: 0.06, recoil: 0.8,
+    reserve: 108, reloadTime: 2.0, spread: 0.016, spreadMove: 0.06, recoil: 0.8,
     penetration: 0.18, penDamageKeep: 0.4, falloff: [10, 34, 0.45], range: 260, moveFactor: 1.04, auto: true,
   },
   grease: {
     id: "grease", name: "M3 Grease Gun", category: "primary", damage: 26, headMult: 3, rpm: 450, mag: 30,
-    reserve: 90, reloadTime: 2.6, spread: 0.014, spreadMove: 0.05, recoil: 0.9,
+    reserve: 90, reloadTime: 1.9, spread: 0.014, spreadMove: 0.05, recoil: 0.9,
     penetration: 0.2, penDamageKeep: 0.45, falloff: [12, 40, 0.5], range: 300, moveFactor: 1.02, auto: true,
   },
   shotgun: {
     id: "shotgun", name: "Shotgun", category: "primary", damage: 40, headMult: 2, rpm: 70, mag: 6,
-    reserve: 24, reloadTime: 3.4, spread: 0.2, spreadMove: 0.05, recoil: 3.0,
+    reserve: 24, reloadTime: 2.5, spread: 0.2, spreadMove: 0.05, recoil: 3.0,
     penetration: 0, penDamageKeep: 0, falloff: [6, 22, 0.25], range: 45, moveFactor: 0.9, pellets: 8, auto: false,
   },
   awp: {
     id: "awp", name: "AWP", category: "primary", damage: 112, headMult: 2.4, rpm: 41, mag: 5,
-    reserve: 15, reloadTime: 3.6, spread: 0.05, spreadMove: 0.08, recoil: 3.2,
+    reserve: 15, reloadTime: 2.7, spread: 0.05, spreadMove: 0.08, recoil: 3.2,
     penetration: 0.7, penDamageKeep: 0.75, falloff: [45, 130, 0.82], range: 1200, moveFactor: 0.82, scope: true, auto: false,
   },
   he: {
@@ -224,12 +226,20 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     reserve: 0, reloadTime: 0, spread: 0, spreadMove: 0, recoil: 0,
     penetration: 0, penDamageKeep: 0, falloff: [999, 1000, 1], range: 0, moveFactor: 1.05, throwable: true, auto: false,
   },
+  // fires no rays: each trigger pull places the next portal of the blue/orange pair
+  // (see main.firePortal / portals.ts). `range` is the placement raycast reach; the
+  // -1 mag is the melee-style "infinite" sentinel — a portal gun never runs dry.
+  portalgun: {
+    id: "portalgun", name: "Portal Gun", category: "utility", damage: 0, headMult: 1, rpm: 75, mag: -1,
+    reserve: -1, reloadTime: 0, spread: 0, spreadMove: 0, recoil: 0,
+    penetration: 0, penDamageKeep: 0, falloff: [999, 1000, 1], range: 48, moveFactor: 1.05, portal: true, auto: false,
+  },
 };
 
 /** every weapon that exists, in canonical order (viewmodels + weapon-wheel ordering).
  *  A player's *active* inventory is a per-class subset — see classes.ts / WeaponSystem. */
 export const ALL_WEAPONS: WeaponId[] = [
-  "knife", "usp", "luger", "ak47", "m4a1", "suomi", "grease", "shotgun", "awp", "he", "mol", "flash", "smoke",
+  "knife", "usp", "luger", "ak47", "m4a1", "suomi", "grease", "shotgun", "awp", "he", "mol", "flash", "smoke", "portalgun",
 ];
 
 /** the default inventory used before a class is applied (and by the gungame ladder /
@@ -268,7 +278,10 @@ export interface PlayerState {
 
 export type GamePhase = "lobby" | "deploy" | "play" | "inter" | "over";
 
-export type ModeId = "ffa" | "tdm" | "gungame" | "prophunt";
+export type ModeId = "ffa" | "tdm" | "gungame" | "prophunt" | "hardpoint";
+
+/** who holds the hardpoint hill: -1 empty · 0/1 the capturing side · 2 both inside (contested) */
+export type HillOwner = -1 | 0 | 1 | 2;
 
 export interface GameSnapshot {
   phase: GamePhase;
@@ -279,9 +292,11 @@ export interface GameSnapshot {
   map: string;  // currently loaded map id
   mode: ModeId; // active game mode
   cfg?: MatchConfig; // host match rules
-  teams?: Record<string, number>;  // tdm: 0/1 side · prophunt: 0 seeker / 1 hider
-  teamScore?: [number, number];    // tdm: side scores · prophunt: [seeker, hider] round wins
+  teams?: Record<string, number>;  // tdm/hardpoint: 0/1 side · prophunt: 0 seeker / 1 hider
+  teamScore?: [number, number];    // tdm/hardpoint: side scores · prophunt: [seeker, hider] round wins
   tiers?: Record<string, number>;  // gungame: player → weapon-ladder tier
+  props?: Record<string, number>;  // prophunt: player → disguise roll (host-rolled per round; mod pool length at use)
+  hill?: { i: number; owner: HillOwner; progress: number }; // hardpoint: active spot, holder, 0..1 of the rotate window
   platforms?: Record<string, Platform>; // per-player current input device (icons in lists)
 }
 
@@ -307,16 +322,20 @@ export type Msg =
   | { t: "bexp"; i: number }              // host → all: barrel i exploded
   | { t: "pwspawn"; i: number; k: PowerupKind }              // host → all: powerup i appeared
   | { t: "pwtake"; i: number; who: string; k: PowerupKind }  // host → all: player took powerup i
+  | { t: "portal"; id: string; s: 0 | 1; o: [number, number, number]; n: [number, number, number] } // player id placed portal s (0 blue / 1 orange) at o with surface normal n
+  | { t: "pgone"; id: string; s: 0 | 1 }                     // player id's portal s expired (death/leave are inferred locally)
   | { t: "mapvote"; map: string }                            // guest → host: vote for next map
   | { t: "votes"; counts: Record<string, number> }           // host → all: live vote tally
   | { t: "mode"; mode: ModeId }                              // host → all: lobby mode selection
   | { t: "cfg"; cfg: MatchConfig }                           // host → all: lobby match-rules change
   | { t: "role"; role: number; prop: number }                // host → one: prophunt role + disguise
   | { t: "tier"; tier: number }                              // host → one: gungame tier changed
+  | { t: "hill"; i: number }                                 // host → all: hardpoint hill relocated to spot i
   | { t: "plat"; id: string; plat: Platform }                // any → all: player switched input device
   | { t: "ping"; ts: number }
   | { t: "pong"; ts: number }
-  | { t: "leave" };
+  | { t: "leave" }              // guest → host: I'm leaving
+  | { t: "hostleave" };         // host → all: I'm closing the lobby
 
 export function rand(a: number, b: number): number { return a + Math.random() * (b - a); }
 export function clamp(v: number, a: number, b: number): number { return v < a ? a : v > b ? b : v; }

@@ -36,8 +36,8 @@ export type CollisionMode = "auto" | "manual";
  *  anchors map is deliberately keyed by name so more anchors (sight, …) can be added
  *  later with no schema change. */
 export interface ModelAnchor {
-  at: Tuple3;         // model-local position of the anchor
-  rot?: Tuple3;       // model-local euler degrees applied when the anchor is used
+  at: Tuple3;         // position of the anchor, in the model's own displayed frame
+  rot?: Tuple3;       // euler degrees, applied on top of the model's own orientation
 }
 
 /** one authorable anchor kind, driving the editor's anchor UI (the picker label, help
@@ -51,7 +51,7 @@ export interface AnchorKind { key: string; label: string; help: string; rot: boo
 export const ANCHOR_KINDS: readonly AnchorKind[] = [
   {
     key: "grip", label: "Held point", rot: true,
-    help: "Where a character's hand grips the model in third person. The hand snaps to this point; its rotation sets the held orientation. Not used by the first-person viewmodel.",
+    help: "Where a character's hand grips the model in third person — the hand snaps to this point. Rotation is an optional extra turn about it, on top of how the model already sits; leave it at zero unless the model needs re-aiming in the hand. Not used by the first-person viewmodel.",
   },
   {
     key: "muzzle", label: "Muzzle", rot: false,
@@ -86,8 +86,8 @@ export interface ModelMeta {
    *  a slot left out keeps whatever the glTF authored (e.g. a transparent glass part).
    *  Every model ships calibrated so each opaque slot points at its own material. */
   materials?: Record<string, string>;
-  /** legacy single-material field — applied to EVERY surface when `materials` doesn't
-   *  cover a slot. Kept only so old metas still load; the editor writes `materials`. */
+  /** single material applied to EVERY surface `materials` doesn't cover — the way to
+   *  shade a model with no named slots (a .glb, whose materials aren't scanned). */
   material?: string;
   /** collision derivation mode (default "auto"). "manual" uses `collisionBoxes`. */
   collision?: CollisionMode;
@@ -115,7 +115,7 @@ export interface ModelAsset {
 }
 
 /** the material asset a given glTF slot should render with (undefined → keep the glTF
- *  material). Prefers the per-slot `materials` map, falling back to the legacy single
+ *  material). Prefers the per-slot `materials` map, falling back to the all-surfaces
  *  `material`. Shared by the game renderer and the editor preview so both agree. */
 export function modelSlotMaterial(meta: ModelMeta | undefined, slot: string): string | undefined {
   if (!meta) return undefined;
@@ -179,8 +179,8 @@ export interface AssetCatalog {
 }
 
 /** map summary produced by scanning the maps/ directory (for the pool + editor picker).
- *  A map is either a flat `maps/<id>.json` file or a `maps/<id>/` folder holding the map
- *  JSON (map.json / <id>.json) plus an optional `preview.json` listing screenshots. */
+ *  A map is a `maps/<id>/` folder holding the map JSON (map.json / <id>.json) plus any
+ *  screenshot images (`preview.*` first, then the rest alphabetically). */
 export interface MapCatalogEntry {
   id: string;
   name: string;

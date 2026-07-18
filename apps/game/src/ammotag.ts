@@ -4,7 +4,11 @@
 // texture (redrawn only when the readout changes) on a double-sided unlit quad: pure
 // masked text — no panel/backing — so only the glowing glyphs float over the weapon.
 // It is seated per weapon by the model's `ammo` anchor (authored in the editor); a
-// weapon without that anchor shows no readout at all.
+// weapon without that anchor shows no readout at all (the knife, which has no count).
+//
+// It shows the count and nothing else — no weapon name. You are holding the weapon and
+// can see it; the label was the one part of the readout that told you what you already
+// knew, and it cost the counter half its glass.
 import {
   Color, Engine, Entity, MeshRenderer, PrimitiveMesh, RenderFace,
   Texture2D, TextureFilterMode, TextureFormat, TextureWrapMode, UnlitMaterial, Vector4,
@@ -16,10 +20,15 @@ import type { ModelAnchor } from "@slopwars/shared";
 // ~+76° X-rotation stands the quad up facing back at the eye; the small Y/Z tilts angle
 // it toward screen-centre and level it.
 const TAG_ROT: [number, number, number] = [76, 7, -3];
-const TAG_W = 0.104;   // readout width  (viewmodel units)
-const TAG_H = 0.056;   // readout height
 
-const CW = 384, CH = 208; // canvas (texture) resolution — crisp at the tiny quad
+const CW = 384, CH = 140; // canvas (texture) resolution — crisp at the tiny quad
+/** readout width in viewmodel units; the height follows the canvas aspect, so the quad
+ *  never stretches the glyphs and dropping a text row shrinks the glass, not the type */
+const TAG_W = 0.104;
+const TAG_H = TAG_W * (CH / CW);
+
+const X = 18;        // left margin (leaves room for the glow to bleed)
+const NUM_BASE = 112; // baseline of the big magazine number
 
 export class AmmoTag {
   private holder: Entity;
@@ -75,28 +84,20 @@ export class AmmoTag {
   }
 
   /** update the readout; only redraws the canvas when the visible values change. */
-  set(name: string, mag: number, reserve: number, reloading: boolean, melee: boolean, throwable: boolean, magMax: number): void {
+  set(mag: number, reserve: number, reloading: boolean, melee: boolean, throwable: boolean, magMax: number): void {
     if (!this.mounted) return;
-    const sig = `${name}|${mag}|${reserve}|${reloading}|${melee}|${throwable}|${magMax}`;
+    const sig = `${mag}|${reserve}|${reloading}|${melee}|${throwable}|${magMax}`;
     if (sig === this.last) return;
     this.last = sig;
-    this.draw(name, mag, reserve, reloading, melee, throwable, magMax);
+    this.draw(mag, reserve, reloading, melee, throwable, magMax);
   }
 
-  private draw(name: string, mag: number, reserve: number, reloading: boolean, melee: boolean, throwable: boolean, magMax: number): void {
+  private draw(mag: number, reserve: number, reloading: boolean, melee: boolean, throwable: boolean, magMax: number): void {
     const c = this.ctx;
     c.clearRect(0, 0, CW, CH);
 
     // pure text mask — no panel. Every glyph carries its own holo glow.
-    const x = 18, baseY = CH - 46;
-
-    // ── weapon label (Rajdhani, dim) ──
     c.textBaseline = "alphabetic";
-    c.fillStyle = "#8fd8ea";
-    c.shadowColor = "rgba(120,214,255,0.55)"; c.shadowBlur = 10;
-    c.font = "700 34px Rajdhani, 'Bahnschrift', sans-serif";
-    c.fillText(name.toUpperCase(), x + 2, 44);
-    c.shadowBlur = 0;
 
     const low = !melee && !throwable && (mag <= 0 || (magMax > 0 && mag / magMax <= 0.25));
     const cyan = "#eafaff", red = "#ff6a5a";
@@ -105,7 +106,7 @@ export class AmmoTag {
       c.fillStyle = "#9becff";
       c.shadowColor = "rgba(120,214,255,0.75)"; c.shadowBlur = 16;
       c.font = "700 62px Rajdhani, 'Bahnschrift', sans-serif";
-      c.fillText("RELOAD", x, baseY + 14);
+      c.fillText("RELOAD", X, NUM_BASE - 10);
       c.shadowBlur = 0;
       this.upload(); return;
     }
@@ -116,17 +117,17 @@ export class AmmoTag {
     c.shadowColor = low ? "rgba(255,106,90,0.8)" : "rgba(120,214,255,0.85)";
     c.shadowBlur = 20;
     c.font = "700 104px Orbitron, 'Bahnschrift', sans-serif";
-    c.fillText(magStr, x, baseY + 24);
+    c.fillText(magStr, X, NUM_BASE);
     const magW = c.measureText(magStr).width;
 
-    // ── reserve / spare (Orbitron, dim) ──
+    // ── reserve / spare (Orbitron, dim) — a throwable has no reserve to show ──
     if (!melee) {
       const spare = throwable ? "" : reserve < 0 ? "∞" : String(reserve);
       if (spare) {
         c.fillStyle = "#63c6e0";
         c.shadowColor = "rgba(120,214,255,0.55)"; c.shadowBlur = 12;
         c.font = "700 42px Orbitron, 'Bahnschrift', sans-serif";
-        c.fillText("/ " + spare, x + magW + 18, baseY + 16);
+        c.fillText("/ " + spare, X + magW + 18, NUM_BASE - 8);
       }
     }
     c.shadowBlur = 0;

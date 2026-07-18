@@ -1,8 +1,8 @@
 // ─── Map pool: catalog-driven registry of playable maps + selection helpers ──
-// Maps are JSON files under the project's `maps/` directory. The asset pipeline's
-// Vite plugin scans them into `virtual:map-catalog`; here we fetch each one at
+// Maps are JSON folders under public/assets/maps/. The asset pipeline's Vite
+// plugin scans them into `virtual:map-catalog`; here we fetch each one at
 // startup into an in-memory registry so the rest of the game can look maps up
-// synchronously (mapById) exactly as before. No map data lives in TS source.
+// synchronously (mapById). No map data lives in TS source.
 import mapCatalog from "virtual:map-catalog";
 import { MapDef, MapMeta, emptyMap } from "@slopwars/shared";
 import { logAsset } from "../assets";

@@ -40,6 +40,7 @@ const WEAPON_MODEL: Record<WeaponId, string> = {
   mol: "wep_molotov",
   flash: "wep_flashbang",
   smoke: "wep_smoke",
+  portalgun: "wep_portalgun", // Portal 2 ASHPD device (CC OBJ, converted to geometry-only glTF)
 };
 
 /** a full ammo table for every weapon, seeded from each def's mag/reserve. Throwables
@@ -209,6 +210,14 @@ export class WeaponSystem {
     const d = this.def();
     const a = this.ammo[this.current];
     if (this.cooldown > 0 || this.reloading > 0 || this.drawTimer > 0) return false;
+    if (d.portal) {
+      // portal gun: never dry, no flash/recoil — the shot itself (placement raycast,
+      // blue/orange alternation, fire vs fail cue) is resolved by main.firePortal.
+      this.cooldown = (60 / d.rpm) * this.fireRateMult;
+      this.kick = 0.07;
+      this.onShoot?.(d, 0);
+      return true;
+    }
     if (!d.melee && a.mag <= 0) { if (!d.throwable) this.reload(); return false; }
 
     this.cooldown = (60 / d.rpm) * this.fireRateMult;
@@ -268,7 +277,8 @@ export class WeaponSystem {
 
     // keep the weapon-mounted ammo counter in step (it redraws only when the readout changes)
     const d = this.def(), a = this.ammo[this.current];
-    this.ammoTag.set(d.name, a.mag, a.reserve, this.reloading > 0, !!d.melee, !!d.throwable, d.mag);
+    // the portal gun reads as melee here (∞ readout) — it has no magazine to count
+    this.ammoTag.set(a.mag, a.reserve, this.reloading > 0, !!d.melee || !!d.portal, !!d.throwable, d.mag);
   }
 
   // ─── visuals ────────────────────────────────────────────────────────────────
@@ -281,9 +291,16 @@ export class WeaponSystem {
       const folder = WEAPON_MODEL[id];
       const m = instantiate(this.src[folder]);
       if (!m) { console.warn("[weapon] model missing:", folder); continue; }
+      // The Luger's glTF ships with a magazine ("Clip") node we don't want on the viewmodel.
+      if (id === "luger") m.findByName("Clip")?.destroy();
       const meta = modelMetaOf(folder);
       const s = meta.scale ?? 1;
       m.transform.setScale(s, s, s);
+      // honour a meta-authored default orientation (baseRot), so a weapon whose glTF
+      // ships tilted can be re-posed in its meta.json without touching the mesh.
+      // (Anchors are mapped by scale only — fine while no rotated model carries one.)
+      const br = meta.baseRot;
+      if (br && (br[0] || br[1] || br[2])) m.transform.setRotation(br[0], br[1], br[2]);
       this.vm.addChild(m);
       this.models[id] = m;
       this.modelFolders[id] = folder;

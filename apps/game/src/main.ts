@@ -2,7 +2,7 @@
 import {
   AmbientLight, Animator, BackgroundMode, BlinnPhongMaterial, BloomEffect, Camera, Color,
   DirectLight, Engine, Entity, FogMode, MSAASamples, MeshRenderer, PostProcess,
-  PrimitiveMesh, Quaternion, ShadowResolution, ShadowType, SkinnedMeshRenderer, SkyBoxMaterial,
+  PrimitiveMesh, Quaternion, RenderFace, ShadowResolution, ShadowType, SkinnedMeshRenderer, SkyBoxMaterial,
   TextureCube, TonemappingEffect, TonemappingMode, UnlitMaterial, Vector3,
 } from "@galacean/engine";
 import { sfx } from "./audio";
@@ -23,20 +23,23 @@ import {
 import { KeyAction, weaponSlot } from "./keybinds";
 import { FLASH_RADIUS, HE_DAMAGE, HE_RADIUS, MOL_RADIUS, MOL_TICK_DMG, NadeKind, Projectiles } from "./nades";
 import { Net } from "./net";
+import { PORTAL_GAP, PORTAL_HALF_H, Portals } from "./portals";
 import { PhysicsWorld, type PropSim } from "./physics";
 import { PhysxProps, createGameEngine } from "./physxprops";
 import { Input, PlayerBody } from "./player";
 import { RemotePlayer } from "./remote";
 import { MODEL_LOAD_COUNT, buildProp, instantiate, loadModels, propHuntPool } from "./models";
 import {
-  BOT_TUNING, DEFAULT_CONFIG, DEPLOY_TIME, GamePhase, GameSnapshot, INTERMISSION, MatchConfig, MAX_HP, ModeId,
+  BOT_TUNING, DEFAULT_CONFIG, DEPLOY_TIME, GamePhase, GameSnapshot, HillOwner, INTERMISSION, MatchConfig, MAX_HP, ModeId,
   MOVE_BACK_FACTOR, MOVE_STRAFE_FACTOR, Msg,
   PICKUP_HEAL, PICKUP_RADIUS, PICKUP_RESPAWN, Platform, PlayerState, POWERUPS, POWERUP_INTERVAL,
-  POWERUP_RADIUS, PowerupKind, QUAD_MULT, RAPID_MULT, SPEED_MULT, TICK_RATE,
+  POWERUP_RADIUS, PowerupKind, QUAD_MULT, RAPID_MULT, SPAWN_PROT, SPEED_MULT, TICK_RATE,
   MOVE, Vec3, WEAPONS, WeaponDef, WeaponId, DeathCause, deathCauseLabel, clamp, rand, randomPowerup,
 } from "./types";
 import {
-  DEFAULT_MODE, GUNGAME_FINAL, MODES, PROPHUNT_PREP, ROLE_HIDE, ROLE_SEEK,
+  DEFAULT_MODE, GUNGAME_FINAL, HARDPOINT_RADIUS, HARDPOINT_RATE, HARDPOINT_ROTATE, HARDPOINT_SPOTS,
+  HARDPOINT_TARGET, HARDPOINT_WARN, HARDPOINT_YTOL, HILL_CONTESTED, HILL_NEUTRAL, hillColor,
+  MODES, PROPHUNT_PREP, ROLE_HIDE, ROLE_SEEK,
   TEAM_COLORS, TEAM_NAMES, seekerCount, tierWeapon,
 } from "./modes";
 import { CLASSES, CLASS_LIST, ClassId, classById, randomClass } from "./classes";
@@ -75,6 +78,14 @@ interface BotAI {
   wanderYaw: number;     // heading used while it has nothing to chase
   lastHp: number;        // hp last frame — a drop means it took fire → juke-hop
   dodgeLockCd: number;   // refractory period so the on-hit sideways juke is occasional, not a twitch
+  // ─ raycast throttles: LOS + whisker steering re-test on a cadence, not per frame ─
+  losCd: number;         // time until the next real line-of-sight raycast
+  losHit: boolean;       // cached result of the last LOS raycast
+  steerCd: number;       // time until the next whisker steering probe
+  steerX: number;        // cached steered move (world) from the last probe
+  steerZ: number;
+  steerBlocked: boolean;
+  steerOpen: boolean;
 }
 
 // ─── bot aim math: turn toward a heading at a capped rate instead of snapping ──
@@ -126,6 +137,8 @@ const AA_FOLLOW = 0.62;        // fraction of a target's horizontal angular drif
 const AA_FOLLOW_PITCH = 0.4;   // gentler tracking on the vertical axis
 // slow cinematic orbit (rad/s) of the death camera around the fallen body.
 const DEATH_CAM_ORBIT_SPEED = 0.4;
+// hardpoint hill cylinder height (m) — render-only; the capture check is a radius + Y slack.
+const HILL_HEIGHT = 2.6;
 // seconds the death orbit plays before a no-respawn player (Prop-Hunt hider) switches
 // to spectating a living seeker instead of staring at their own corpse forever.
 const SPECTATE_AFTER = 1.8;
@@ -157,9 +170,10 @@ class Game {
   lastVoteCounts: Record<string, number> = {};
   body!: PlayerBody;
   ws!: WeaponSystem;
-  lastWeapon: WeaponId | null = null; // weapon held at death — reselected on respawn
   tracers!: TracerPool;
   nades!: Projectiles;
+  portals!: Portals;
+  portalSlot: 0 | 1 = 0; // colour the next portal shot places (alternates blue ⇄ orange)
   // dynamic-prop simulation — PhysX rigid bodies when available, else the custom
   // fallback. Starts as the fallback; init() swaps in PhysX after the engine is up.
   physics: PropSim = new PhysicsWorld(this.map);
@@ -235,14 +249,34 @@ class Game {
 
   // ── game modes ──
   mode: ModeId = DEFAULT_MODE;
-  teams: Record<string, number> = {};   // tdm: side 0/1 · prophunt: 0 seeker / 1 hide
-  teamScore: [number, number] = [0, 0]; // tdm side scores · prophunt [seeker, hider] wins
+  teams: Record<string, number> = {};   // tdm/hardpoint: side 0/1 · prophunt: 0 seeker / 1 hide
+  teamScore: [number, number] = [0, 0]; // tdm/hardpoint side scores · prophunt [seeker, hider] wins
   tiers: Record<string, number> = {};   // gungame: player → weapon-ladder tier
+  props: Record<string, number> = {};   // prophunt: player → disguise roll (host-rolled per round)
   myRole = ROLE_SEEK;                    // prophunt: local role (mirror of teams[myId])
+
+  // ── hardpoint ──
+  hillSpots: Vec3[] = [];               // candidate hill centres for the loaded map
+  hillIndex = 0;                        // active candidate (host clock; mirrored via snapshot + "hill" msg)
+  hillOwner: HillOwner = HILL_NEUTRAL;  // -1 empty · 0/1 capturing side · 2 contested
+  hillProgress = 0;                     // 0..1 of the rotate window (host-authoritative)
+  private hillWarned = false;           // "moving soon" cue fired for this cycle (per client)
+  private hillScore = 0;                // host: fractional point accumulator for the holder
+  private hillEntity: Entity | null = null;   // the capture-zone visual (wall + base rim)
+  private hillWallMat: UnlitMaterial | null = null; // faint volume — readable from inside without washing the view
+  private hillRimMat: UnlitMaterial | null = null;  // bright HDR boundary ring — the bloom carrier
+  private hillTint: HillOwner | -2 = -2;      // owner the cylinder is tinted for (-2 = dirty)
+  private hillIn = new Vector3();       // waypoint projection scratch (like the nametags)
+  private hillOut = new Vector3();
 
   myHp = MAX_HP;
   alive = true;
   respawnAt = 0;
+  // spawn protection: player id → perf-clock deadline. Set on every spawn, cleared by
+  // that player's first shot/throw/portal — every client derives the same state from
+  // the broadcast spawn/shot/nade/portal msgs (renders the ghost); the host is the
+  // authority where it matters (hostApplyHit ignores damage to a protected victim).
+  prot: Record<string, number> = {};
   // holographic HUD parallax: smoothed look velocity (rad/frame) + last look angles, so
   // the HUD chrome drifts opposite to where the player is looking (a floating-hologram feel)
   private hudLookVX = 0;
@@ -404,7 +438,8 @@ class Game {
     void this.applyWeaponMaterials();   // texture the geometry-only gun viewmodels (async; pops in)
     void this.ensureDisguiseMaterials(); // texture the Prop-Hunt disguise props (async; ready well before any match)
     this.ws.onShoot = (def, spread) => {
-      if (def.throwable) this.throwNade(def.id as NadeKind);
+      if (def.portal) this.firePortal();
+      else if (def.throwable) this.throwNade(def.id as NadeKind);
       else this.fireHitscan(def, spread);
     };
     this.ws.onAmmoChange = () => this.refreshAmmoHud();
@@ -418,6 +453,18 @@ class Game {
     this.nades.onFireTick = (c, _owner, local) => { if (local) this.fireTickDamage(c); };
     this.nades.onFlash = (p) => this.onFlashDetonate(p);
     this.nades.onSmoke = (p) => { const r = this.relAudio(p); sfx.nadeBounce(r.pan, r.dist); };
+    this.portals = new Portals(engine, root, this.camera, (p) => this.relAudio(p));
+    this.portals.onTraverse = () => sfx.portalEnter();
+    this.portals.onExpire = (s) => { // owner announces natural expiry (death/leave are inferred)
+      const m: Msg = { t: "pgone", id: this.net.myId, s };
+      if (this.net.isHost) this.net.broadcast(m); else this.net.send(m);
+    };
+    this.nades.onPortalRoute = (owner, pos, vel, step) => {
+      if (!this.portals.routeProjectile(owner, pos, vel, step)) return false;
+      const r = this.relAudio(pos); // pos is the exit side now
+      sfx.portalEnter(r.pan, r.dist);
+      return true;
+    };
 
     window.addEventListener("beforeunload", (e) => {
       // warn before an accidental navigation/close mid-match (skipped on an
@@ -451,6 +498,7 @@ class Game {
     this.ws.prewarm();
     this.tracers.prewarm();
     this.nades.prewarm();
+    this.portals.prewarm();
 
     this.hud.show("menu");
     this.enterMenu();   // 3D showcase backdrop behind the create/join menu
@@ -631,6 +679,22 @@ class Game {
     return this.cfg.thirdPerson && !this.ws.scoped;
   }
 
+  /** third-person camera position: pulled back along the aim, over the right shoulder,
+   *  with the pull-back clamped by a wall raycast so it never clips through geometry.
+   *  Shared by the camera rig (updateSelfView) and by shot aiming (fireHitscan) so the
+   *  bullet and the screen-center crosshair start from the same viewpoint. */
+  thirdPersonCamPos(eye: number, pitch: number): Vec3 {
+    const cp = Math.cos(pitch), sp = Math.sin(pitch);
+    const dir: Vec3 = { x: -Math.sin(this.body.yaw) * cp, y: sp, z: -Math.cos(this.body.yaw) * cp };
+    const rx = Math.cos(this.body.yaw), rz = -Math.sin(this.body.yaw); // right vector
+    let back = 3.0;
+    const o: Vec3 = { x: this.body.pos.x, y: eye, z: this.body.pos.z };
+    const nd: Vec3 = { x: -dir.x, y: -dir.y, z: -dir.z };
+    const hit = this.map.raycast(o, nd, back + 0.4);
+    if (hit) back = Math.max(0.6, hit.dist - 0.4);
+    return { x: o.x + nd.x * back + rx * 0.55, y: o.y + nd.y * back + 0.35, z: o.z + nd.z * back + rz * 0.55 };
+  }
+
   /** build the local player's third-person avatar container (a Prop-Hunt disguise) */
   buildSelfAvatar(root: Entity): void {
     this.selfAvatar = root.createChild("self-avatar");
@@ -713,18 +777,8 @@ class Game {
     // third person (alive OR the death-cam): pull the camera back along the aim, over
     // the right shoulder. When dead the body is frozen where you fell, so the camera
     // holds behind your operator while it plays out the Death clip.
-    const cp = Math.cos(pitch), sp = Math.sin(pitch);
-    const dir: Vec3 = { x: -Math.sin(this.body.yaw) * cp, y: sp, z: -Math.cos(this.body.yaw) * cp };
-    const rx = Math.cos(this.body.yaw), rz = -Math.sin(this.body.yaw); // right vector
-    let back = 3.0;
-    const o: Vec3 = { x: this.body.pos.x, y: eye, z: this.body.pos.z };
-    const nd: Vec3 = { x: -dir.x, y: -dir.y, z: -dir.z };
-    const hit = this.map.raycast(o, nd, back + 0.4);
-    if (hit) back = Math.max(0.6, hit.dist - 0.4);
-    const cx = o.x + nd.x * back + rx * 0.55;
-    const cy = o.y + nd.y * back + 0.35;
-    const cz = o.z + nd.z * back + rz * 0.55;
-    this.camEntity.transform.setPosition(cx, cy, cz);
+    const c = this.thirdPersonCamPos(eye, pitch);
+    this.camEntity.transform.setPosition(c.x, c.y, c.z);
 
     if (this.isHider()) {
       // Prop-Hunt hider: the crate disguise standing at the player's feet (alive only)
@@ -754,9 +808,19 @@ class Game {
    *  not disguised (Prop-Hunt hider), on screen, within range AND actually visible —
    *  a map raycast from the camera keeps names from leaking through walls. */
   private static readonly NAMETAG_DIST = 55; // m — beyond this the tag is off anyway
+  /** pre-rendered CSS colors for the two team sides (constant — never rebuild per frame) */
+  private static readonly TEAM_HEX: [string, string] = [
+    `#${TEAM_COLORS[0].toString(16).padStart(6, "0")}`,
+    `#${TEAM_COLORS[1].toString(16).padStart(6, "0")}`,
+  ];
+  /** per-remote line-of-sight cache: the wall/smoke occlusion test is throttled to
+   *  ~10 Hz (raycast over every map solid per remote per frame was a real GC/CPU cost);
+   *  the screen-space projection still runs per frame so tags track heads smoothly. */
+  private tagLos = new Map<string, { next: number; vis: boolean }>();
   updateNametags(): void {
     const cam = this.camEntity.transform.worldPosition;
-    const tdm = this.mode === "tdm";
+    const sides = this.mode === "tdm" || this.mode === "hardpoint"; // side-coloured names
+    const now = performance.now();
     for (const r of this.remotes.values()) {
       const el = this.tagEls.get(r.id);
       let shown = false;
@@ -767,20 +831,27 @@ class Game {
         if (dist > 0.7 && dist < Game.NAMETAG_DIST) {
           this.tagIn.set(r.pos.x, hy, r.pos.z);
           const vp = this.camera.worldToViewportPoint(this.tagIn, this.tagOut);
-          if (vp.z > 0 && vp.x >= 0 && vp.x <= 1 && vp.y >= 0 && vp.y <= 1
-              && !this.map.raycast({ x: cam.x, y: cam.y, z: cam.z }, { x: dx / dist, y: dy / dist, z: dz / dist }, dist - 0.35)
-              // smoke clouds hide names too (they're particles — invisible to the map raycast)
-              && !this.nades.smokeOccludes({ x: cam.x, y: cam.y, z: cam.z }, { x: r.pos.x, y: hy, z: r.pos.z })) {
-            const tag = el ?? this.buildTag(r.id);
-            const name = this.names.get(r.id) ?? r.name;
-            if (tag.textContent !== name) tag.textContent = name; // names are untrusted input — text only
-            const side = tdm ? this.teams[r.id] : undefined;
-            tag.style.color = side === 0 || side === 1 ? `#${TEAM_COLORS[side].toString(16).padStart(6, "0")}` : "";
-            tag.style.left = `${(vp.x * 100).toFixed(2)}%`;
-            tag.style.top = `${(vp.y * 100).toFixed(2)}%`;
-            tag.style.opacity = clamp(1.25 - dist / Game.NAMETAG_DIST, 0, 1).toFixed(2);
-            tag.style.display = "";
-            shown = true;
+          if (vp.z > 0 && vp.x >= 0 && vp.x <= 1 && vp.y >= 0 && vp.y <= 1) {
+            let los = this.tagLos.get(r.id);
+            if (!los) { los = { next: 0, vis: false }; this.tagLos.set(r.id, los); }
+            if (now >= los.next) {
+              los.next = now + 100;
+              los.vis = !this.map.raycast({ x: cam.x, y: cam.y, z: cam.z }, { x: dx / dist, y: dy / dist, z: dz / dist }, dist - 0.35)
+                // smoke clouds hide names too (they're particles — invisible to the map raycast)
+                && !this.nades.smokeOccludes({ x: cam.x, y: cam.y, z: cam.z }, { x: r.pos.x, y: hy, z: r.pos.z });
+            }
+            if (los.vis) {
+              const tag = el ?? this.buildTag(r.id);
+              const name = this.names.get(r.id) ?? r.name;
+              if (tag.textContent !== name) tag.textContent = name; // names are untrusted input — text only
+              const side = sides ? this.teams[r.id] : undefined;
+              tag.style.color = side === 0 || side === 1 ? Game.TEAM_HEX[side] : "";
+              tag.style.left = `${(vp.x * 100).toFixed(2)}%`;
+              tag.style.top = `${(vp.y * 100).toFixed(2)}%`;
+              tag.style.opacity = clamp(1.25 - dist / Game.NAMETAG_DIST, 0, 1).toFixed(2);
+              tag.style.display = "";
+              shown = true;
+            }
           }
         }
       }
@@ -788,7 +859,7 @@ class Game {
     }
     // drop tags of players that left the match
     for (const [id, el] of this.tagEls) {
-      if (!this.remotes.has(id)) { el.remove(); this.tagEls.delete(id); }
+      if (!this.remotes.has(id)) { el.remove(); this.tagEls.delete(id); this.tagLos.delete(id); }
     }
   }
 
@@ -873,6 +944,7 @@ class Game {
     this.selfOperator = new RemotePlayer(
       this.engine, root, "self", this.names.get(this.net.myId) ?? "", this.net.colorOf(this.net.myId), this.models,
     );
+    if (this.weaponLib) this.selfOperator.setWeaponLibrary(this.weaponLib);
     return this.selfOperator;
   }
 
@@ -991,14 +1063,12 @@ class Game {
       return;
     }
     this.ws.showViewmodel(this.inGame);
-    // apply the player's chosen class kit, then re-equip whatever was held at death if it's
-    // still part of the kit (nades are refilled by now); otherwise draw the class's primary.
+    // apply the player's chosen class kit and always draw its primary (loadout[0]) —
+    // every life starts on the main gun, whatever was in hand at death.
     const cls = classById(this.settings.state.loadoutClass);
     this.ws.setLoadout(cls.loadout);
     this.touch.setLoadout(this.ws.loadout);
-    const w = this.lastWeapon && cls.loadout.includes(this.lastWeapon) && this.ws.available(this.lastWeapon)
-      ? this.lastWeapon : cls.loadout[0];
-    this.ws.select(w);
+    this.ws.select(cls.loadout[0]);
     this.applyScopeFov();
     this.refreshAmmoHud();
   }
@@ -1034,9 +1104,14 @@ class Game {
     return this.mode !== "gungame" && !(this.mode === "prophunt" && this.myRole === ROLE_HIDE);
   }
 
-  /** per-frame: prop-hunt disguises on remote avatars */
+  /** per-frame: prop-hunt disguises on remote avatars. Outside Prop Hunt this is a
+   *  cheap no-op (one clearing pass right after leaving the mode, then nothing) —
+   *  propForPlayer's per-id hash shouldn't run for every remote every frame. */
+  private modeVisualsDirty = false;
   updateModeVisuals(): void {
     const disguise = this.mode === "prophunt";
+    if (!disguise && !this.modeVisualsDirty) return;
+    this.modeVisualsDirty = disguise;
     for (const r of this.remotes.values()) {
       r.setDisguise(disguise && this.teams[r.id] === ROLE_HIDE, this.propForPlayer(r.id), this.disguiseLib);
     }
@@ -1044,22 +1119,30 @@ class Game {
 
   /** the disguise-prop pool for the current map (models flagged usable for prop hunt) */
   private propPool: string[] = propHuntPool();
+  /** material library the third-person held weapons shade against (built by
+   *  applyWeaponMaterials; null until its textures resolve) */
+  private weaponLib: MaterialLibrary | null = null;
+
   /** material library the Prop-Hunt disguises shade against (built once; see ensureDisguiseMaterials) */
   private disguiseLib: MaterialLibrary | null = null;
 
-  /** deterministic disguise-prop model for a player id (host + guests agree without any
-   *  extra networking). null when the pool is empty → callers fall back to the crate. */
+  /** disguise-prop model for a player: the host's per-round roll (synced via snapshot +
+   *  the role msg), with the old deterministic id-hash only as a sync-gap fallback —
+   *  as the primary path it meant a given id (the host's literal "host" above all) wore
+   *  the SAME disguise every round of every match. null → callers fall back to the crate. */
   propForPlayer(id: string): string | null {
     const pool = this.propPool;
     if (!pool.length) return null;
+    const rolled = this.props[id];
+    if (rolled !== undefined) return pool[rolled % pool.length];
     let h = 0;
     for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
     return pool[h % pool.length];
   }
 
-  /** per-frame: mode HUD (team score / gungame tier / prop-hunt role) */
+  /** per-frame: mode HUD (team score / gungame tier / prop-hunt role / hardpoint state) */
   updateModeHud(): void {
-    if (this.mode === "tdm") {
+    if (this.mode === "tdm" || this.mode === "hardpoint") {
       this.hud.teamScoreHud(
         { name: TEAM_NAMES[0], score: this.teamScore[0], color: TEAM_COLORS[0] },
         { name: TEAM_NAMES[1], score: this.teamScore[1], color: TEAM_COLORS[1] },
@@ -1092,6 +1175,21 @@ class Game {
     } else {
       this.hud.roleHud("", "");
     }
+
+    // hardpoint: capture-state line tinted by the hill's holder (+ the move countdown)
+    if (this.mode === "hardpoint" && this.phase === "play") {
+      const o = this.hillOwner;
+      const my = this.teams[this.net.myId];
+      const secs = Math.max(0, Math.ceil((1 - this.hillProgress) * HARDPOINT_ROTATE));
+      const move = this.hillSpots.length > 1 && secs <= HARDPOINT_WARN ? ` · moves in ${secs}s` : "";
+      const txt = o === HILL_CONTESTED ? "Contested"
+        : o === my ? "Capturing"
+        : o === HILL_NEUTRAL ? "Take the hill"
+        : "Enemy hill";
+      this.hud.hardpointHud(txt + move, hillColor(o));
+    } else {
+      this.hud.hardpointHud("", 0);
+    }
   }
 
   /** hiders still alive (works on host + guests via avatar liveness) */
@@ -1107,7 +1205,7 @@ class Game {
 
   /** end-screen headline for the finished match */
   resultTitle(): string {
-    if (this.mode === "tdm") {
+    if (this.mode === "tdm" || this.mode === "hardpoint") {
       const [a, b] = this.teamScore;
       if (a === b) return "Draw";
       return `${TEAM_NAMES[a > b ? 0 : 1]} wins`;
@@ -1446,15 +1544,16 @@ class Game {
   }
 
   private setNavFocus(el: HTMLElement): void {
-    if (this.navFocusEl && this.navFocusEl !== el) this.navFocusEl.classList.remove("gp-focus");
     this.navFocusEl = el;
-    el.classList.add("gp-focus");
     el.scrollIntoView({ block: "nearest" });
+    // the reticle's animated lock-on brackets are the only focus indicator — the
+    // pad gets the same smooth marker the mouse gets on hover
+    cursor.lockTo(el);
   }
 
   private clearNav(): void {
-    this.navFocusEl?.classList.remove("gp-focus");
     this.navFocusEl = null;
+    cursor.lockTo(null);
   }
 
   /** move the focus ring by `dir` (−1 up / +1 down), wrapping; first press just reveals it */
@@ -1626,6 +1725,10 @@ class Game {
       // slower than running forward. Only the dominant wish direction matters.
       const back = inp.fwd < -0.01, sideDom = Math.abs(inp.right) > Math.abs(inp.fwd) + 0.01;
       const dirFactor = sideDom ? MOVE_STRAFE_FACTOR : back ? MOVE_BACK_FACTOR : 1;
+      // own-portal traversal — BEFORE the move step, so the frame that would slam the
+      // capsule into the wall (zeroing the approach velocity) teleports with momentum
+      // intact instead; firing + the camera then use the exit-side position/yaw
+      if (canPlay) this.portals.tryTraverse(this.body, inp.fwd, inp.right, now, dt);
       this.body.update(dt, canPlay ? inp : { fwd: 0, right: 0, jump: false, sprint: false }, this.ws.def().moveFactor * speedBuff * this.cfg.speed * dirFactor);
 
       if (this.body.jumped) sfx.jump();
@@ -1647,6 +1750,8 @@ class Game {
       this.ws.update(dt, moving, this.body.onGround);
       this.tracers.update(dt);
       this.nades.update(dt, now);
+      const camP = this.camEntity.transform.worldPosition;
+      this.portals.update(dt, now, { x: camP.x, y: camP.y, z: camP.z });
       // dynamic props: integrate after the player has moved so walking into a light
       // prop can shove it (and a heavy one blocks). No-op when the map has none.
       this.physics.step(dt, this.alive ? this.body : null);
@@ -1660,13 +1765,19 @@ class Game {
       this.camEntity.transform.rotationQuaternion = this.q;
       this.updateSelfView(eye, pitch);
 
-      // remotes + proximity voice
+      // remotes + proximity voice (spatialization skipped entirely while voice is off)
       if (this.net.isHost && this.bots.size) this.updateBots(dt, now);
+      const voiceOn = this.voice.hasAudio;
       for (const r of this.remotes.values()) {
         r.update(now);
-        const rel = this.relAudio(r.pos);
-        this.voice.setSpatial(r.id, rel.pan, rel.dist);
+        r.setGhost(this.isProt(r.id)); // spawn-protected → translucent (change-guarded)
+        if (voiceOn) {
+          const rel = this.relAudio(r.pos);
+          this.voice.setSpatial(r.id, rel.pan, rel.dist);
+        }
       }
+      // your own third-person body ghosts too, so you can see your protection running
+      this.selfOperator?.setGhost(this.isProt(this.net.myId));
       this.updateNametags();
       this.updateDamageNumbers(dt);
 
@@ -1754,6 +1865,7 @@ class Game {
       this.hud.timer(this.phase, this.round, this.timeLeft, this.cfg.rounds);
       this.hud.scoreboard(this.sbOpen || this.phase === "inter", this.net.players, this.scores, this.net.myId, this.platforms);
       this.updateModeVisuals();
+      this.updateHill(dt);
       this.updateModeHud();
     } else if (this.lobbyView || this.menuView) {
       this.updateLobbyCamera(now);
@@ -1812,11 +1924,39 @@ class Game {
 
   // ─── shooting ───────────────────────────────────────────────────────────────
 
+  /** the world point under the screen-center crosshair: the nearest thing the camera ray
+   *  meets (map, player, barrel or prop), or a point at max range when it meets nothing. */
+  crosshairAim(camPos: Vec3, dir: Vec3, range: number): Vec3 {
+    let dist = this.map.raycast(camPos, dir, range)?.dist ?? range;
+    for (const r of this.remotes.values()) {
+      const h = r.hitTest(camPos, dir, dist);
+      if (h) dist = h.dist;
+    }
+    const bh = this.map.raycastBarrel(camPos, dir, dist);
+    if (bh) dist = bh.dist;
+    const pbh = this.physics.raycast(camPos, dir, dist);
+    if (pbh) dist = pbh.dist;
+    return { x: camPos.x + dir.x * dist, y: camPos.y + dir.y * dist, z: camPos.z + dir.z * dist };
+  }
+
   fireHitscan(def: WeaponDef, spread: number): void {
     const o: Vec3 = { x: this.body.pos.x, y: this.body.eyeY, z: this.body.pos.z };
     const pitch = this.body.pitch + this.ws.recoilPitch;
     const cp = Math.cos(pitch);
-    const base: Vec3 = { x: -Math.sin(this.body.yaw) * cp, y: Math.sin(pitch), z: -Math.cos(this.body.yaw) * cp };
+    let base: Vec3 = { x: -Math.sin(this.body.yaw) * cp, y: Math.sin(pitch), z: -Math.cos(this.body.yaw) * cp };
+
+    // In third person the camera sits behind and beside the head, so the screen-center
+    // crosshair is a different ray than the body forward. Firing straight down the body
+    // forward lands the shot off the crosshair (parallax to the left, growing with range).
+    // Re-aim from the muzzle-eye toward the point the crosshair is actually over so the
+    // bullet converges on what you're pointing at.
+    if (this.thirdPersonActive()) {
+      const camPos = this.thirdPersonCamPos(this.body.viewEyeY, pitch);
+      const aim = this.crosshairAim(camPos, base, def.range);
+      const dx = aim.x - o.x, dy = aim.y - o.y, dz = aim.z - o.z;
+      const l = Math.hypot(dx, dy, dz) || 1;
+      base = { x: dx / l, y: dy / l, z: dz / l };
+    }
 
     this.broadcastShot(o, base, def.id);
     // start the local player's tracer at the gun muzzle so it reads as leaving the gun.
@@ -1857,9 +1997,13 @@ class Game {
     const wallHit = this.map.raycast(o, d, def.range);
     const wallDist = wallHit ? wallHit.dist : def.range;
 
-    // nearest victim before the wall
+    // own-portal hop: if the ray reaches one of the shooter's portals before anything
+    // solid, it re-emits from the linked portal (one hop, sharing the wallbang depth cap)
+    const ph = depth === 0 ? this.portals.rayThrough(shooterId, o, d, wallDist) : null;
+
+    // nearest victim before the wall (or the portal — a body in front of it takes the hit)
     let victim: RemotePlayer | null = null;
-    let vDist = wallDist;
+    let vDist = ph ? ph.dist : wallDist;
     let vHead = false;
     for (const r of this.remotes.values()) {
       const h = r.hitTest(o, d, vDist);
@@ -1914,6 +2058,14 @@ class Game {
       return;
     }
 
+    if (ph) {
+      // through the rift: the tracer above already ends at the portal face; continue
+      // from the linked portal with the direction rotated into its frame. baseDist
+      // keeps accumulating so damage falloff spans the whole flight.
+      this.resolveRay(ph.o2, ph.d2, def, dmgScale, shooterId, localShooter, 1, baseDist + ph.dist, ph.o2);
+      return;
+    }
+
     if (wallHit && !def.melee) {
       if (localShooter) {
         this.tracers.impact(end);
@@ -1937,18 +2089,23 @@ class Game {
   }
 
   broadcastShot(o: Vec3, d: Vec3, w: WeaponId): void {
+    this.clearProt(this.net.myId); // firing forfeits spawn protection
     const m: Msg = { t: "shot", id: this.net.myId, o: [o.x, o.y, o.z], d: [d.x, d.y, d.z], w };
     if (this.net.isHost) this.net.broadcast(m);
     else this.net.send(m);
   }
 
+  /** shared scratch — relAudio is called per remote per frame; don't allocate a result
+   *  object each call. Consumers read pan/dist immediately and never hold the reference. */
+  private relOut = { pan: 0, dist: 0 };
   relAudio(p: Vec3): { pan: number; dist: number } {
     const dx = p.x - this.body.pos.x, dz = p.z - this.body.pos.z;
     const dist = Math.hypot(dx, dz);
     const s = Math.sin(this.body.yaw), c = Math.cos(this.body.yaw);
     const rightX = c, rightZ = -s;
-    const pan = dist > 0.5 ? clamp((dx * rightX + dz * rightZ) / dist, -1, 1) : 0;
-    return { pan, dist };
+    this.relOut.pan = dist > 0.5 ? clamp((dx * rightX + dz * rightZ) / dist, -1, 1) : 0;
+    this.relOut.dist = dist;
+    return this.relOut;
   }
 
   /** reload the current weapon and, if it actually started, play the third-person
@@ -1972,6 +2129,7 @@ class Game {
       const o: Vec3 = { x: this.body.pos.x + d.x * 0.35, y: this.body.eyeY - 0.05, z: this.body.pos.z + d.z * 0.35 };
       const spd = kind === "he" ? 16 : 14;
       const v: Vec3 = { x: d.x * spd, y: d.y * spd + 3.2, z: d.z * spd };
+      this.clearProt(this.net.myId); // throwing forfeits spawn protection
       this.nades.throw_(kind, o, v, this.net.myId, true);
       const m: Msg = { t: "nade", id: this.net.myId, k: kind, o: [o.x, o.y, o.z], v: [v.x, v.y, v.z] };
       if (this.net.isHost) this.net.broadcast(m);
@@ -1990,6 +2148,41 @@ class Game {
       }
     };
     window.setTimeout(release, THROW_WINDUP_MS);
+  }
+
+  // ─── portals ────────────────────────────────────────────────────────────────
+
+  /** portal-gun trigger pull: raycast the aim onto a surface and place the next colour
+   *  there (blue → orange → blue …; the third of a colour replaces its predecessor via
+   *  Portals.place). Owner-authoritative — spawn locally, then mirror to everyone for
+   *  rendering (host relays, like a thrown nade). No surface in range = a fail cue. */
+  firePortal(): void {
+    const o: Vec3 = { x: this.body.pos.x, y: this.body.eyeY, z: this.body.pos.z };
+    const d = this.body.aimDir();
+    const hit = this.map.raycast(o, d, WEAPONS.portalgun.range);
+    if (!hit) { sfx.portalFail(); return; }
+    const n = hit.normal;
+    const c: Vec3 = {
+      x: o.x + d.x * hit.dist + n.x * PORTAL_GAP,
+      y: o.y + d.y * hit.dist + n.y * PORTAL_GAP,
+      z: o.z + d.z * hit.dist + n.z * PORTAL_GAP,
+    };
+    // a wall shot at the skirting would sink half the oval underground — lift it just
+    // clear of the floor DIRECTLY beneath the hit. A local down-ray, not the map-wide
+    // floorY query: under a covered walkway floorY returned the roof top and beached
+    // the portal on top of the cover.
+    if (Math.abs(n.y) < 0.5) {
+      const lift = PORTAL_HALF_H * 0.9;
+      const down = this.map.raycast(c, { x: 0, y: -1, z: 0 }, lift);
+      if (down) c.y += lift - down.dist;
+    }
+    const s = this.portalSlot;
+    this.portalSlot = s === 0 ? 1 : 0;
+    this.clearProt(this.net.myId); // placing a portal forfeits spawn protection
+    this.portals.place(this.net.myId, s, c, n, true);
+    sfx.portalFire(s);
+    const m: Msg = { t: "portal", id: this.net.myId, s, o: [c.x, c.y, c.z], n: [n.x, n.y, n.z] };
+    if (this.net.isHost) this.net.broadcast(m); else this.net.send(m);
   }
 
   /** area damage from a blast at `c`. `cause` attributes the kill — a thrown HE
@@ -2093,6 +2286,8 @@ class Game {
     if (this.phase !== "play") return;
     const hp = this.hpMap[victim];
     if (hp === undefined || hp <= 0) return;
+    // spawn protection: a fresh spawn can't be damaged until they fire or the timer lapses
+    if (this.isProt(victim)) return;
     // team modes: no friendly fire (TDM sides / Prop Hunt roles)
     if (MODES[this.mode].teams && attacker !== victim && this.teams[attacker] === this.teams[victim]) return;
     // prep phase: seekers can't hurt hiders while the hiders are still scattering
@@ -2413,6 +2608,13 @@ class Game {
     return this.remotes.get(id)?.pos ?? { x: 0, y: 0, z: 0 };
   }
 
+  // ─── spawn protection ─────────────────────────────────────────────────────────
+
+  /** is `id` still inside their post-spawn invulnerability window? */
+  isProt(id: string): boolean { return (this.prot[id] ?? 0) > performance.now() / 1000; }
+  /** `id` fired/threw/placed — their spawn protection ends now */
+  clearProt(id: string): void { this.prot[id] = 0; }
+
   hostSpawn(id: string): void {
     // deploy counts: the round-start burst spawns everyone in during the pre-round freeze
     if (this.phase !== "play" && this.phase !== "deploy") return;
@@ -2435,7 +2637,7 @@ class Game {
     this.net.broadcast(m);
     // deliver the mode loadout directly (unreliable channel → don't rely on snapshot order)
     if (id !== this.net.myId) {
-      if (this.mode === "prophunt") this.net.sendTo(id, { t: "role", role: this.teams[id] ?? ROLE_SEEK, prop: 0 });
+      if (this.mode === "prophunt") this.net.sendTo(id, { t: "role", role: this.teams[id] ?? ROLE_SEEK, prop: this.props[id] ?? 0 });
       else if (this.mode === "gungame") this.net.sendTo(id, { t: "tier", tier: this.tiers[id] ?? 0 });
     }
     this.applyLocal(m);
@@ -2464,6 +2666,11 @@ class Game {
         this.pkTimers[i] -= dt;
         if (this.pkTimers[i] <= 0) { this.pkTimers[i] = 0; this.pkEntities[i].isActive = true; }
       }
+    }
+    // hardpoint: occupancy scoring + hill relocation (may end the match → phase "over")
+    if (this.mode === "hardpoint" && this.phase === "play") {
+      this.hostHillTick(dt);
+      if (this.phase !== "play") return; // a side just hit the target — match is over
     }
     if (this.phase === "play" || this.phase === "inter" || this.phase === "deploy") {
       this.timeLeft -= dt;
@@ -2542,13 +2749,26 @@ class Game {
     const ids = this.net.players.map((p) => p.id);
     if (n === 1) { this.teamScore = [0, 0]; this.tiers = {}; }
     this.teams = {};
-    if (this.mode === "tdm") {
+    if (this.mode === "tdm" || this.mode === "hardpoint") {
       const shuffled = [...ids].sort(() => Math.random() - 0.5);
       shuffled.forEach((id, i) => { this.teams[id] = i % 2; });
+      if (this.mode === "hardpoint") {
+        // every round opens on the first (most central) hill; silent reset — the round
+        // banner covers the announcement, applyHillMove only cues mid-round moves
+        this.hillIndex = 0;
+        this.hillProgress = 0;
+        this.hillScore = 0;
+        this.hillOwner = HILL_NEUTRAL;
+        this.hillWarned = false;
+      }
     } else if (this.mode === "prophunt") {
       const shuffled = [...ids].sort(() => Math.random() - 0.5);
       const seekers = seekerCount(ids.length);
       shuffled.forEach((id, i) => { this.teams[id] = i < seekers ? ROLE_SEEK : ROLE_HIDE; });
+      // fresh disguise roll each round (synced via snapshot + the role msg) — the old
+      // id-hash disguise was deterministic, so e.g. the host was the same prop forever
+      this.props = {};
+      for (const id of ids) this.props[id] = (Math.random() * 4096) | 0;
     } else if (this.mode === "gungame") {
       for (const id of ids) if (this.tiers[id] === undefined) this.tiers[id] = 0;
     }
@@ -2566,7 +2786,11 @@ class Game {
       phase: this.phase, round: this.round, timeLeft: this.timeLeft, scores: this.scores,
       pk: this.pkTimers.map((t) => Math.ceil(t)), map: this.currentMapId,
       mode: this.mode, cfg: this.cfg, teams: this.teams, teamScore: this.teamScore, tiers: this.tiers,
+      props: this.mode === "prophunt" ? this.props : undefined,
       platforms: this.platforms,
+      hill: this.mode === "hardpoint"
+        ? { i: this.hillIndex, owner: this.hillOwner, progress: Math.min(1, this.hillProgress) }
+        : undefined,
     };
   }
 
@@ -2584,6 +2808,13 @@ class Game {
     if (g.teams) this.teams = g.teams;
     if (g.teamScore) this.teamScore = g.teamScore;
     if (g.tiers) this.tiers = g.tiers;
+    if (g.props) this.props = g.props; // prophunt disguise rolls (updateModeVisuals reads them)
+    // hardpoint hill: relocations usually land via the "hill" msg — the snapshot is the
+    // catch-up path (late joiners, dropped datagrams). Owner/clock stay host-authoritative.
+    if (g.hill) {
+      if (g.hill.i !== this.hillIndex) this.applyHillMove(g.hill.i);
+      if (!this.net.isHost) { this.hillOwner = g.hill.owner; this.hillProgress = g.hill.progress; }
+    }
     // merge synced input-device icons, but never let a stale host snapshot stomp our
     // own live platform (we're the source of truth for the device we're holding).
     if (g.platforms) { this.platforms = { ...g.platforms }; this.platforms[this.net.myId] = this.myPlatform; }
@@ -2616,6 +2847,9 @@ class Game {
 
   enterEnd(): void {
     this.inGame = false;
+    this.portals.clear(); // update() stops with the match — don't leave frozen rings behind
+    if (this.hillEntity) this.hillEntity.isActive = false; // updateHill stops with the match too
+    this.hud.hillMarker(false);
     if (this.selfAvatar) this.selfAvatar.isActive = false;
     if (this.selfOperator) this.selfOperator.entity.isActive = false;
     document.body.classList.remove("hider", "weplock");
@@ -2644,8 +2878,10 @@ class Game {
    *  env, pickups & powerups. async — textures/HDRI load (cached) per map. */
   async loadMap(id: string): Promise<void> {
     // tear down old pickup/powerup visuals (map geometry is torn down by map.load)
+    if (this.portals) this.portals.clear(); // (undefined during the boot-time first load)
     for (const e of this.pkEntities) e.destroy();
     for (const e of this.pwEntities) e.destroy();
+    if (this.hillEntity) { this.hillEntity.destroy(); this.hillEntity = null; this.hillWallMat = null; this.hillRimMat = null; }
     this.pkEntities = [];
     this.pwEntities = [];
     this.pwMats = [];
@@ -2659,6 +2895,7 @@ class Game {
     await this.applyEnv(def.env);
     this.buildPickups(this.root);
     this.buildPowerups(this.root);
+    this.buildHill(this.root);
     this.updateAmbientWater();
   }
 
@@ -2683,6 +2920,11 @@ class Game {
     // the thrown-grenade models (wep_frag / wep_molotov) are among these weapon models,
     // so the same library shades the projectiles a player throws.
     this.nades.setMaterialLibrary(lib);
+    // remotes hold the SAME weapon models in third person — shade them against this
+    // library too, or the gun in everyone else's hands renders untextured.
+    this.weaponLib = lib;
+    for (const r of this.remotes.values()) r.setWeaponLibrary(lib);
+    this.selfOperator?.setWeaponLibrary(lib);
   }
 
   /** shade the Prop-Hunt disguise props with their models' assigned MAIN materials.
@@ -2896,6 +3138,188 @@ class Game {
     this.hud.buff(null, 0, 0);
   }
 
+  // ─── hardpoint hill ───────────────────────────────────────────────────────────
+
+  /** candidate hill centres for the loaded map: authored `hardpoint` markers when the
+   *  map has them, else a spread-out subset of its pickup/powerup spots (spawns as a
+   *  last resort). Deterministic — host and guests must derive the identical list. */
+  private hillCandidates(): Vec3[] {
+    if (this.map.hardpointSpots.length) return this.map.hardpointSpots.map((p) => ({ ...p }));
+    // pickups/powerups float ~1m over the floor — drop each candidate to its ground
+    let pool = [...this.map.pickupSpots, ...this.map.powerupSpots]
+      .map((p) => ({ x: p.x, y: Math.max(this.map.floorY(p.x, p.z), p.y - 1), z: p.z }));
+    if (pool.length < 2) pool = pool.concat(this.map.spawns.map((s) => ({ ...s.p })));
+    if (!pool.length) return [{ x: 0, y: 0, z: 0 }];
+    // farthest-point sampling: seed with the most central spot (each round opens on a
+    // mid-map hill), then greedily add whichever spot is farthest from every chosen one
+    const cx = pool.reduce((s, p) => s + p.x, 0) / pool.length;
+    const cz = pool.reduce((s, p) => s + p.z, 0) / pool.length;
+    let seed = 0;
+    for (let i = 1; i < pool.length; i++) {
+      if (Math.hypot(pool[i].x - cx, pool[i].z - cz) < Math.hypot(pool[seed].x - cx, pool[seed].z - cz)) seed = i;
+    }
+    const picked = [pool[seed]];
+    const rest = pool.filter((_, i) => i !== seed);
+    while (picked.length < HARDPOINT_SPOTS && rest.length) {
+      let best = 0, bd = -1;
+      for (let i = 0; i < rest.length; i++) {
+        let min = Infinity;
+        for (const q of picked) min = Math.min(min, Math.hypot(rest[i].x - q.x, rest[i].z - q.z));
+        if (min > bd) { bd = min; best = i; }
+      }
+      picked.push(rest.splice(best, 1)[0]);
+    }
+    return picked;
+  }
+
+  /** (re)derive the hill candidates + build the capture-zone visual for a fresh map:
+   *  a faint translucent cylinder (the volume, readable from inside without tinting the
+   *  whole view) ringed by a bright HDR torus at the base — the bloom carrier, same
+   *  trick as the powerup gems. Moved/recoloured on state change by updateHill. No
+   *  shadows — it's a zone, not scenery. */
+  buildHill(root: Entity): void {
+    this.hillSpots = this.hillCandidates();
+    // keep the synced index if still valid (a guest may already hold the live state)
+    this.hillIndex = Math.min(this.hillIndex, this.hillSpots.length - 1);
+    this.hillTint = -2;
+    const g = root.createChild("hill");
+    const mat = (): UnlitMaterial => {
+      const m = new UnlitMaterial(this.engine);
+      m.isTransparent = true;
+      m.renderFace = RenderFace.Double;
+      return m;
+    };
+    const wall = g.createChild("wall");
+    wall.transform.setPosition(0, HILL_HEIGHT / 2, 0);
+    const wr = wall.addComponent(MeshRenderer);
+    wr.mesh = PrimitiveMesh.createCylinder(this.engine, HARDPOINT_RADIUS, HARDPOINT_RADIUS, HILL_HEIGHT, 28, 1);
+    wr.setMaterial(this.hillWallMat = mat());
+    wr.castShadows = false;
+    const rim = g.createChild("rim");
+    rim.transform.setPosition(0, 0.08, 0);
+    rim.transform.setRotation(90, 0, 0); // the torus is authored in the XY plane — lay it flat
+    const rr = rim.addComponent(MeshRenderer);
+    rr.mesh = PrimitiveMesh.createTorus(this.engine, HARDPOINT_RADIUS, 0.12, 12, 48);
+    rr.setMaterial(this.hillRimMat = mat());
+    rr.castShadows = false;
+    g.isActive = false;
+    this.hillEntity = g;
+  }
+
+  /** host: hardpoint occupancy → team scoring + the relocation clock (runs at play) */
+  hostHillTick(dt: number): void {
+    const hill = this.hillSpots[this.hillIndex];
+    if (!hill) return;
+    // who's standing on it: living players inside the XZ radius with some Y slack
+    let a = 0, b = 0;
+    for (const p of this.net.players) {
+      if ((this.hpMap[p.id] ?? 0) <= 0) continue;
+      const pos = p.id === this.net.myId ? (this.alive ? this.body.pos : null) : this.remotes.get(p.id)?.pos;
+      if (!pos) continue;
+      if (Math.hypot(pos.x - hill.x, pos.z - hill.z) > HARDPOINT_RADIUS) continue;
+      if (Math.abs(pos.y - hill.y) > HARDPOINT_YTOL) continue;
+      const t = this.teams[p.id];
+      if (t === 0) a++; else if (t === 1) b++;
+    }
+    const owner: HillOwner = a && b ? HILL_CONTESTED : a ? 0 : b ? 1 : HILL_NEUTRAL;
+    if (owner !== this.hillOwner) { this.hillOwner = owner; this.hillScore = 0; }
+    // an uncontested hold accrues whole points at a fixed rate
+    if (owner === 0 || owner === 1) {
+      this.hillScore += dt * HARDPOINT_RATE;
+      const pts = Math.floor(this.hillScore);
+      if (pts > 0) {
+        this.hillScore -= pts;
+        this.teamScore[owner] += pts;
+        if (this.teamScore[owner] >= HARDPOINT_TARGET) { this.hostHardpointWin(owner); return; }
+      }
+    }
+    // relocation clock (a single-candidate map just keeps its one hill)
+    if (this.hillSpots.length > 1) {
+      this.hillProgress += dt / HARDPOINT_ROTATE;
+      if (this.hillProgress >= 1) {
+        const i = (this.hillIndex + 1) % this.hillSpots.length;
+        this.applyHillMove(i);
+        this.net.broadcast({ t: "hill", i }); // crisp cue — snapshots only tick at 1 Hz
+      }
+    }
+  }
+
+  /** host: a side reached the score target — instant match win */
+  hostHardpointWin(side: 0 | 1): void {
+    this.hud.banner(`${TEAM_NAMES[side]} held the hill!`, 3000);
+    this.phase = "over";
+    this.pushGame();
+    this.enterEnd();
+  }
+
+  /** the hill relocated to candidate `i` (host clock, the host's "hill" msg, or a
+   *  snapshot catching a guest up). Cues only on a real mid-round move — round-start
+   *  resets land during the deploy freeze and stay silent. */
+  applyHillMove(i: number): void {
+    const moved = i !== this.hillIndex;
+    this.hillIndex = i;
+    this.hillProgress = 0;
+    this.hillScore = 0;
+    this.hillWarned = false;
+    this.hillOwner = HILL_NEUTRAL; // re-resolved by the next host tick / snapshot
+    if (moved && this.inGame && this.mode === "hardpoint" && this.phase === "play") {
+      this.hud.banner("Hardpoint moved!", 2000);
+      sfx.hillMove();
+    }
+  }
+
+  /** per-frame hardpoint presentation (host + guests): cylinder position/tint, the
+   *  on-screen waypoint, the "moving soon" cue, and — on guests — advancing the synced
+   *  rotate clock between the 1 Hz snapshots. */
+  updateHill(dt: number): void {
+    const e = this.hillEntity;
+    if (this.mode !== "hardpoint" || !e || !this.hillSpots.length) {
+      if (e?.isActive) e.isActive = false;
+      this.hud.hillMarker(false);
+      return;
+    }
+    const hill = this.hillSpots[this.hillIndex];
+    const show = this.inGame && (this.phase === "play" || this.phase === "deploy") && !!hill;
+    if (e.isActive !== show) e.isActive = show;
+    if (!show) { this.hud.hillMarker(false); return; }
+    e.transform.setPosition(hill.x, hill.y, hill.z);
+    // tint by holder: the rim gets the HDR boost (bloom halo), the wall stays a whisper
+    // so standing inside the zone never washes the whole view with colour
+    if (this.hillTint !== this.hillOwner && this.hillWallMat && this.hillRimMat) {
+      this.hillTint = this.hillOwner;
+      const c = hillColor(this.hillOwner);
+      const r = ((c >> 16) & 255) / 255, g = ((c >> 8) & 255) / 255, b = (c & 255) / 255;
+      this.hillWallMat.baseColor = new Color(r * 1.6, g * 1.6, b * 1.6, 0.07);
+      this.hillRimMat.baseColor = new Color(r * 4, g * 4, b * 4, 0.9);
+    }
+    // waypoint: project the hill top; when off-view, pin to the nearest screen edge
+    this.hillIn.set(hill.x, hill.y + HILL_HEIGHT + 0.5, hill.z);
+    const vp = this.camera.worldToViewportPoint(this.hillIn, this.hillOut);
+    let x = vp.x, y = vp.y;
+    if (vp.z < 0) { x = x > 0.5 ? 0 : 1; y = 0.5; } // behind the camera → hug a side edge
+    x = clamp(x, 0.04, 0.96);
+    y = clamp(y, 0.1, 0.88);
+    const dist = Math.hypot(hill.x - this.body.pos.x, hill.z - this.body.pos.z);
+    this.hud.hillMarker(true, x, y, dist, hillColor(this.hillOwner));
+    if (this.phase !== "play") return;
+    // guests: run the rotate clock forward between snapshots (the host owns the real one)
+    if (!this.net.isHost && this.hillSpots.length > 1) {
+      this.hillProgress = Math.min(1, this.hillProgress + dt / HARDPOINT_ROTATE);
+    }
+    // "about to move" cue — every client derives it locally from the synced clock. The
+    // latch re-arms itself once the clock reads fresh again (with hysteresis, so 1 Hz
+    // snapshot jitter around the threshold can't double-fire it).
+    if (this.hillSpots.length > 1) {
+      const leftS = (1 - this.hillProgress) * HARDPOINT_ROTATE;
+      if (leftS > HARDPOINT_WARN + 2) this.hillWarned = false;
+      else if (leftS <= HARDPOINT_WARN && !this.hillWarned) {
+        this.hillWarned = true;
+        this.hud.banner(`Hardpoint moving in ${Math.ceil(leftS)}s`, 1800);
+        sfx.hillWarn();
+      }
+    }
+  }
+
   // ─── net wiring ─────────────────────────────────────────────────────────────
 
   wireNet(): void {
@@ -2923,6 +3347,7 @@ class Game {
     n.onPeerLeave = (id) => {
       const r = this.remotes.get(id);
       if (r) { r.entity.destroy(); this.remotes.delete(id); }
+      this.portals.clearOwner(id);
       delete this.hpMap[id];
       delete this.platforms[id];
       this.voice.drop(id);
@@ -2934,14 +3359,7 @@ class Game {
       const established = this.net.players.length > 0; // we already received the host's init
       const lost = err.includes("Lost connection") || err.includes("Connection failed");
       if (!this.net.isHost && established && lost) {
-        // host gone → the lobby/match is over for this client; return home
-        this.inGame = false;
-        this.leaving = true;
-        this.exitLobby();
-        this.releasePointerLock();
-        this.hud.menuError("Host left — lobby closed.");
-        this.hud.show("menu");
-        window.setTimeout(() => location.reload(), 1200);
+        this.hostGone(); // host dropped → the lobby/match is over for this client
       } else if (!this.inGame && this.phase === "lobby") {
         this.hud.menuError(
           err.includes("Could not connect") || err.includes("peer-unavailable") || err.includes("Connection failed")
@@ -2956,10 +3374,26 @@ class Game {
     n.onMessage = (m, fromId) => this.handleMsg(m, fromId);
   }
 
+  /** guest side: the host is gone (explicit `hostleave`, a dropped connection, or the
+   *  heartbeat timeout). The lobby/match can't continue, so bail home and reload. Idempotent
+   *  — the `leaving` guard keeps the several triggers from stacking up reloads. */
+  private hostGone(): void {
+    if (this.net.isHost || this.leaving) return;
+    this.hud.connecting(false);
+    this.inGame = false;
+    this.leaving = true;
+    this.exitLobby();
+    this.releasePointerLock();
+    this.hud.menuError("Host left — lobby closed.");
+    this.hud.show("menu");
+    window.setTimeout(() => location.reload(), 1200);
+  }
+
   ensureRemote(id: string, name: string): RemotePlayer {
     let r = this.remotes.get(id);
     if (!r) {
       r = new RemotePlayer(this.engine, this.engine.sceneManager.activeScene.getRootEntity()!, id, name, this.net.colorOf(id), this.models);
+      if (this.weaponLib) r.setWeaponLibrary(this.weaponLib);
       this.remotes.set(id, r);
     }
     return r;
@@ -2997,16 +3431,21 @@ class Game {
         this.net.players = this.net.players.filter((p) => p.id !== m.id);
         const r = this.remotes.get(m.id);
         if (r) { r.entity.destroy(); this.remotes.delete(m.id); }
+        this.portals.clearOwner(m.id);
         delete this.platforms[m.id];
         this.voice.drop(m.id);
         this.refreshLobby();
         break;
       }
+      case "hostleave": {
+        this.hostGone(); // host closed the lobby — bail immediately, no need to wait out the timeout
+        break;
+      }
       case "state": {
-        // host receives guest state
+        // host receives guest state (hp is host-authoritative — override, don't copy the object)
         if (this.net.isHost) {
           const r = this.remotes.get(fromId);
-          if (r) r.push({ ...m.s, hp: this.hpMap[fromId] ?? 100 }, performance.now() / 1000);
+          if (r) r.push(m.s, performance.now() / 1000, this.hpMap[fromId] ?? 100);
         }
         break;
       }
@@ -3023,6 +3462,7 @@ class Game {
         break;
       }
       case "shot": {
+        this.clearProt(m.id); // they fired → spawn protection over (mirrored on every client)
         const r = this.remotes.get(m.id);
         const o: Vec3 = { x: m.o[0], y: m.o[1], z: m.o[2] };
         const d: Vec3 = { x: m.d[0], y: m.d[1], z: m.d[2] };
@@ -3054,6 +3494,7 @@ class Game {
         break;
       }
       case "nade": {
+        this.clearProt(m.id); // they threw → spawn protection over
         this.nades.throw_(m.k, { x: m.o[0], y: m.o[1], z: m.o[2] }, { x: m.v[0], y: m.v[1], z: m.v[2] }, m.id, false);
         sfx.nadeThrow();
         if (this.net.isHost) this.net.broadcast(m, fromId);
@@ -3093,6 +3534,21 @@ class Game {
         this.applyPwTake(m.i, m.who, m.k);
         break;
       }
+      case "portal": {
+        this.clearProt(m.id); // they placed a portal → spawn protection over
+        // render-only mirror of a remote player's portal (no collision/traversal here —
+        // traversal is resolved by the owner and arrives through the position stream)
+        this.portals.place(m.id, m.s, { x: m.o[0], y: m.o[1], z: m.o[2] }, { x: m.n[0], y: m.n[1], z: m.n[2] }, false);
+        const r = this.relAudio({ x: m.o[0], y: m.o[1], z: m.o[2] });
+        sfx.portalFire(m.s, r.pan, r.dist);
+        if (this.net.isHost) this.net.broadcast(m, fromId);
+        break;
+      }
+      case "pgone": {
+        this.portals.remove(m.id, m.s); // idempotent — our own 45 s clock may have beaten it
+        if (this.net.isHost) this.net.broadcast(m, fromId);
+        break;
+      }
       case "mapvote": {
         if (this.net.isHost) { this.mapVotes[fromId] = m.map; this.broadcastVotes(); }
         break;
@@ -3116,9 +3572,10 @@ class Game {
         break;
       }
       case "role": {
-        // host → me: prop-hunt role for this round
+        // host → me: prop-hunt role + disguise roll for this round
         this.myRole = m.role;
         this.teams[this.net.myId] = m.role;
+        this.props[this.net.myId] = m.prop;
         if (this.inGame && this.alive) this.applyLoadout();
         break;
       }
@@ -3126,6 +3583,11 @@ class Game {
         // host → me: gungame tier changed
         this.tiers[this.net.myId] = m.tier;
         if (this.inGame && this.mode === "gungame") this.applyTier(m.tier);
+        break;
+      }
+      case "hill": {
+        // host → all: the hardpoint relocated (crisp cue — the 1Hz snapshot backs it up)
+        if (!this.net.isHost) this.applyHillMove(m.i);
         break;
       }
       case "plat": {
@@ -3174,9 +3636,9 @@ class Game {
       }
     } else if (m.t === "kill") {
       this.hud.kill(this.names.get(m.k) ?? "?", this.names.get(m.v) ?? "?", m.w, m.hs === 1);
+      this.portals.clearOwner(m.v); // portals die with their owner (every client sees the kill)
       if (m.v === this.net.myId) {
         this.alive = false;
-        this.lastWeapon = this.ws.current; // remember it so respawn re-equips the same gun
         this.selfOperator?.markDead(m.hs === 1); // pick the death variant before syncDeath
         this.respawnAt = performance.now() / 1000 + MODES[this.mode].respawn;
         // surface the "choose your next class" strip on the death screen (deploys on respawn)
@@ -3198,9 +3660,12 @@ class Game {
         if (r) { r.markDead(m.hs === 1); r.alive = false; }
       }
     } else if (m.t === "spawn") {
+      // fresh life → spawn protection (all clients track it; host enforces the damage gate)
+      this.prot[m.id] = performance.now() / 1000 + SPAWN_PROT;
       if (m.id === this.net.myId) {
         this.alive = true;
         this.myHp = MAX_HP;
+        this.portalSlot = 0; // fresh life starts its pair from blue
         this.body.teleport({ x: m.p[0], y: m.p[1], z: m.p[2] }, m.yaw);
         this.ws.ammo.usp = { mag: 12, reserve: 48 };
         this.ws.ammo.ak47 = { mag: 30, reserve: 90 };
@@ -3308,6 +3773,7 @@ class Game {
    *  dead — movement / fire / look all gate on phase === "play". */
   enterDeploy(): void {
     sfx.stopInterlude();
+    this.portals.clear(); // stale pairs never carry across rounds (same-map reloads skip loadMap)
     this.hud.banner(`${MODES[this.mode].name} · Round ${this.round}`);
     this.hud.respawnDeploy(this.classPickable(), this.settings.state.loadoutClass);
     if (this.myPlatform === "keyboard" && this.classPickable()) {
@@ -3368,8 +3834,17 @@ class Game {
   /** leave the current lobby/match and return to the home screen */
   leaveToMenu(): void {
     this.leaving = true; // suppress the beforeunload confirm for this intentional exit
-    try { this.net.leave(); } catch { /* ignore */ }
-    location.reload(); // cleanest full reset back to the menu
+    if (this.net.isHost) {
+      // Announce the close so guests bail at once, then give the datagram a beat to reach
+      // them before the reload tears the peer down (the reload is the real teardown, so we
+      // deliberately don't destroy the peer first). conn-close + the 15s guest-side host
+      // timeout stay as backstops if the unreliable-channel announce is dropped.
+      try { this.net.broadcast({ t: "hostleave" }); } catch { /* ignore */ }
+      window.setTimeout(() => location.reload(), 250);
+    } else {
+      try { this.net.leave(); } catch { /* ignore */ }
+      location.reload(); // cleanest full reset back to the menu
+    }
   }
 
   addBots(n: number): void {
@@ -3396,6 +3871,9 @@ class Game {
         seen: false, reactCd: 0, memoryCd: 0, lastKnown: null,
         aimErrX: 0, aimErrY: 0, aimErrCd: 0, avoidCd: 0, avoidSign: 1, wanderYaw: body.yaw,
         lastHp: MAX_HP, dodgeLockCd: 0,
+        // stagger the raycast cadences so a fleet of bots doesn't probe on the same frame
+        losCd: Math.random() * 0.1, losHit: false,
+        steerCd: Math.random() * 0.05, steerX: 0, steerZ: 0, steerBlocked: false, steerOpen: true,
       });
       this.net.broadcast({ t: "pjoin", p: info }); // let guests see the bot
       this.net.broadcast({ t: "plat", id, plat: "bot" }); // …with a bot platform icon
@@ -3505,8 +3983,14 @@ class Game {
       const fx = -Math.sin(bot.body.yaw), fz = -Math.cos(bot.body.yaw);
       if ((dx * fx + dz * fz) / flat < Math.cos(tune.fov)) return false; // outside FOV cone
     }
-    // clear LOS if nothing solid sits between the eye and (just short of) the target
-    return !this.map.raycast(eye, { x: dx / dist, y: dy / dist, z: dz / dist }, dist - 0.5);
+    // clear LOS if nothing solid sits between the eye and (just short of) the target.
+    // The raycast (O(solids)) is throttled to 10 Hz per bot — well inside the bot's own
+    // reaction delay; the cheap FOV cone above still gates per frame.
+    if (bot.losCd <= 0) {
+      bot.losCd = 0.1;
+      bot.losHit = !this.map.raycast(eye, { x: dx / dist, y: dy / dist, z: dz / dist }, dist - 0.5);
+    }
+    return bot.losHit;
   }
 
   /** whisker obstacle-avoidance: given a desired world move dir, steer it around walls so
@@ -3515,13 +3999,20 @@ class Game {
   botSteer(bot: BotAI, wx: number, wz: number): { x: number; z: number; blocked: boolean; open: boolean } {
     const len = Math.hypot(wx, wz);
     if (len < 1e-3) return { x: 0, z: 0, blocked: false, open: false };
+    // whisker probes are 1–3 O(solids) raycasts — re-probe at 20 Hz per bot and hold the
+    // last steer between probes (walls don't move; the wish direction drifts slowly)
+    if (bot.steerCd > 0) return { x: bot.steerX, z: bot.steerZ, blocked: bot.steerBlocked, open: bot.steerOpen };
+    bot.steerCd = 0.05;
     const nx = wx / len, nz = wz / len;
     const o: Vec3 = { x: bot.body.pos.x, y: bot.body.pos.y + 0.9, z: bot.body.pos.z };
     const R = 2.8; // look-ahead: start bending early so it's a gentle curve, not a last-moment jerk
     const clear = (ax: number, az: number): number =>
       this.map.raycast(o, { x: ax, y: 0, z: az }, R)?.dist ?? R;
     const ahead = clear(nx, nz);
-    if (ahead >= R - 0.05) return { x: wx, z: wz, blocked: false, open: true }; // open road
+    if (ahead >= R - 0.05) { // open road
+      bot.steerX = wx; bot.steerZ = wz; bot.steerBlocked = false; bot.steerOpen = true;
+      return { x: wx, z: wz, blocked: false, open: true };
+    }
     const rot = (a: number): { x: number; z: number } => {
       const cs = Math.cos(a), sn = Math.sin(a);
       return { x: nx * cs - nz * sn, z: nx * sn + nz * cs };
@@ -3534,7 +4025,8 @@ class Game {
     // bend proportional to how close the wall is: barely at range R, hard up close
     const near = 1 - ahead / R; // 0..1
     const s = rot((0.2 + 1.0 * near) * bot.avoidSign);
-    return { x: s.x * len, z: s.z * len, blocked: ahead < 1.1, open: false };
+    bot.steerX = s.x * len; bot.steerZ = s.z * len; bot.steerBlocked = ahead < 1.1; bot.steerOpen = false;
+    return { x: bot.steerX, z: bot.steerZ, blocked: bot.steerBlocked, open: bot.steerOpen };
   }
 
   /** drive every bot: perceive, aim (capped slew), move (obstacle-aware), shoot. Host only. */
@@ -3558,7 +4050,7 @@ class Game {
       const playing = this.phase === "play" && !frozen;
 
       bot.avoidCd -= dt; bot.reactCd -= dt; bot.burstCd -= dt; bot.fireCd -= dt;
-      bot.reloadCd -= dt; bot.switchCd -= dt;
+      bot.reloadCd -= dt; bot.switchCd -= dt; bot.losCd -= dt; bot.steerCd -= dt;
       // finished reloading → top the mag back up
       if (bot.reloadCd < 0 && bot.mag <= 0 && !WEAPONS[bot.weapon].melee) bot.mag = WEAPONS[bot.weapon].mag;
 
@@ -3633,6 +4125,15 @@ class Game {
         // nothing believed in view → patrol a slowly-drifting heading
         bot.strafeCd -= dt;
         if (bot.strafeCd <= 0) { bot.wanderYaw += (Math.random() - 0.5) * 1.2; bot.strafeCd = 1.5 + Math.random() * 2.5; }
+        // hardpoint: an idle bot's patrol leans toward the hill (objective pull) — once
+        // it's standing on the point it wanders in place, holding it. Fights unchanged.
+        if (this.mode === "hardpoint" && this.hillSpots.length) {
+          const h = this.hillSpots[this.hillIndex];
+          const hx = h.x - bot.body.pos.x, hz = h.z - bot.body.pos.z;
+          if (Math.hypot(hx, hz) > HARDPOINT_RADIUS * 0.5) {
+            bot.wanderYaw = approachAngle(bot.wanderYaw, Math.atan2(-hx, -hz), 2.5 * dt);
+          }
+        }
         wishX = -Math.sin(bot.wanderYaw);
         wishZ = -Math.cos(bot.wanderYaw);
       }
@@ -3682,6 +4183,7 @@ class Game {
 
   botTryShoot(bot: BotAI, tgt: Vec3, dist: number, eye: Vec3): void {
     if (bot.reloadCd > 0) return; // mid-reload — can't shoot
+    this.clearProt(bot.id); // a firing bot forfeits its spawn protection like anyone else
     const tune = BOT_TUNING[this.cfg.difficulty];
     const wid = this.botWeapon(bot);
     const def = WEAPONS[wid];
@@ -3735,7 +4237,8 @@ class Game {
    *  range-based swapping and the close-quarters reload fallback keep working. The primary
    *  stays first, which is what the bot spawns holding. */
   botArsenal(): WeaponId[] {
-    const set = new Set<WeaponId>(CLASSES[randomClass()].loadout.filter((w) => !WEAPONS[w].throwable));
+    // no throwables, and no portal gun — bots don't place or use portals
+    const set = new Set<WeaponId>(CLASSES[randomClass()].loadout.filter((w) => !WEAPONS[w].throwable && !WEAPONS[w].portal));
     set.add("usp"); set.add("knife");
     return [...set];
   }
@@ -3752,7 +4255,7 @@ class Game {
 
   /** host: slot a mid-match joiner into the active mode */
   assignLateJoiner(id: string): void {
-    if (this.mode === "tdm") {
+    if (this.mode === "tdm" || this.mode === "hardpoint") {
       let a = 0, b = 0;
       for (const p of this.net.players) {
         if (p.id === id) continue;
@@ -3761,6 +4264,7 @@ class Game {
       this.teams[id] = a <= b ? 0 : 1; // fill the smaller side
     } else if (this.mode === "prophunt") {
       this.teams[id] = ROLE_SEEK; // mid-round joiners hunt
+      this.props[id] ??= (Math.random() * 4096) | 0; // a roll anyway — next round may hide them
     } else if (this.mode === "gungame") {
       this.tiers[id] = this.tiers[id] ?? 0;
     }

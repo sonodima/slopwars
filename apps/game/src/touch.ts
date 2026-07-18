@@ -10,6 +10,7 @@ const $ = (id: string): HTMLElement => document.getElementById(id)!;
 const WEP_SHORT: Record<string, string> = {
   knife: "KNF", usp: "USP", luger: "LUG", ak47: "AK", m4a1: "M4", suomi: "KP",
   grease: "M3", shotgun: "SG", awp: "AWP", he: "HE", mol: "MOL", flash: "FLS", smoke: "SMK",
+  portalgun: "PRT",
 };
 
 export class TouchControls {

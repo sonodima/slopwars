@@ -427,7 +427,7 @@ export class Hud {
     const kit = c.loadout.map((w) => WEAPONS[w].name).join(" · ");
     const key = n ? `<span class="ck">${n}</span>` : "";
     return `<div class="mode-card class-card${c.id === selectedId ? " on" : ""}" data-class="${c.id}">` +
-      `${key}<div class="mn">${esc(c.name)}</div><div class="mb">${esc(c.blurb)}</div>` +
+      `${key}<div class="mn">${esc(c.name)}</div>` +
       `<span class="kit">${esc(kit)}</span></div>`;
   }
 
@@ -460,10 +460,15 @@ export class Hud {
   respawnClasses(selectedId: string): void { this.renderClassCards("respawn-classes", selectedId, true); }
 
   /** top-center team score (TDM sides / Prop Hunt seeker-vs-hider). null hides. */
+  private teamsSig = "";
   teamScoreHud(a: { name: string; score: number; color: number } | null, b?: { name: string; score: number; color: number }): void {
     const el = $("hud-teams");
-    if (!a || !b) { el.classList.add("hidden"); return; }
+    if (!a || !b) { el.classList.add("hidden"); this.teamsSig = ""; return; }
     el.classList.remove("hidden");
+    // called every frame — skip the innerHTML reparse unless something actually changed
+    const sig = `${a.name}|${a.score}|${a.color}|${b.name}|${b.score}|${b.color}`;
+    if (sig === this.teamsSig) return;
+    this.teamsSig = sig;
     el.innerHTML =
       `<span class="tn" style="color:${hex(a.color)}">${esc(a.name)}</span>` +
       `<span style="color:${hex(a.color)}">${a.score}</span>` +
@@ -473,19 +478,62 @@ export class Hud {
   }
 
   /** prop-hunt role / status line. Empty text hides. */
+  private roleSig = "";
   roleHud(text: string, kind: "hide" | "seek" | "prep" | ""): void {
     const el = $("hud-role");
-    if (!text) { el.classList.add("hidden"); return; }
+    if (!text) { el.classList.add("hidden"); this.roleSig = ""; return; }
+    // called every frame — skip the DOM writes unless something actually changed
+    const sig = `${kind}|${text}`;
+    if (sig === this.roleSig) return;
+    this.roleSig = sig;
     el.classList.remove("hidden");
     el.className = kind; // sets color via #hud-role.<kind>
     el.textContent = text;
   }
 
+  /** hardpoint capture-state line (CAPTURING / CONTESTED / …), tinted by the hill's
+   *  holder. Empty text hides. */
+  private hillSig = "";
+  hardpointHud(text: string, color: number): void {
+    const el = $("hud-hill");
+    if (!text) { el.classList.add("hidden"); this.hillSig = ""; return; }
+    // called every frame — skip the DOM writes unless something actually changed
+    const sig = `${color}|${text}`;
+    if (sig === this.hillSig) return;
+    this.hillSig = sig;
+    el.classList.remove("hidden");
+    el.style.color = hex(color);
+    el.style.borderColor = hex(color);
+    el.textContent = text;
+  }
+
+  /** world-anchored hardpoint waypoint: `x`/`y` are viewport fractions (already
+   *  edge-clamped by the caller), `dist` metres to the hill, tinted by its holder.
+   *  Position updates per-frame like the nametags; text only when it changes. */
+  private hillMarkSig = "";
+  hillMarker(on: boolean, x = 0, y = 0, dist = 0, color = 0xffffff): void {
+    const el = $("hill-marker");
+    el.classList.toggle("hidden", !on);
+    if (!on) { this.hillMarkSig = ""; return; }
+    el.style.left = `${(x * 100).toFixed(2)}%`;
+    el.style.top = `${(y * 100).toFixed(2)}%`;
+    const sig = `${color}|${Math.round(dist)}`;
+    if (sig === this.hillMarkSig) return;
+    this.hillMarkSig = sig;
+    el.style.color = hex(color);
+    $("hill-marker-t").textContent = `${Math.round(dist)}m`;
+  }
+
   /** gun-game tier + current weapon. tier < 0 hides. */
+  private tierSig = "";
   tierHud(tier: number, max: number, weapon: string): void {
     const el = $("hud-tier");
-    if (tier < 0) { el.classList.add("hidden"); return; }
+    if (tier < 0) { el.classList.add("hidden"); this.tierSig = ""; return; }
     el.classList.remove("hidden");
+    // called every frame — skip the innerHTML reparse unless something actually changed
+    const sig = `${tier}|${max}|${weapon}`;
+    if (sig === this.tierSig) return;
+    this.tierSig = sig;
     el.innerHTML = `${esc(weapon)}<span class="tp">tier ${tier + 1}/${max + 1}</span>`;
   }
 
@@ -565,6 +613,7 @@ export class Hud {
     e.style.opacity = "0";
   }
 
+  private sbSig = "";
   scoreboard(visible: boolean, players: PlayerInfo[], scores: GameSnapshot["scores"], myId: string, platforms: Record<string, Platform> = {}): void {
     const sb = $("scoreboard");
     sb.classList.toggle("hidden", !visible);
@@ -572,13 +621,17 @@ export class Hud {
     // board is up — round-end interlude or a held scoreboard — so they don't float
     // over it on phones
     document.body.classList.toggle("sb-open", visible);
-    if (!visible) return;
+    if (!visible) { this.sbSig = ""; return; }
     const rows = players
       .map((p) => ({ p, s: scores[p.id] ?? { k: 0, d: 0 } }))
       .sort((a, b) => b.s.k - a.s.k || a.s.d - b.s.d);
-    $("sb-rows").innerHTML = rows
+    // called every frame while held open — rebuild the table only when a row changed
+    const html = rows
       .map(({ p, s }, i) => Hud.lbRow(p, s, i, myId, platforms[p.id]))
       .join("");
+    if (html === this.sbSig) return;
+    this.sbSig = html;
+    $("sb-rows").innerHTML = html;
   }
 
   banner(text: string, ms = 2500): void {
@@ -592,28 +645,31 @@ export class Hud {
   respawnOverlay(t: number | null): void {
     const e = $("respawn");
     e.classList.toggle("hidden", t === null);
-    if (t !== null) $("respawn-t").textContent = Math.ceil(t).toString();
+    if (t !== null) {
+      // a real death always shows the centred counter (deploy may have hidden it)
+      document.querySelector(".respawn-count")?.classList.remove("hidden");
+      $("respawn-t").textContent = Math.ceil(t).toString();
+    }
   }
 
   private deployMode = false;
-  /** pre-round deploy overlay (match/round start): reuses the death screen's class strip +
-   *  countdown, with the label flipped to "round starts in". Driven per-frame while the
-   *  deploy phase runs (so a stray respawnOverlay(null) from the initial spawn burst can't
-   *  permanently hide it); null restores the overlay to its respawn wording and hides it. */
+  /** pre-round deploy overlay (match/round start): shows the class-picker strip in the
+   *  centre overlay, but NOT a big countdown number — the round-start countdown is the
+   *  top HUD clock ("get ready" → match timer), so the centred counter is suppressed to
+   *  avoid two counters on screen. Driven per-frame while the deploy phase runs (so a
+   *  stray respawnOverlay(null) from the initial spawn burst can't permanently hide it);
+   *  null releases the deploy latch and hides the overlay. */
   deployOverlay(t: number | null): void {
     if (t === null) {
       if (!this.deployMode) return; // don't touch the overlay when a real death owns it
       this.deployMode = false;
       $("respawn").classList.add("hidden");
-      $("respawn-label").textContent = "respawn in";
-      $("rd-sub-when").textContent = "deploys on respawn";
       return;
     }
     this.deployMode = true;
     $("respawn").classList.remove("hidden");
-    $("respawn-label").textContent = "round starts in";
-    $("rd-sub-when").textContent = "deploys now"; // a pick during the freeze applies immediately
-    $("respawn-t").textContent = Math.max(1, Math.ceil(t)).toString();
+    // suppress the centred count during deploy — the top HUD clock owns the countdown
+    document.querySelector(".respawn-count")?.classList.add("hidden");
   }
 
   /** show/hide the death-screen "choose your class" strip and (when shown) render it with
@@ -801,7 +857,10 @@ export class Hud {
       `<span class="c-k">${s.k}</span><span class="c-d">${s.d}</span><span class="c-r">${ratio}</span></div>`;
   }
 
-  private hudRoot: HTMLElement | null = document.getElementById("hud-parallax");
+  /** the parallax vars live on #scr-game (not #hud-parallax) so every heads-up layer under
+   *  it — the drifting chrome wrapper AND the centred round-start banner — reads the same
+   *  --hud-px/--hud-py via inheritance and leans into the turn together. */
+  private hudRoot: HTMLElement | null = document.getElementById("scr-game");
   /** drift the whole in-game HUD chrome with the player's look, for a floating holographic
    *  parallax. `vx`/`vy` are the smoothed per-frame look deltas (yaw/pitch, in rad); the
    *  chrome leans into the turn (same direction as the camera pan) so it reads as a heads-up
@@ -812,7 +871,7 @@ export class Hud {
     if (!el) return;
     const K = 260, MAX = 18; // px per rad/frame, clamped so a fast flick can't fling it far
     const px = Math.max(-MAX, Math.min(MAX, vx * K));
-    const py = Math.max(-MAX, Math.min(MAX, -vy * K));
+    const py = Math.max(-MAX, Math.min(MAX, vy * K)); // +: HUD drifts the same vertical way as the pan
     el.style.setProperty("--hud-px", `${px.toFixed(1)}px`);
     el.style.setProperty("--hud-py", `${py.toFixed(1)}px`);
   }

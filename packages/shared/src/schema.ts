@@ -31,9 +31,7 @@ export interface Placement {
  *  local space), so moving/rotating/scaling the group transforms every child as a
  *  unit while their own stored transforms stay put. Groups nest via `parent`. Both
  *  the editor and the game compose a placement's world transform up its group chain
- *  (see resolveWorld). Transform fields are optional and default to identity, so a
- *  legacy group with no transform composes to the child's absolute transform — old
- *  maps render unchanged. */
+ *  (see resolveWorld). Transform fields are optional and default to identity. */
 export interface GroupDef {
   id: string;
   name: string;

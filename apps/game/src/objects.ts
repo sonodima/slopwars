@@ -198,6 +198,12 @@ defineObject<object>("powerup", {
   defaults: {}, category: "marker", deferred: true, icon: "zap",
   build(b, t) { const [x, y, z] = t.at; b.map.powerupSpots.push({ x, y, z }); },
 });
+// Hardpoint capture-zone candidate. y is kept as authored (the zone's base), so a
+// hill can sit on a rooftop or platform; maps with no markers derive spots instead.
+defineObject<object>("hardpoint", {
+  defaults: {}, category: "marker", deferred: true, icon: "target",
+  build(b, t) { const [x, y, z] = t.at; b.map.hardpointSpots.push({ x, y, z }); },
+});
 
 // ─── sound (positional looping audio; volume falls off with distance) ─────────
 

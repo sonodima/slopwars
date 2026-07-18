@@ -178,7 +178,11 @@ export class Net {
 
   leave(): void {
     if (this.liveTimer !== null) { clearInterval(this.liveTimer); this.liveTimer = null; }
-    if (!this.isHost) { try { this.hostConn?.send({ t: "leave" }); } catch { /* */ } }
+    // Tell the other side we're going so they don't wait out the heartbeat timeout: a
+    // guest tells the host, the host tells every guest. Best-effort on the unreliable
+    // channel and cut short by the destroy below — conn-close + the timeout are backstops.
+    if (this.isHost) this.broadcast({ t: "hostleave" });
+    else { try { this.hostConn?.send({ t: "leave" }); } catch { /* */ } }
     this.peer?.destroy();
   }
 
