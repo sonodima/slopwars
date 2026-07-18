@@ -335,7 +335,9 @@ export type Msg =
   | { t: "ping"; ts: number }
   | { t: "pong"; ts: number }
   | { t: "leave" }              // guest → host: I'm leaving
-  | { t: "hostleave" };         // host → all: I'm closing the lobby
+  | { t: "hostleave" }          // host → all: I'm closing the lobby
+  | { t: "reject"; reason: "version"; hostV: string } // host → one: join refused (guest knows its own version)
+  | { t: "kicked" };            // host → one: you were removed from the lobby/match
 
 export function rand(a: number, b: number): number { return a + Math.random() * (b - a); }
 export function clamp(v: number, a: number, b: number): number { return v < a ? a : v > b ? b : v; }

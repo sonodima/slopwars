@@ -172,6 +172,25 @@ export class WeaponSystem {
       const e = this.models[id];
       if (e && folder) shadeModelSlots(e, metas.get(folder), lib);
     }
+    this.prewarmModels();
+  }
+
+  /** Render every weapon's viewmodel for a few frames once its library materials
+   *  land: only the selected weapon's model is ever active, so each remaining
+   *  mesh+material pipeline otherwise compiles on the FIRST switch to that weapon —
+   *  a measured ~125ms GPU-side stall on a cold shader cache when first pulling the
+   *  grenade. Same idiom as TracerPool.prewarm: parked far below the camera (out of
+   *  frustum — compilation still happens for active renderers), restored after a few
+   *  rendered frames. Runs at boot-menu time, before ws.update() can touch the vm. */
+  private prewarmModels(): void {
+    this.vm.isActive = true;
+    this.vm.transform.setPosition(0, -120, 0);
+    for (const id of ALL_WEAPONS) { const e = this.models[id]; if (e) e.isActive = true; }
+    window.setTimeout(() => {
+      this.vm.transform.setPosition(0, 0, 0);
+      for (const id of ALL_WEAPONS) { const e = this.models[id]; if (e) e.isActive = id === this.current; }
+      this.vm.isActive = this.vmVisible && !this.scoped; // showViewmodel()'s invariant
+    }, 350);
   }
 
   /** hide/show whole viewmodel (e.g. in the lobby camera) */

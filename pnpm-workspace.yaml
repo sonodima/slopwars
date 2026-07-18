@@ -4,3 +4,6 @@ packages:
 
 allowBuilds:
   esbuild: true
+  electron: true
+  # Squirrel.Windows tooling — we don't build Windows installers from CI/dev here
+  electron-winstaller: false

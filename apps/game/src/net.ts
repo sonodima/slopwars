@@ -77,6 +77,15 @@ export class Net {
       }
     }, 2000);
     p.on("connection", (conn) => {
+      // ── version gate ── the guest's build id rides the connection `metadata`
+      // (signaling channel: reliable and present before the datachannel opens), so a
+      // pre-versioning client is detectable by its absence. Mismatch ⇒ refuse before
+      // any handshake: the guest never enters conns/players and gets told why.
+      const guestV = (conn.metadata as { v?: string } | undefined)?.v;
+      if (guestV !== __GAME_VERSION__) {
+        this.refuse(conn, { t: "reject", reason: "version", hostV: __GAME_VERSION__ });
+        return;
+      }
       conn.on("data", (raw) => {
         const m = raw as Msg;
         this.lastSeen.set(conn.peer, Date.now());
@@ -108,7 +117,8 @@ export class Net {
     p.on("error", (e) => this.onError?.(String((e as Error).message ?? e)));
     p.on("open", (id) => {
       this.myId = id;
-      const conn = p.connect(PREFIX + this.lobbyCode, { reliable: false });
+      // version in metadata: the host gates on it before the datachannel even opens
+      const conn = p.connect(PREFIX + this.lobbyCode, { reliable: false, metadata: { v: __GAME_VERSION__ } });
       this.hostConn = conn;
       conn.on("open", () => {
         conn.send({ t: "hello", name: myName } satisfies Msg);
@@ -148,12 +158,40 @@ export class Net {
     this.onReady?.();
   }
 
-  private dropGuest(id: string): void {
+  /** Send a peer one last message it will actually receive, then close. A plain
+   *  close() tears the RTCPeerConnection down without draining the send buffer —
+   *  close({flush:true}) defers until the message is through (PeerJS ≥1.5), with a
+   *  2s hard-close fallback in case the remote never acks. */
+  private refuse(conn: DataConnection, m: Msg): void {
+    const part = (): void => {
+      try { conn.send(m); conn.close({ flush: true }); } catch { try { conn.close(); } catch { /* dead */ } }
+      window.setTimeout(() => { try { conn.close(); } catch { /* already closed */ } }, 2000);
+    };
+    if (conn.open) part();
+    else conn.on("open", part);
+  }
+
+  /** host: remove a guest from the lobby/match. Tells the target why before the
+   *  drop (a kick is a nudge, not a ban: peer ids are ephemeral, so a kicked player
+   *  can rejoin under a fresh id — there is no durable P2P identity to ban on). */
+  kick(id: string): void {
+    if (!this.isHost) return;
+    this.sendTo(id, { t: "kicked" });
+    this.dropGuest(id, true); // flush-close so the message survives the teardown
+  }
+
+  private dropGuest(id: string, flush = false): void {
     const conn = this.conns.get(id);
     if (!conn) return;
     this.conns.delete(id);
     this.lastSeen.delete(id);
-    try { conn.close(); } catch { /* already dead */ }
+    if (flush) {
+      // drain the send buffer first (the just-queued "kicked"), hard-close backstop
+      try { conn.close({ flush: true }); } catch { try { conn.close(); } catch { /* dead */ } }
+      window.setTimeout(() => { try { conn.close(); } catch { /* already closed */ } }, 2000);
+    } else {
+      try { conn.close(); } catch { /* already dead */ }
+    }
     this.players = this.players.filter((p) => p.id !== id);
     this.broadcast({ t: "pleave", id });
     this.onPeerLeave?.(id);

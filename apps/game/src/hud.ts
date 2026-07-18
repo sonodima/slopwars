@@ -44,6 +44,8 @@ export class Hud {
   onClass: ((id: string) => void) | null = null;
   /** first-run consent: user chose whether to download the on-device NPC-AI model. */
   onAiConsent: ((accept: boolean) => void) | null = null;
+  /** host clicked a kick button (lobby roster or scoreboard row) */
+  onKick: ((id: string) => void) | null = null;
 
   private hitTtl = 0;
   private dmgTtl = 0;
@@ -82,6 +84,15 @@ export class Hud {
     $("ai-dl-x").onclick = () => this.hideAiDownload();
     $("ai-consent-yes").onclick = () => { this.hideAiConsent(); this.onAiConsent?.(true); };
     $("ai-consent-no").onclick = () => { this.hideAiConsent(); this.onAiConsent?.(false); };
+
+    // kick buttons live in rows that are rebuilt via innerHTML on every refresh —
+    // delegate from the stable containers instead of wiring each row
+    for (const cid of ["lobby-players", "sb-rows"]) {
+      $(cid).addEventListener("click", (e) => {
+        const b = (e.target as HTMLElement).closest<HTMLElement>(".kick-btn");
+        if (b?.dataset.id) this.onKick?.(b.dataset.id);
+      });
+    }
   }
 
   openChat(): void {
@@ -182,11 +193,15 @@ export class Hud {
     $("lobby-players").innerHTML = players
       .map((p) => {
         const c = hex(p.color);
+        // host sees a kick × on every other row (a nudge — ephemeral peer ids mean
+        // a kicked player can rejoin under a new id; there's nothing durable to ban)
+        const kick = isHost && p.id !== myId
+          ? `<button class="kick-btn" data-id="${esc(p.id)}" title="Remove ${esc(p.name)} from the lobby" aria-label="Kick ${esc(p.name)}">✕</button>` : "";
         return `<div class="lp${p.id === myId ? " me" : ""}">` +
           `<span class="dot" style="background:${c};color:${c}"></span>` +
           `<span class="lp-name">${esc(p.name)}</span>` +
           `${platIcon(platforms[p.id])}` +
-          `${p.id === "host" ? `<em>host</em>` : ""}</div>`;
+          `${p.id === "host" ? `<em>host</em>` : ""}${kick}</div>`;
       })
       .join("");
     $("btn-start").classList.toggle("hidden", !isHost);
@@ -363,6 +378,34 @@ export class Hud {
     if (el.classList.contains("hidden")) return;
     el.classList.add("ai-out");
     window.setTimeout(() => el.classList.add("hidden"), 280);
+  }
+
+  /** A dynamic card in the alert stack (#alerts — same chamfered look as the AI
+   *  toasts; simultaneous alerts stack in a column). `action` renders a button that
+   *  runs onClick and dismisses; `ttl` (ms) auto-dismisses. Returns a dismiss fn. */
+  alert(o: { title: string; msg: string; icon?: string; ttl?: number;
+             action?: { label: string; onClick: () => void } }): () => void {
+    const el = document.createElement("div");
+    el.className = "ai-toast";
+    el.setAttribute("role", "status");
+    el.innerHTML =
+      `<button class="alert-x" aria-label="Dismiss">×</button>` +
+      `<div class="ai-dl-head"><span class="ai-dl-ico">${esc(o.icon ?? "✦")}</span><span class="ai-title">${esc(o.title)}</span></div>` +
+      `<div class="ai-dl-msg">${esc(o.msg)}</div>` +
+      (o.action ? `<div class="ai-consent-btns"><button class="ai-btn">${esc(o.action.label)}</button></div>` : "");
+    const dismiss = (): void => {
+      if (!el.isConnected) return;
+      el.classList.add("ai-out");
+      window.setTimeout(() => el.remove(), 280);
+    };
+    el.querySelector<HTMLElement>(".alert-x")!.addEventListener("click", dismiss);
+    if (o.action) {
+      el.querySelector<HTMLElement>(".ai-consent-btns .ai-btn")!
+        .addEventListener("click", () => { dismiss(); o.action!.onClick(); });
+    }
+    $("alerts").appendChild(el);
+    if (o.ttl) window.setTimeout(dismiss, o.ttl);
+    return dismiss;
   }
 
   /** turn "started at + fraction done" into a compact "~2m left" style ETA. Returns
@@ -614,7 +657,7 @@ export class Hud {
   }
 
   private sbSig = "";
-  scoreboard(visible: boolean, players: PlayerInfo[], scores: GameSnapshot["scores"], myId: string, platforms: Record<string, Platform> = {}): void {
+  scoreboard(visible: boolean, players: PlayerInfo[], scores: GameSnapshot["scores"], myId: string, platforms: Record<string, Platform> = {}, canKick = false): void {
     const sb = $("scoreboard");
     sb.classList.toggle("hidden", !visible);
     // clear the on-screen touch controls (weapon strip + fire cluster) while the
@@ -626,8 +669,10 @@ export class Hud {
       .map((p) => ({ p, s: scores[p.id] ?? { k: 0, d: 0 } }))
       .sort((a, b) => b.s.k - a.s.k || a.s.d - b.s.d);
     // called every frame while held open — rebuild the table only when a row changed
+    // (mid-match kicks are clickable whenever the cursor is free: interlude, death
+    // screen, or any unlocked moment — `players` is the human roster, never bots)
     const html = rows
-      .map(({ p, s }, i) => Hud.lbRow(p, s, i, myId, platforms[p.id]))
+      .map(({ p, s }, i) => Hud.lbRow(p, s, i, myId, platforms[p.id], "", canKick && p.id !== myId))
       .join("");
     if (html === this.sbSig) return;
     this.sbSig = html;
@@ -844,6 +889,7 @@ export class Hud {
     myId: string,
     plat?: Platform,
     style = "",
+    kick = false,
   ): string {
     const rank = i + 1;
     const ratio = (s.k / Math.max(1, s.d)).toFixed(1); // treat 0 deaths as 1 → no "Infinity"
@@ -851,9 +897,11 @@ export class Hud {
       ? `<i class="medal m${rank}">${rank}</i>`
       : `<span class="rnum">${rank}</span>`;
     const c = hex(p.color);
+    const kickBtn = kick
+      ? `<button class="kick-btn" data-id="${esc(p.id)}" title="Remove ${esc(p.name)} from the match" aria-label="Kick ${esc(p.name)}">✕</button>` : "";
     return `<div class="lb-row${p.id === myId ? " me" : ""}"${style ? ` style="${style}"` : ""}>` +
       `<span class="c-rank">${medal}</span>` +
-      `<span class="c-name"><span class="pdot" style="background:${c};color:${c}"></span>${esc(p.name)}${platIcon(plat)}</span>` +
+      `<span class="c-name"><span class="pdot" style="background:${c};color:${c}"></span>${esc(p.name)}${platIcon(plat)}${kickBtn}</span>` +
       `<span class="c-k">${s.k}</span><span class="c-d">${s.d}</span><span class="c-r">${ratio}</span></div>`;
   }
 

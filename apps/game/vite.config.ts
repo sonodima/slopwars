@@ -1,5 +1,6 @@
 import { defineConfig, Plugin } from "vite";
 import { fileURLToPath } from "node:url";
+import { execSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -15,6 +16,28 @@ const shared = path.resolve(repoRoot, "packages/shared/src/index.ts");
 // at config load — before the dev server starts serving or a build copies publicDir),
 // so the game self-hosts it (no runtime CDN) without committing the wasm to the repo.
 try { vendorPhysx(repoRoot); } catch (e) { console.warn("[vite] PhysX vendor skipped:", String(e)); }
+
+/** Git-derived build identity: `r<commit count>.<short sha>` — monotonic (a version
+ *  mismatch can say who's behind) and bump-free (agents forget manual bumps). Used for
+ *  the in-game version line AND the P2P join gate, so web and desktop clients built
+ *  from the same commit always agree. Fails the build in CI rather than shipping a
+ *  wrong id: a shallow clone makes `rev-list --count` silently report 1. */
+function gameVersion(): { version: string; sha: string } {
+  try {
+    const run = (cmd: string): string =>
+      execSync(cmd, { cwd: repoRoot, stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
+    if (process.env.GITHUB_ACTIONS && run("git rev-parse --is-shallow-repository") === "true") {
+      throw new Error("shallow clone in CI — set `fetch-depth: 0` on actions/checkout");
+    }
+    return { version: `r${run("git rev-list --count HEAD")}.${run("git rev-parse --short HEAD")}`,
+             sha: run("git rev-parse --short HEAD") };
+  } catch (e) {
+    if (process.env.GITHUB_ACTIONS) throw e; // never deploy a mis-versioned build
+    return { version: "dev", sha: "dev" };   // git unavailable (tarball checkout) — local runs only
+  }
+}
+const ver = gameVersion();
+const pkgVersion: string = JSON.parse(fs.readFileSync(path.join(appDir, "package.json"), "utf8")).version;
 
 /** Emit precache.json listing the app shell (JS/CSS + html + icons + maps) so the
  *  service worker can cache it on install and boot fully offline. The large
@@ -63,6 +86,54 @@ function swVersion(): Plugin {
   };
 }
 
+/** Emit version.json (the deployed build's identity) — polled by the desktop shell's
+ *  bundle updater to learn a new deploy landed on Pages. Nothing on web reads it. */
+function versionJson(): Plugin {
+  return {
+    name: "version-json",
+    apply: "build",
+    generateBundle() {
+      this.emitFile({
+        type: "asset", fileName: "version.json",
+        source: JSON.stringify({ version: ver.version, sha: ver.sha, builtAt: new Date().toISOString() }),
+      });
+    },
+  };
+}
+
+/** Emit dist-manifest.json — every file in the out dir with sha256 + size — the
+ *  desktop updater's download list AND integrity check (Pages' CDN can serve a
+ *  mixed old/new tree for ~10min after a deploy; per-file hashes catch that).
+ *  Built by WALKING THE OUT DIR in closeBundle, not from the bundle graph: the
+ *  ~100MB of publicDir assets never enter the graph, and sw.js only gets its
+ *  __BUILD__ stamp in writeBundle. Must be registered after swVersion(). */
+function distManifest(): Plugin {
+  let outDir = "dist";
+  return {
+    name: "dist-manifest",
+    apply: "build",
+    configResolved(c) { outDir = c.build.outDir; },
+    closeBundle() {
+      const root = path.resolve(appDir, outDir);
+      if (!fs.existsSync(root)) return;
+      const files: Record<string, { h: string; s: number }> = {};
+      const walk = (dir: string): void => {
+        for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+          if (e.name.startsWith(".")) continue; // .DS_Store & co. — publicDir junk, not game files
+          const p = path.join(dir, e.name);
+          if (e.isDirectory()) { walk(p); continue; }
+          const rel = path.relative(root, p).split(path.sep).join("/");
+          if (rel === "dist-manifest.json") continue;
+          const buf = fs.readFileSync(p);
+          files[rel] = { h: createHash("sha256").update(buf).digest("hex"), s: buf.length };
+        }
+      };
+      walk(root);
+      fs.writeFileSync(path.join(root, "dist-manifest.json"), JSON.stringify(files));
+    },
+  };
+}
+
 export default defineConfig({
   base: "./",
   // assets (models/textures/audio/hdri) live once at the repo root and are shared
@@ -71,7 +142,14 @@ export default defineConfig({
   resolve: {
     alias: { "@slopwars/shared": shared },
   },
-  plugins: [assetCatalogPlugin({ root: repoRoot }), precacheManifest(), swVersion()],
+  // Referenced ONLY from modules the editor never imports (net/hud/main/settings);
+  // the editor config defines the same tokens as insurance against refactors.
+  define: {
+    __GAME_VERSION__: JSON.stringify(ver.version),
+    __GIT_SHA__: JSON.stringify(ver.sha),
+    __PKG_VERSION__: JSON.stringify(pkgVersion),
+  },
+  plugins: [assetCatalogPlugin({ root: repoRoot }), precacheManifest(), swVersion(), versionJson(), distManifest()],
   build: {
     target: "es2020",
     chunkSizeWarningLimit: 4096,
