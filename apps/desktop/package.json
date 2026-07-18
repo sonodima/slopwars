@@ -1,0 +1,49 @@
+{
+  "name": "@slopwars/desktop",
+  "version": "1.0.0",
+  "description": "SlopWars desktop shell — Electron wrapper serving the built game bundle",
+  "type": "module",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "SLOP_DEV_URL=http://localhost:5211 electron .",
+    "dist": "electron-builder",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "electron": "^43.1.1",
+    "electron-builder": "^26.0.12",
+    "typescript": "^6.0.3"
+  },
+  "build": {
+    "appId": "io.github.slopwars",
+    "productName": "SlopWars",
+    "files": [
+      "main.js"
+    ],
+    "extraResources": [
+      {
+        "from": "../game/dist",
+        "to": "game"
+      }
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "../../public/icons/icon-512.png",
+      "category": "Game"
+    },
+    "mac": {
+      "icon": "../../public/icons/icon-512.png",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "In-game proximity voice chat"
+      }
+    },
+    "win": {
+      "icon": "../../public/icons/icon-512.png"
+    }
+  }
+}

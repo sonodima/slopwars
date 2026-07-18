@@ -9,6 +9,10 @@ PhysX wasm, Vite + TypeScript, pnpm workspaces.
 - `apps/game` is the product and the **only deployable** (GitHub Pages, on
   push to `main`). `apps/editor` is a local dev tool — never deployed, so its
   code can be liberal with dev-only dependencies and Node APIs (in `host/`).
+- `apps/desktop` is a thin Electron shell around the built game (packaged
+  locally on demand, never in CI). It serves `apps/game/dist` over a custom
+  `app://` protocol — never `file://`, which would silently break the PhysX
+  wasm fetch — and must stay a zero-IPC wrapper: no preload, no game logic.
 - `packages/shared` holds the map schema, asset-catalog types and the
   filesystem asset scanner used by both apps. Game and editor must agree
   through `shared`, never by duplicating logic.
@@ -50,7 +54,9 @@ PhysX wasm, Vite + TypeScript, pnpm workspaces.
 ```bash
 pnpm dev              # game   → http://localhost:5211
 pnpm dev:editor       # editor → http://localhost:5210 (+ MCP at /mcp)
+pnpm dev:desktop      # Electron shell against the game dev server (run pnpm dev first)
 pnpm build            # deployable game bundle
+pnpm build:desktop    # game bundle + packaged Electron app (apps/desktop/release)
 pnpm typecheck        # all workspaces
 ```
 

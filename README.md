@@ -57,6 +57,7 @@ pnpm install
 pnpm dev              # game client   → http://localhost:5211
 pnpm dev:editor       # map editor    → http://localhost:5210
 pnpm build            # deployable game bundle (apps/game/dist)
+pnpm build:desktop    # Electron desktop app (apps/desktop/release)
 pnpm typecheck        # typecheck every workspace
 ```
 
@@ -69,6 +70,7 @@ A pnpm-workspace monorepo:
 ```
 apps/
   game/       the runtime client players use — the only thing deployed
+  desktop/    Electron shell wrapping the built game (packaged locally)
   editor/     browser map editor + editor host + MCP server (local dev tool)
 packages/
   shared/     map schema, asset-catalog types, filesystem asset scanner
