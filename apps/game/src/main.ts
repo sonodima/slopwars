@@ -1310,6 +1310,8 @@ class Game {
       onError: () => this.hud.hideAiDownload(),
     });
     this.aiDownloading = false;
+    // provisioning can DEMOTE support (echo-stub canary) — resync the Settings gate
+    this.settings.setAiSupported(npc.status !== "unavailable");
     if (ok) this.syncAiChatPref(); // now ready → reflect into cfg (+ broadcast if hosting)
   }
 

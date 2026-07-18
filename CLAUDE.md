@@ -10,7 +10,10 @@ PhysX wasm, Vite + TypeScript, pnpm workspaces.
   push to `main`). `apps/editor` is a local dev tool — never deployed, so its
   code can be liberal with dev-only dependencies and Node APIs (in `host/`).
 - `apps/desktop` is a thin Electron shell around the built game (packaged
-  locally on demand, never in CI). It serves `apps/game/dist` over a custom
+  locally on demand, or by the `desktop-v*` tag-triggered release workflow —
+  the SHELL has its own semver in its package.json, bumped only when shell
+  code changes; the game bundle inside self-updates from Pages, so releases
+  are rare by design). It serves `apps/game/dist` over a custom
   `app://` protocol — never `file://`, which would silently break the PhysX
   wasm fetch — and must stay a zero-IPC wrapper: no preload, no game logic.
   Shell *infrastructure* is fine: `updater.js` keeps the game bundle current
@@ -64,6 +67,10 @@ pnpm build            # deployable game bundle
 pnpm build:desktop    # game bundle + packaged Electron app (apps/desktop/release)
 pnpm typecheck        # all workspaces
 ```
+
+Desktop release: bump the version in `apps/desktop/package.json`, then
+`git tag desktop-v<version> && git push origin desktop-v<version>` — CI builds
+mac (arm64+x64) / win / linux installers and attaches them to a GitHub Release.
 
 Node ≥ 24 (mise.toml). PhysX wasm is vendored automatically at dev/build time
 (`scripts/vendor-physx.mjs`; `public/physx/` is gitignored). The service

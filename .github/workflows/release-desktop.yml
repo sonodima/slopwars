@@ -1,0 +1,85 @@
+# Desktop shell releases — built on a `desktop-v*` tag (or manually) for
+# macOS (arm64 + x64), Windows (x64) and Linux (x64).
+#
+# The SHELL is what's being released and versioned here (apps/desktop
+# package.json semver == the tag). The game bundle inside is just a snapshot
+# of main at build time: the shell's updater replaces it from the Pages deploy
+# on first launch, so shell releases only need cutting when the shell itself
+# changes (main.js / updater.js / Electron bump) — not per game change.
+#
+# Nothing is code-signed: no Apple Developer ID or Windows cert is configured.
+# macOS arm64 gets electron-builder's ad-hoc signature (required to launch);
+# downloaded builds still hit Gatekeeper/SmartScreen "unidentified developer"
+# friction — that's the accepted cost until real certs exist.
+name: Release desktop app
+
+on:
+  push:
+    tags: ["desktop-v*"]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            args: --mac dmg --arm64 --x64
+          - os: windows-latest
+            args: --win nsis --x64
+          - os: ubuntu-latest
+            args: --linux AppImage --x64
+    runs-on: ${{ matrix.os }}
+    env:
+      # don't let electron-builder hunt the keychain for signing identities on CI
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # full history: the game build derives its version from `git rev-list
+          # --count` and refuses to build shallow (see apps/game/vite.config.ts)
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build game bundle
+        run: pnpm build
+
+      - name: Package desktop app
+        run: pnpm --filter @slopwars/desktop exec electron-builder ${{ matrix.args }} --publish never
+
+      # tag push → attach the installers to a GitHub Release (created if missing);
+      # manual dispatch → keep them as workflow artifacts for inspection instead
+      - name: Upload to release
+        if: startsWith(github.ref, 'refs/tags/desktop-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.exe
+            apps/desktop/release/*.AppImage
+
+      - name: Upload build artifacts (manual run)
+        if: ${{ !startsWith(github.ref, 'refs/tags/desktop-v') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.os }}
+          path: |
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.exe
+            apps/desktop/release/*.AppImage

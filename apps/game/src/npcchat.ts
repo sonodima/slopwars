@@ -134,7 +134,20 @@ class LiveNpcChat implements NpcChat {
     if (this.provisioned) { hooks?.onDone?.(); return true; }
     hooks?.onStart?.();
     try {
-      await this.ensureSession(hooks?.onProgress);
+      const session = await this.ensureSession(hooks?.onProgress);
+      // Canary against the echo stub: open-Chromium builds beyond the desktop
+      // shell (Brave & co.) also "create" a session instantly and then just echo
+      // prompts back. One tiny inference is the only reliable tell; on real
+      // Chrome it costs a fraction of a second, once per provision.
+      const canary = await session.prompt("ping");
+      if (canary.toLowerCase().includes("echoing back")) {
+        console.info("[npcchat] Prompt API is an echo stub on this browser — banter disabled");
+        this.status = "unavailable";
+        this.sessionP = null;
+        try { session.destroy?.(); } catch { /* */ }
+        hooks?.onError?.();
+        return false;
+      }
       this.provisioned = true;
       this.status = "available";
       hooks?.onDone?.();
@@ -228,6 +241,15 @@ const DISABLED: NpcChat = {
  *  download is still needed) or the disabled stub. The heavy download only happens
  *  later, on explicit user consent, via `chat.provision()`. */
 export async function initNpcChat(): Promise<NpcChat> {
+  // The desktop shell (app://) is open Chromium: it exposes the whole Prompt API
+  // surface but as an ECHO STUB — availability() says "downloadable", create()
+  // "succeeds" instantly, and prompt() parrots the input behind a disclaimer
+  // (verified empirically in the packaged app). Don't tease a toggle that can
+  // never produce a real model there.
+  if (location.protocol === "app:") {
+    console.info("[npcchat] desktop shell (open Chromium) — Prompt API is an echo stub, banter disabled");
+    return DISABLED;
+  }
   const factory = locateFactory();
   if (!factory) {
     console.info("[npcchat] Prompt API not available — NPC AI banter disabled");

@@ -6,7 +6,8 @@ Serverless peer-to-peer multiplayer, five game modes and a full map editor —
 all running in the browser. No servers, no installs, no humans<sup>*</sup>.
 
 <p>
-  <a href="https://sonodima.github.io/slopwars/"><img src="https://img.shields.io/badge/▶%20PLAY-1fb2a6?style=for-the-badge" alt="Play"></a>
+  <a href="https://sonodima.github.io/slopwars/"><img src="https://img.shields.io/badge/▶%20PLAY%20ONLINE-1fb2a6?style=for-the-badge" alt="Play online"></a>
+  <a href="https://github.com/sonodima/slopwars/releases/latest"><img src="https://img.shields.io/badge/⇩%20DOWNLOAD-1fb2a6?style=for-the-badge" alt="Download the desktop app"></a>
   <a href="apps/editor"><img src="https://img.shields.io/badge/MAP%20EDITOR-13343b?style=for-the-badge" alt="Map editor"></a>
   <a href="CONTRIBUTING.md"><img src="https://img.shields.io/badge/CONTRIBUTING-13343b?style=for-the-badge" alt="Contributing"></a>
 </p>

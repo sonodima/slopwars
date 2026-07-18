@@ -19,6 +19,7 @@
   "build": {
     "appId": "io.github.slopwars",
     "productName": "SlopWars",
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
     "files": [
       "main.js",
       "updater.js"
