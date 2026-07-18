@@ -2,6 +2,7 @@
   "name": "@slopwars/desktop",
   "version": "1.0.0",
   "description": "SlopWars desktop shell — Electron wrapper serving the built game bundle",
+  "author": "sonodima",
   "type": "module",
   "private": true,
   "main": "main.js",
@@ -20,6 +21,7 @@
     "appId": "io.github.slopwars",
     "productName": "SlopWars",
     "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "afterPack": "./sign-adhoc.mjs",
     "files": [
       "main.js",
       "updater.js"
@@ -36,7 +38,8 @@
     "linux": {
       "target": "AppImage",
       "icon": "../../public/icons/icon-512.png",
-      "category": "Game"
+      "category": "Game",
+      "executableName": "slopwars"
     },
     "mac": {
       "icon": "../../public/icons/icon-512.png",
