@@ -32,10 +32,15 @@ import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
 
+const INITIAL_DELAY_MS = 20_000;       // let the first load / shader warmups finish undisturbed
 const CHECK_MS = 4 * 60 * 60 * 1000;   // steady-state re-check while the app stays open
 const RETRY_MS = 10 * 60 * 1000;       // after a failed/aborted attempt (CDN mixing, offline)
 const FETCH_TIMEOUT_MS = 30_000;
-const CONCURRENCY = 8;
+// The updater shares the MAIN process with the app:// file server: while it syncs,
+// the renderer's asset fetches queue behind it. Keep it polite — low concurrency,
+// and never hash a whole file in one blocking crypto call (a 40MB asset would
+// stall the event loop for hundreds of ms right when the first match plays).
+const CONCURRENCY = 4;
 
 // Test hook only: point the updater at a local static server. In a packaged app the
 // canonical Pages origin is hardcoded — updates must not be redirectable by env.
@@ -110,7 +115,26 @@ async function fetchTimed(url, opts = {}) {
   return res;
 }
 
-const sha256 = (/** @type {Uint8Array} */ buf) => createHash("sha256").update(buf).digest("hex");
+/** sha256 of a file, streamed — each chunk read yields the event loop, so serving
+ *  app:// requests interleaves instead of stalling behind a monolithic hash
+ *  @param {string} p */
+async function sha256File(p) {
+  const hash = createHash("sha256");
+  for await (const chunk of fs.createReadStream(p, { highWaterMark: 1 << 20 })) hash.update(chunk);
+  return hash.digest("hex");
+}
+
+/** sha256 of an in-memory buffer, chunked with explicit yields for the same reason
+ *  @param {Uint8Array} buf */
+async function sha256Buf(buf) {
+  const hash = createHash("sha256");
+  const STEP = 4 << 20;
+  for (let off = 0; off < buf.length; off += STEP) {
+    hash.update(buf.subarray(off, off + STEP));
+    if (off + STEP < buf.length) await new Promise((r) => setImmediate(r));
+  }
+  return hash.digest("hex");
+}
 
 /** download/copy one manifest entry into the staging dir, verifying its hash
  *  @param {string} rel @param {{h: string, s: number}} want
@@ -124,12 +148,13 @@ async function syncFile(rel, want, stagingDir, activeDist) {
   await fsp.mkdir(path.dirname(dest), { recursive: true });
   // reuse the local copy when the active bundle already has these exact bytes
   try {
-    const local = await fsp.readFile(path.join(activeDist, rel));
-    if (local.length === want.s && sha256(local) === want.h) { await fsp.writeFile(dest, local); return 0; }
+    const src = path.join(activeDist, rel);
+    const st = await fsp.stat(src);
+    if (st.size === want.s && await sha256File(src) === want.h) { await fsp.copyFile(src, dest); return 0; }
   } catch { /* not local — download */ }
   const res = await fetchTimed(`${PAGES_URL}/${rel.split("/").map(encodeURIComponent).join("/")}?v=${want.h.slice(0, 8)}`);
   const buf = Buffer.from(await res.arrayBuffer());
-  if (buf.length !== want.s || sha256(buf) !== want.h) {
+  if (buf.length !== want.s || await sha256Buf(buf) !== want.h) {
     throw new Error(`hash mismatch for ${rel} (stale CDN?)`); // abort the whole update; retry later
   }
   await fsp.writeFile(dest, buf);
@@ -171,39 +196,47 @@ async function checkOnce(activeDist) {
   }
 }
 
-/** Start the background update loop: check at launch, then periodically; on a
- *  completed download offer ONE restart prompt (declining defers to next launch). */
-/** @param {import("electron").BrowserWindow} win @param {string} activeDist */
-export function initUpdater(win, activeDist) {
+/** Start the background update loop: first check after a short grace period,
+ *  then periodically; on a completed download offer ONE restart prompt
+ *  (declining defers to next launch). The prompt is withheld while
+ *  `inMatchHint()` is true — a native modal steals pointer lock, and on a fresh
+ *  install the download finishes right when the first match is being played.
+ *  @param {import("electron").BrowserWindow} win @param {string} activeDist
+ *  @param {() => boolean} [inMatchHint] */
+export function initUpdater(win, activeDist, inMatchHint) {
   if (!PAGES_URL) return; // dev without SLOP_UPDATE_URL — inert
   let prompted = false;
+  /** @param {string} ready */
+  const promptWhenClear = async (ready) => {
+    // re-check the hint every minute; worst case the update just applies next launch
+    while (inMatchHint?.()) await new Promise((r) => { setTimeout(r, 60_000).unref?.(); });
+    if (prompted || win.isDestroyed()) return;
+    prompted = true;
+    const { response } = await dialog.showMessageBox(win, {
+      type: "info",
+      buttons: ["Restart now", "Later"],
+      defaultId: 0,
+      cancelId: 1,
+      title: "SlopWars",
+      message: `Update ${readVersion(ready) ?? ""} downloaded`,
+      detail: "Restart to play on the new version — old clients can't join updated lobbies. \"Later\" applies it on the next launch.",
+    });
+    if (response === 0) {
+      app.relaunch();
+      win.destroy(); // skip the in-match close-confirm: this prompt WAS the confirmation
+      app.quit();
+    }
+  };
   const tick = async () => {
     let delay = CHECK_MS;
     try {
       const ready = await checkOnce(activeDist);
-      if (ready && !prompted && !win.isDestroyed()) {
-        prompted = true;
-        const { response } = await dialog.showMessageBox(win, {
-          type: "info",
-          buttons: ["Restart now", "Later"],
-          defaultId: 0,
-          cancelId: 1,
-          title: "SlopWars",
-          message: `Update ${readVersion(ready) ?? ""} downloaded`,
-          detail: "Restart to play on the new version — old clients can't join updated lobbies. \"Later\" applies it on the next launch.",
-        });
-        if (response === 0) {
-          app.relaunch();
-          win.destroy(); // skip the in-match close-confirm: this prompt WAS the confirmation
-          app.quit();
-          return;
-        }
-      }
+      if (ready && !prompted && !win.isDestroyed()) void promptWhenClear(ready);
     } catch (e) {
       console.warn("[updater] check failed:", String(e instanceof Error ? e.message : e));
       delay = RETRY_MS;
     }
     setTimeout(tick, delay).unref?.();
   };
-  void tick();
+  setTimeout(tick, INITIAL_DELAY_MS).unref?.();
 }

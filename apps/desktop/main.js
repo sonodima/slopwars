@@ -80,9 +80,17 @@ app.whenReady().then(() => {
   });
 
   // Voice chat (getUserMedia), canvas pointer lock, fullscreen — deny the rest.
+  // Pointer-lock requests double as a zero-IPC "probably in a match" hint: the game
+  // only locks the pointer during play, so a recent request means a native dialog
+  // (updater restart prompt) would break someone's aim — see initUpdater below.
   const ALLOWED = new Set(["media", "pointerLock", "fullscreen"]);
-  session.defaultSession.setPermissionRequestHandler((_wc, perm, cb) => cb(ALLOWED.has(perm)));
+  let lastPointerLock = 0;
+  session.defaultSession.setPermissionRequestHandler((_wc, perm, cb) => {
+    if (perm === "pointerLock") lastPointerLock = Date.now();
+    cb(ALLOWED.has(perm));
+  });
   session.defaultSession.setPermissionCheckHandler((_wc, perm) => ALLOWED.has(perm));
+  const probablyInMatch = () => Date.now() - lastPointerLock < 90_000;
 
   const win = new BrowserWindow({
     width: 1600,
@@ -126,7 +134,7 @@ app.whenReady().then(() => {
   void win.loadURL(devUrl ?? "app://game/");
 
   // keep the game bundle current against the Pages deploy (no-op in dev)
-  if (!devUrl) initUpdater(win, gameDist);
+  if (!devUrl) initUpdater(win, gameDist, probablyInMatch);
 });
 
 app.on("window-all-closed", () => app.quit());

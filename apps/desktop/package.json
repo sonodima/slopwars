@@ -1,6 +1,6 @@
 {
   "name": "@slopwars/desktop",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "SlopWars desktop shell — Electron wrapper serving the built game bundle",
   "author": "sonodima",
   "type": "module",
