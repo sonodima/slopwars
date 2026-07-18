@@ -7,7 +7,7 @@ it like a human would.
 ![Editor](../../design/screenshots/editor.png)
 
 ```bash
-pnpm dev:editor      # → http://localhost:5210
+pnpm editor          # → http://localhost:5210
 ```
 
 ## Philosophy
@@ -17,7 +17,7 @@ pnpm dev:editor      # → http://localhost:5210
   under their own asset folders. Saving is writing pretty JSON; shipping is
   committing. There is no database and no export step — the game picks the
   files up on its next scan.
-- **One process, two owners.** `pnpm dev:editor` starts a single Vite dev
+- **One process, two owners.** `pnpm editor` starts a single Vite dev
   server that is also the *editor host*: the **browser** owns the live editing
   session (the in-memory map, selection, undo/redo, camera), the **host** owns
   every file operation. Nothing else to run.

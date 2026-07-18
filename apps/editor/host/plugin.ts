@@ -1,6 +1,6 @@
 // ─── Editor host: the Vite plugin that unifies everything ────────────────────
 // This turns the editor's Vite dev server into the self-contained editor host,
-// all in one process (`pnpm dev:editor`):
+// all in one process (`pnpm editor`):
 //
 //   • /__editor/*        file API the browser UI calls (catalog, maps, save, import)
 //   • /__editor/bridge/* long-poll queue: host → open editor page (live ops)

@@ -55,7 +55,7 @@ Requires [Node 24+](mise.toml) and [pnpm](https://pnpm.io).
 ```bash
 pnpm install
 pnpm dev              # game client   → http://localhost:5211
-pnpm dev:editor       # map editor    → http://localhost:5210
+pnpm editor           # map editor    → http://localhost:5210
 pnpm build            # deployable game bundle (apps/game/dist)
 pnpm typecheck        # typecheck every workspace
 ```
