@@ -9,7 +9,7 @@ import {
   FogMode, MeshRenderer, MSAASamples, PostProcess, PrimitiveMesh, RenderFace,
   SkyBoxMaterial, TextureCube, TonemappingEffect, TonemappingMode, UnlitMaterial, Vector3, WebGLEngine,
 } from "@galacean/engine";
-import type { MapDef, MaterialAsset, MaterialDef, ModelAsset, ModelMeta, Placement, ShadowQuality, Tuple3, WorldTf } from "@slopwars/shared";
+import type { MapDef, MaterialAsset, MaterialDef, ModelAsset, ModelMeta, Placement, ShadowQuality, TextureAsset, Tuple3, WorldTf } from "@slopwars/shared";
 import { envSunColor, groupWorldTf, invComposeTf, resolveWorld } from "@slopwars/shared";
 import { applyFogFalloff, applyPost, applyShadows } from "@game/rendersettings";
 import { GameMap } from "@game/map";
@@ -77,6 +77,9 @@ export class Viewport {
   // live material defs (from the editor catalog + unsaved edits) so tweaking a
   // material re-shades the viewport immediately, before it's saved to a file.
   private matDefs = new Map<string, MaterialDef>();
+  // live texture-set list from the editor catalog (the compiled-in snapshot in
+  // @game/textures can't see post-start imports); undefined until first set
+  private texAssets: TextureAsset[] | undefined;
   // live per-model calibration metas (base/scale/material), so editing a model's
   // meta re-poses/reskins its placements in the viewport immediately.
   private modelMetas = new Map<string, ModelMeta>();
@@ -227,6 +230,17 @@ export class Viewport {
     if (rebuild && this.ready && state.map) void this.render(state.map);
   }
 
+  /** update the live texture-set list used to resolve texture folders (so a
+   *  just-imported set shades the map without a dev-server restart). */
+  setTextureAssets(textures: TextureAsset[]): void {
+    this.texAssets = textures;
+    // force a re-resolve even if the folder LIST is unchanged: a folder the map
+    // referenced but that didn't exist at load (resolved to the default set) now
+    // has real maps to pick up. (A folder that merely GAINED maps under an
+    // already-loaded name still needs a restart — resolveTextures caches per name.)
+    this.texKey = "";
+  }
+
   /** update the per-model calibration metas used to pose/reskin model placements
    *  (from the editor catalog + any unsaved model-inspector edit). */
   setModelMetas(models: ModelAsset[], rebuild = false): void {
@@ -253,10 +267,10 @@ export class Viewport {
 
   async render(def: MapDef): Promise<void> {
     if (!this.ready) return;
-    const folders = mapTextureFolders(def, this.matDefs);
+    const folders = mapTextureFolders(def, this.matDefs, this.modelMetas);
     const key = folders.slice().sort().join(",");
     if (key !== this.texKey || !this.texCache) {
-      this.texCache = await resolveTextures(this.engine, folders);
+      this.texCache = await resolveTextures(this.engine, folders, this.texAssets);
       this.texKey = key;
     }
     this.rebuild(def, this.texCache);

@@ -15,6 +15,7 @@ import { tabs, type Tab } from "./tabs";
 import { mountSceneGraph } from "./scenegraph";
 import { renderInspector, refreshInspector, setInspectorCatalog, setInspectorThumbs, setInspectorMaterialHooks, setInspectorModelHooks, setInspectorTextureHooks } from "./inspector";
 import { renderBrowser, Payload, type BrowserControl } from "./panels";
+import { renderAssetStore } from "./assetstore";
 import { mountResizers } from "./layout";
 import { objectDropScale } from "@game/objects";
 import { startMcpBridge } from "./mcpbridge";
@@ -59,8 +60,13 @@ async function refreshCatalog(reshade = false): Promise<void> {
   catalog = await loadCatalog();
   setInspectorCatalog(catalog);
   preview.setCatalog(catalog);
+  thumbs.setCatalog(catalog);   // shade thumbnail cards from the live catalog, so post-start imports show
   viewport.setMaterials(catalog.materials, false);
   viewport.setModelMetas(catalog.models, false);
+  // feed the viewport the live texture-set list BEFORE the re-render below: a
+  // just-imported folder must resolve (the compiled-in catalog is a
+  // dev-server-start snapshot), else the map renders it transparent/unshaded.
+  viewport.setTextureAssets(catalog.textures);
   // load the geometry of any newly imported models (the compiled-in virtual catalog
   // loadModels() used is a dev-server-start snapshot); this re-renders when something
   // new loaded, so an imported model appears without an editor/dev-server restart.
@@ -748,6 +754,15 @@ function buildDock(): void {
     onDeleteHdri: (file) => void deleteAssetFlow(file, "skybox"),
     onDeleteAudio: (file) => void deleteAssetFlow(file, "audio"),
     onDeleteMap: (file) => void deleteMapFlow(file),
+  });
+  // asset-store pane (left of the project browser). An import may overwrite an
+  // existing set/model of the same name, so stale thumbnails are dropped too.
+  renderAssetStore($("assetstore"), {
+    onImported: async () => {
+      thumbs.invalidate((k) => k.startsWith("tex:") || k.startsWith("mat:") || k.startsWith("model:") || k.startsWith("obj:") || k.startsWith("hdri:"));
+      await refreshCatalog(true);
+      await browser?.reload();
+    },
   });
 }
 

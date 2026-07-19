@@ -5,6 +5,7 @@
 // guaranteed-present default folder. Folders load once and are cached across map
 // switches, so a rotation only pays for folders it hasn't loaded yet.
 import { Engine, Texture2D } from "@galacean/engine";
+import type { TextureAsset } from "@slopwars/shared";
 import catalog from "virtual:asset-catalog";
 import { loadTexture2D } from "./assets";
 
@@ -24,21 +25,21 @@ export const DEFAULT_FOLDER = BY_NAME.has("wall") ? "wall" : (catalog.textures[0
 
 /** resolve the concrete file path for one PBR map of a folder, with fallback to
  *  the same map of the default folder (keeps rendering resilient to gaps). */
-function pathFor(folder: string, slot: "color" | "normal" | "arm"): string {
-  return BY_NAME.get(folder)?.maps[slot] ?? BY_NAME.get(DEFAULT_FOLDER)?.maps[slot] ?? `textures/${folder}/${slot}.jpg`;
+function pathFor(byName: Map<string, TextureAsset>, folder: string, slot: "color" | "normal" | "arm"): string {
+  return byName.get(folder)?.maps[slot] ?? byName.get(DEFAULT_FOLDER)?.maps[slot] ?? `textures/${folder}/${slot}.jpg`;
 }
 
 /** folder → its loaded set (shared across all maps; loaded at most once) */
 const cache = new Map<string, Promise<PbrSet>>();
 
-function loadSet(engine: Engine, folder: string): Promise<PbrSet> {
+function loadSet(engine: Engine, byName: Map<string, TextureAsset>, folder: string): Promise<PbrSet> {
   let p = cache.get(folder);
   if (!p) {
     p = (async (): Promise<PbrSet> => {
       const [color, normal, arm] = await Promise.all([
-        loadTexture2D(engine, pathFor(folder, "color")),          // albedo — sRGB
-        loadTexture2D(engine, pathFor(folder, "normal"), false),  // tangent normals — linear data
-        loadTexture2D(engine, pathFor(folder, "arm"), false),     // AO/Rough/Metal — linear data
+        loadTexture2D(engine, pathFor(byName, folder, "color")),          // albedo — sRGB
+        loadTexture2D(engine, pathFor(byName, folder, "normal"), false),  // tangent normals — linear data
+        loadTexture2D(engine, pathFor(byName, folder, "arm"), false),     // AO/Rough/Metal — linear data
       ]);
       return { color, normal, arm };
     })();
@@ -48,11 +49,15 @@ function loadSet(engine: Engine, folder: string): Promise<PbrSet> {
 }
 
 /** load every folder in `folders` (plus the default), returning a folder→set map.
- *  Unknown folders resolve to the default folder's set so builds never break. */
-export async function resolveTextures(engine: Engine, folders: string[]): Promise<MapTextures> {
+ *  Unknown folders resolve to the default folder's set so builds never break.
+ *  `index` overrides the compiled-in catalog (the editor passes its live texture
+ *  list so a just-imported folder resolves without a dev-server restart — the
+ *  virtual catalog is a dev-server-start snapshot); the game omits it. */
+export async function resolveTextures(engine: Engine, folders: string[], index?: TextureAsset[]): Promise<MapTextures> {
+  const byName = index ? new Map(index.map((t) => [t.name, t])) : BY_NAME;
   const want = new Set<string>([DEFAULT_FOLDER, ...folders]);
   const list = [...want];
-  const sets = await Promise.all(list.map((f) => loadSet(engine, BY_NAME.has(f) ? f : DEFAULT_FOLDER)));
+  const sets = await Promise.all(list.map((f) => loadSet(engine, byName, byName.has(f) ? f : DEFAULT_FOLDER)));
   const out: MapTextures = new Map();
   list.forEach((f, i) => out.set(f, sets[i]));
   return out;

@@ -36,5 +36,14 @@ export default defineConfig({
   // Fixed port so the built-in MCP server always lives at http://localhost:5210/mcp
   // (the editor host + MCP client reference it); strictPort fails loudly rather than
   // silently hopping to another port and breaking those references.
-  server: { port: 5210, strictPort: true, allowedHosts: true },
+  //
+  // watch.ignored: Vite full-reloads the page on any publicDir change — but the
+  // editor itself WRITES there constantly (map saves, imports, the Poly Haven
+  // browser), and a reload silently drops the open documents. The editor refreshes
+  // its catalog through /__editor/catalog after every write, so the watcher adds
+  // nothing here; publicDir files are still served straight from disk on request.
+  server: {
+    port: 5210, strictPort: true, allowedHosts: true,
+    watch: { ignored: [path.resolve(repoRoot, "public/assets") + "/**"] },
+  },
 });

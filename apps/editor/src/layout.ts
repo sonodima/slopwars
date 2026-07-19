@@ -1,32 +1,33 @@
 // ─── Resizable editor panels ─────────────────────────────────────────────────
-// Three draggable gutters drive CSS custom properties on :root that the grid
-// layout reads: left outliner width, right inspector width, and bottom dock
-// height. Sizes are clamped and persisted for the session in localStorage so a
-// reload keeps your layout.
+// Draggable gutters drive CSS custom properties on :root that the grid/flex
+// layouts read: left outliner width, right inspector width, bottom dock height,
+// and the dock's Poly Haven pane width. Sizes are clamped and persisted for the
+// session in localStorage so a reload keeps your layout.
 const root = document.documentElement;
 
 interface Gutter {
   cls: string;
-  varName: "--left-w" | "--right-w" | "--dock-h";
+  varName: "--left-w" | "--right-w" | "--dock-h" | "--store-w";
   axis: "x" | "y";
+  /** element the gutter is absolutely positioned inside */
+  host: "app" | "main" | "dock";
   /** map a client coordinate to a panel size in px */
   size: (clientX: number, clientY: number) => number;
   min: number; max: () => number;
 }
 
 const GUTTERS: Gutter[] = [
-  { cls: "resizer-left", varName: "--left-w", axis: "x", size: (x) => x, min: 150, max: () => window.innerWidth * 0.4 },
-  { cls: "resizer-right", varName: "--right-w", axis: "x", size: (x) => window.innerWidth - x, min: 180, max: () => window.innerWidth * 0.45 },
-  { cls: "resizer-dock", varName: "--dock-h", axis: "y", size: (_x, y) => window.innerHeight - y, min: 120, max: () => window.innerHeight * 0.6 },
+  { cls: "resizer-left", varName: "--left-w", axis: "x", host: "main", size: (x) => x, min: 150, max: () => window.innerWidth * 0.4 },
+  { cls: "resizer-right", varName: "--right-w", axis: "x", host: "main", size: (x) => window.innerWidth - x, min: 180, max: () => window.innerWidth * 0.45 },
+  { cls: "resizer-dock", varName: "--dock-h", axis: "y", host: "app", size: (_x, y) => window.innerHeight - y, min: 120, max: () => window.innerHeight * 0.6 },
+  { cls: "resizer-store", varName: "--store-w", axis: "x", host: "dock", size: (x) => x, min: 200, max: () => window.innerWidth * 0.5 },
 ];
 
 export function mountResizers(): void {
   restore();
-  const app = document.getElementById("app");
-  const main = document.getElementById("main");
-  if (!app || !main) return;
   for (const g of GUTTERS) {
-    const host = g.varName === "--dock-h" ? app : main;
+    const host = document.getElementById(g.host);
+    if (!host) continue;
     const h = document.createElement("div");
     h.className = `resizer ${g.cls}`;
     host.appendChild(h);

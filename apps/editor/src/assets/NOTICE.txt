@@ -1,0 +1,9 @@
+Source-logo marks used by the editor's asset-store pane, shown on each result
+card (and as small header links) to credit which CC0 library an entry comes
+from. Editor-only (this app is never deployed).
+
+polyhaven-logo.png — the official Poly Haven logo mark.
+  Source: https://github.com/Poly-Haven/polyhaven.com (public/Logo 256.png).
+
+The logo is the site's brand mark; the assets its API serves are CC0.
+Displayed alongside a link to https://polyhaven.com as source attribution.

@@ -16,7 +16,7 @@ import {
   AmbientLight, BackgroundMode, BoundingBox, Camera, Color, DirectLight, Entity,
   MeshRenderer, PBRMaterial, PrimitiveMesh, RefractionMode, SkyBoxMaterial, Vector3, Vector4, WebGLEngine,
 } from "@galacean/engine";
-import type { MapDef, MaterialDef, ModelMeta, TextureMaps } from "@slopwars/shared";
+import type { AssetCatalog, MapDef, MaterialDef, ModelMeta, TextureMaps } from "@slopwars/shared";
 import { modelSlotMaterial } from "@slopwars/shared";
 import catalog from "virtual:asset-catalog";
 import { loadGLTF, loadHDRCube, loadTexture2D } from "@game/assets";
@@ -57,6 +57,10 @@ export class ThumbRenderer {
   // lazy, engine-local model + texture caches (kept off the game's shared caches,
   // which are bound to the viewport engine and must not cross into this one)
   private modelsP: Promise<GameModels> | null = null;
+  // live catalog (seeded from the compiled-in snapshot, replaced via setCatalog):
+  // meta/material/texture lookups must see post-start imports or a freshly
+  // imported model/texture renders its card unshaded until a dev-server restart.
+  private live: AssetCatalog = catalog;
   private texByName = new Map(catalog.textures.map((t) => [t.name, t]));
   private setCache = new Map<string, Promise<PbrSet>>();
   // lazily-built sky material + cube mesh, reused by every HDRI preview
@@ -66,6 +70,12 @@ export class ThumbRenderer {
 
   constructor() {
     this.ready = new Promise((res) => { this.markReady = res; });
+  }
+
+  /** swap in the editor's live catalog (call after every catalog refresh) */
+  setCatalog(c: AssetCatalog): void {
+    this.live = c;
+    this.texByName = new Map(c.textures.map((t) => [t.name, t]));
   }
 
   async init(): Promise<void> {
@@ -111,11 +121,11 @@ export class ThumbRenderer {
       const res = await loadGLTF(this.engine!, gltfPath);
       const e = res.instantiateSceneRoot();
       this.holder.addChild(e);
-      const meta = catalog.models.find((m) => m.gltf === gltfPath)?.meta as ModelMeta | undefined;
+      const meta = this.live.models.find((m) => m.gltf === gltfPath)?.meta as ModelMeta | undefined;
       if (meta?.materials || meta?.material) {
         for (const r of e.getComponentsIncludeChildren(MeshRenderer, [])) {
           const name = modelSlotMaterial(meta, r.getMaterial()?.name ?? "");
-          const def = name ? catalog.materials.find((x) => x.name === name)?.def : undefined;
+          const def = name ? this.live.materials.find((x) => x.name === name)?.def : undefined;
           if (def) r.setMaterial(await this.buildDefMaterial(def));
         }
       }
@@ -130,7 +140,7 @@ export class ThumbRenderer {
     const m = new PBRMaterial(this.engine!);
     if (def.type === "standard") {
       if (def.texture) {
-        const maps = catalog.textures.find((t) => t.name === def.texture)?.maps ?? {};
+        const maps = this.live.textures.find((t) => t.name === def.texture)?.maps ?? {};
         const [color, normal, arm] = await Promise.all([
           maps.color ? loadTexture2D(this.engine!, maps.color) : null,
           maps.normal ? loadTexture2D(this.engine!, maps.normal, false) : null,

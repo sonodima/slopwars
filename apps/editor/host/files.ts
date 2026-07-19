@@ -23,7 +23,7 @@ export interface ImportResult { ok?: boolean; error?: string; name?: string; fil
 
 // ── path / name sanitizers ───────────────────────────────────────────────────
 
-function sanitize(name: string): string {
+export function sanitize(name: string): string {
   return String(name).replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 64);
 }
 /** keep a submitted filename safe (basename only, sane charset) */

@@ -22,8 +22,16 @@ export interface ImportFile { name: string; data: string; slot?: "color" | "norm
 export interface ImportRequest { kind: "texture" | "model" | "audio" | "hdri"; name: string; files: ImportFile[] }
 export interface ImportResult { ok?: boolean; error?: string; name?: string; files?: string[] }
 
+// ── asset store (pluggable CC0 sources, merged + imported by the host — see host/store.ts) ──
+export type StoreType = "models" | "textures" | "hdris";
+export type StoreSource = "polyhaven";
+export interface StoreAsset { id: string; name: string; categories: string[]; tags: string[]; downloads: number; thumb: string; source: StoreSource }
+export interface StoreImportResult { ok?: boolean; error?: string; name?: string; res?: string; textures?: string[] }
+
 export const api = {
   catalog: (): Promise<AssetCatalog> => jget("/__editor/catalog"),
+  storeList: (type: StoreType): Promise<StoreAsset[]> => jget(`/__editor/store/list?type=${type}`),
+  storeImport: (req: { source: StoreSource; type: StoreType; id: string; res: string }): Promise<StoreImportResult> => jpost("/__editor/store/import", req) as Promise<StoreImportResult>,
   maps: (): Promise<MapCatalogEntry[]> => jget("/__editor/maps"),
   loadMap: (file: string): Promise<MapDef> => jget(`/${file}`),
   saveMap: (id: string, def: MapDef): Promise<unknown> => jpost("/__editor/save", { id, def }),

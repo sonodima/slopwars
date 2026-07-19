@@ -29,8 +29,13 @@ interface Options {
   root?: string;
 }
 
-const V_ASSETS = "virtual:asset-catalog";
-const V_MAPS = "virtual:map-catalog";
+// Exported so the editor host can invalidate the virtual modules after ITS OWN
+// writes: the editor dev server ignores the public/assets watcher (a full-reload
+// there would drop the open documents), so the watcher-driven invalidation below
+// never fires for it — without this, a manual page reload after an editor-side
+// import/save would still see the stale dev-server-start catalog.
+export const V_ASSETS = "virtual:asset-catalog";
+export const V_MAPS = "virtual:map-catalog";
 const IMG = /\.(jpe?g|png|webp|ktx2?|hdr)$/i;
 const AUDIO = /\.(mp3|wav|ogg|m4a)$/i;
 

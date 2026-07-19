@@ -13,12 +13,16 @@
 // at http://localhost:5210/mcp.
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Plugin } from "vite";
+import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { Bridge } from "./bridge";
 import { createMcp } from "./mcp";
+import { V_ASSETS, V_MAPS } from "../../../packages/shared/src/vite-asset-catalog";
 import { createMaterial, createTexture, deleteAssetFile, deleteMap, deleteMaterial, deleteModel, deleteTexture, deleteTextureMap, importAsset, loadMap, renameMaterial, renameTexture, saveMap, saveMaterial, saveModelMeta, scanAssets, scanMaps } from "./files";
+import type { PhType } from "./polyhaven";
+import { storeImport, storeList } from "./store";
 
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -30,6 +34,41 @@ function json(res: ServerResponse, code: number, data: unknown, headers: Record<
   res.setHeader("Content-Type", "application/json");
   for (const [k, v] of Object.entries(headers)) res.setHeader(k, v);
   res.end(JSON.stringify(data));
+}
+
+// Content type by extension for the static /assets serving below. Only the asset
+// kinds the editor/game actually fetch; anything else falls back to octet-stream.
+const MIME: Record<string, string> = {
+  ".gltf": "model/gltf+json", ".glb": "model/gltf-binary", ".bin": "application/octet-stream",
+  ".json": "application/json", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+  ".webp": "image/webp", ".ktx2": "image/ktx2", ".hdr": "image/vnd.radiance",
+  ".mp3": "audio/mpeg", ".wav": "audio/wav", ".ogg": "audio/ogg", ".m4a": "audio/mp4",
+  ".txt": "text/plain; charset=utf-8",
+};
+
+// Serve one public/assets file straight from disk. Vite's own publicDir middleware
+// gates on a `publicFiles` set that is seeded at startup and only kept current by the
+// file watcher — but the editor IGNORES the public/assets watcher (an asset write must
+// not full-reload the page and drop open documents), so a just-imported file is never
+// added to that set and Vite answers its URL with the SPA index.html instead. That HTML
+// then fails to parse as glTF/JSON and the model/texture loads as nothing (transparent,
+// no thumbnail). Reading from disk here sidesteps the stale set entirely. Returns false
+// (→ fall through to Vite) when the path escapes the root or names no real file.
+function serveAsset(root: string, url: string, res: ServerResponse, headOnly: boolean): boolean {
+  const rel = decodeURIComponent(url.replace(/^\/+/, ""));            // "assets/models/x/x.gltf"
+  const abs = path.resolve(root, "public", rel);
+  const base = path.resolve(root, "public/assets");
+  if (abs !== base && !abs.startsWith(base + path.sep)) return false;  // traversal guard
+  let stat: fs.Stats;
+  try { stat = fs.statSync(abs); } catch { return false; }
+  if (!stat.isFile()) return false;
+  res.statusCode = 200;
+  res.setHeader("Content-Type", MIME[path.extname(abs).toLowerCase()] ?? "application/octet-stream");
+  res.setHeader("Content-Length", String(stat.size));
+  res.setHeader("Cache-Control", "no-cache");   // assets change under the editor; never stale-serve
+  if (headOnly) { res.end(); return true; }
+  fs.createReadStream(abs).pipe(res);
+  return true;
 }
 
 interface Options {
@@ -57,7 +96,29 @@ export function editorHostPlugin(opts: Options = {}): Plugin {
         // ── MCP server: Streamable HTTP transport ──
         if (url === "/mcp") return handleMcp(req, res, method, mcp, sessionId);
 
+        // ── static public/assets, served from disk (Vite skips post-start imports) ──
+        if ((method === "GET" || method === "HEAD") && url.startsWith("/assets/")) {
+          if (serveAsset(root, url, res, method === "HEAD")) return;
+        }
+
         if (!url.startsWith("/__editor/")) return next();
+
+        // Every editor POST below mutates the asset tree (bridge traffic aside).
+        // The editor's vite config ignores the public/assets watcher (an asset
+        // write must NOT full-reload the page and drop the open documents), which
+        // also silences the shared plugin's watcher-driven virtual-module
+        // invalidation — so do it here instead, once the write has finished: the
+        // open page refreshes itself through /__editor/catalog, and the next
+        // manual page load re-scans instead of serving the dev-server-start
+        // snapshot (models used to render as nothing until a server restart).
+        if (method === "POST" && !url.startsWith("/__editor/bridge/")) {
+          res.on("finish", () => {
+            for (const v of [V_ASSETS, V_MAPS]) {
+              const mod = server.moduleGraph.getModuleById("\0" + v);
+              if (mod) server.moduleGraph.invalidateModule(mod);
+            }
+          });
+        }
 
         // ── read-only file API (also used by the browser UI) ──
         if (method === "GET" && url === "/__editor/catalog") return json(res, 200, scanAssets(root));
@@ -124,6 +185,22 @@ export function editorHostPlugin(opts: Options = {}): Plugin {
             const b = JSON.parse(body);
             const r = b.op === "delete" ? deleteMap(root, b.file) : { error: "unknown op" };
             json(res, (r as { error?: string }).error ? 400 : 200, r);
+          }).catch((e) => json(res, 500, { error: String(e) }));
+          return;
+        }
+
+        // ── asset store: merged multi-source listing / variant import (store.ts) ──
+        if (method === "GET" && url === "/__editor/store/list") {
+          const type = new URL(req.url ?? "", "http://localhost").searchParams.get("type") as PhType | null;
+          storeList(type ?? "models")
+            .then((assets) => json(res, 200, assets))
+            .catch((e) => json(res, 500, { error: String(e) }));
+          return;
+        }
+        if (method === "POST" && url === "/__editor/store/import") {
+          readBody(req).then(async (body) => {
+            const r = await storeImport(root, JSON.parse(body));
+            json(res, r.error ? 400 : 200, r);
           }).catch((e) => json(res, 500, { error: String(e) }));
           return;
         }
