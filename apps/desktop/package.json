@@ -42,9 +42,16 @@
       "executableName": "slopwars"
     },
     "mac": {
-      "icon": "../../public/icons/icon-512.png",
+      "icon": "build/icon.icns",
+      "extraResources": [
+        {
+          "from": "build/Assets.car",
+          "to": "Assets.car"
+        }
+      ],
       "extendInfo": {
-        "NSMicrophoneUsageDescription": "In-game proximity voice chat"
+        "NSMicrophoneUsageDescription": "In-game proximity voice chat",
+        "CFBundleIconName": "AppIcon"
       }
     },
     "win": {
