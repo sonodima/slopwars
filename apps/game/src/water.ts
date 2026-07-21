@@ -28,6 +28,7 @@ import {
   TextureFormat, TextureWrapMode, Vector3, Vector4,
 } from "@galacean/engine";
 import type { DirectLight } from "@galacean/engine";
+import { CLOUD_RT_LAYER } from "./clouds";
 
 /** water surfaces live on their own layer so the reflection camera can skip them
  *  (a mirror must not render the mirror itself). */
@@ -447,7 +448,7 @@ export class WaterFX extends Script {
     const e = root.createChild("water-reflection");
     const cam = e.addComponent(Camera);
     cam.enabled = false;                     // rendered manually, before the main camera
-    cam.cullingMask = (Layer.Everything & ~(WATER_LAYER | NO_REFLECT_LAYER)) as Layer;
+    cam.cullingMask = (Layer.Everything & ~(WATER_LAYER | NO_REFLECT_LAYER | CLOUD_RT_LAYER)) as Layer;
     cam.farClipPlane = mainCam.farClipPlane;
     cam.enablePostProcess = false;           // linear scene colors; tonemapped via the surface
     cam.enableHDR = false;

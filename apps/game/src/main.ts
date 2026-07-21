@@ -1,7 +1,7 @@
 // ─── Bootstrap + game orchestration ──────────────────────────────────────────
 import {
   AmbientLight, Animator, BackgroundMode, BlinnPhongMaterial, BloomEffect, Camera, Color,
-  DirectLight, Engine, Entity, FogMode, MSAASamples, MeshRenderer, PostProcess,
+  DepthTextureMode, DirectLight, Engine, Entity, FogMode, Layer, MSAASamples, MeshRenderer, PostProcess,
   PrimitiveMesh, Quaternion, RenderFace, ShadowResolution, ShadowType, SkinnedMeshRenderer, SkyBoxMaterial,
   TextureCube, TonemappingEffect, TonemappingMode, UnlitMaterial, Vector3,
 } from "@galacean/engine";
@@ -46,6 +46,8 @@ import { CLASSES, CLASS_LIST, ClassId, classById, randomClass } from "./classes"
 import { Voice } from "./voice";
 import { NpcChat, Relation, initNpcChat } from "./npcchat";
 import { WaterFX } from "./water";
+import { WeatherFX } from "./weather";
+import { CLOUD_RT_LAYER } from "./clouds";
 import { TouchControls } from "./touch";
 import { GamepadControls } from "./gamepad";
 import { Settings } from "./settings";
@@ -158,6 +160,7 @@ class Game {
   hdriCache = new Map<string, Promise<TextureCube>>();
   sunE!: Entity;
   waterFX!: WaterFX;
+  weather!: WeatherFX;
   sun!: DirectLight;
   amb!: AmbientLight;
   bloom!: BloomEffect;
@@ -396,6 +399,12 @@ class Game {
     // planar water reflections: renders the mirrored scene each frame on maps with
     // water (see water.ts); loadMap() points it at the map's water plane.
     this.waterFX = WaterFX.attach(root, cam, sun);
+
+    // atmospheric weather (volumetric clouds / mist / sun rays / rain) — driven
+    // per-map by env.weather in applyEnv(). The cloud panorama's raymarch quad
+    // must never be seen by the main eye, so mask its layer out.
+    cam.cullingMask = (Layer.Everything & ~CLOUD_RT_LAYER) as Layer;
+    this.weather = WeatherFX.attach(root, cam, sun);
 
     const ppE = root.createChild("post");
     const pp = ppE.addComponent(PostProcess);
@@ -1359,6 +1368,11 @@ class Game {
     cam.enableHDR = s.hdr;
     cam.enablePostProcess = s.post;
     if (this.map?.env) applyShadows(scene, this.sun, this.map.env, s.shadowCap);
+    // weather knob: on change, re-run applyEnv — it restores the stock sky and
+    // re-applies (or skips) the weather layers, then fixes the depth prepass
+    if (this.weather.setEnabled(s.weather) && this.map?.env) {
+      void this.applyEnv(this.map.env).then(() => this.updateAmbientWater());
+    }
     this.applyResolution();
   }
 
@@ -3067,12 +3081,27 @@ class Game {
       scene.background.mode = BackgroundMode.SolidColor;
       scene.background.solidColor = new Color(s[0], s[1], s[2], 1);
     }
+    // weather layers go last: with clouds on they swap the background for the
+    // cloud-compositing sky material (over the same HDRI, cached → instant)
+    this.weather.apply(env, env.sky.hdri ? await this.loadHdri(env.sky.hdri) : null);
+    this.updateDepthMode();
   }
 
-  /** ambient water loop plays only in-game on maps that define a water source */
+  /** the depth prepass serves two masters — water (refraction/shore) and the
+   *  weather screen-space pass (fog/rays). Either one keeps it on; with both
+   *  gone it's switched off so weatherless, waterless maps pay nothing. */
+  updateDepthMode(): void {
+    const on = this.map.primaryWaterY() != null || this.weather.needsDepth();
+    this.camera.depthTextureMode = on ? DepthTextureMode.PrePass : DepthTextureMode.None;
+  }
+
+  /** ambience loops (water / rain) play only in-game on maps that define them */
   updateAmbientWater(): void {
     if (this.inGame && this.map.env.water) sfx.startAmbientWater();
     else sfx.stopAmbientWater();
+    const rain = this.weather.rainLevel();
+    if (this.inGame && rain > 0) sfx.startRain(rain);
+    else sfx.stopRain();
   }
 
   // ─── map voting (interlude) ────────────────────────────────────────────────────

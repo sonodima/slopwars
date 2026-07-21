@@ -40,6 +40,7 @@ import { buildParticles } from "./particles";
 import { PlayerBody } from "./player";
 import { MOVE, Vec3, clamp } from "./types";
 import { NO_REFLECT_LAYER, WATER_LAYER, makeOblique } from "./water";
+import { CLOUD_RT_LAYER } from "./clouds";
 
 export const PORTAL_LIFE = 45;    // s a portal stays up before auto-despawn
 export const PORTAL_HALF_W = 0.75; // oval half-width (t axis)
@@ -255,7 +256,7 @@ export class Portals {
     const e = this.root.createChild("portal-view");
     const cam = e.addComponent(Camera);
     cam.enabled = false; // rendered manually from renderView
-    cam.cullingMask = (Layer.Everything & ~(WATER_LAYER | NO_REFLECT_LAYER | PORTAL_SURF_LAYER)) as Layer;
+    cam.cullingMask = (Layer.Everything & ~(WATER_LAYER | NO_REFLECT_LAYER | PORTAL_SURF_LAYER | CLOUD_RT_LAYER)) as Layer;
     cam.farClipPlane = mainCam.farClipPlane;
     cam.enablePostProcess = false;
     cam.enableHDR = false;

@@ -21,6 +21,7 @@ export interface SettingsState {
   msaa: Msaa; // camera MSAA samples
   hdr: boolean; // HDR rendering
   post: boolean; // post-processing (bloom/tonemap — their *look* stays map-authored)
+  weather: boolean; // atmospheric FX (volumetric clouds/mist/rays/rain — look stays map-authored)
   shadowCap: ShadowQuality; // ceiling on the map's authored shadow tier
   renderScale: number; // render-buffer scale 0.5–1 (multiplies the device DPR cap)
   sensitivity: number; // mouse + touch look-speed multiplier
@@ -39,10 +40,10 @@ export interface SettingsState {
 
 /** what each preset means in knobs — the single source for preset clicks AND for
  *  migrating pre-granular storage (which persisted only `quality`) */
-export const PRESETS: Record<Exclude<Quality, "custom">, Pick<SettingsState, "msaa" | "hdr" | "post" | "shadowCap" | "renderScale">> = {
-  low:    { msaa: 0, hdr: false, post: false, shadowCap: "off",    renderScale: 0.6 },
-  medium: { msaa: 2, hdr: true,  post: true,  shadowCap: "medium", renderScale: 0.85 },
-  high:   { msaa: 4, hdr: true,  post: true,  shadowCap: "ultra",  renderScale: 1 },
+export const PRESETS: Record<Exclude<Quality, "custom">, Pick<SettingsState, "msaa" | "hdr" | "post" | "weather" | "shadowCap" | "renderScale">> = {
+  low:    { msaa: 0, hdr: false, post: false, weather: false, shadowCap: "off",    renderScale: 0.6 },
+  medium: { msaa: 2, hdr: true,  post: true,  weather: true,  shadowCap: "medium", renderScale: 0.85 },
+  high:   { msaa: 4, hdr: true,  post: true,  weather: true,  shadowCap: "ultra",  renderScale: 1 },
 };
 
 const KEY = "slopwars.settings";
@@ -76,6 +77,8 @@ function load(): SettingsState {
   s.renderScale = Math.min(1, Math.max(0.5, Number(s.renderScale) || 1));
   s.hdr = !!s.hdr;
   s.post = !!s.post;
+  if (typeof s.weather !== "boolean") s.weather = true; // pre-weather storage → on
+
   if (!s.keys || typeof s.keys !== "object") s.keys = {};
   if (!s.pads || typeof s.pads !== "object") s.pads = {};
   if (!s.name) s.name = "player" + ((Math.random() * 900 + 100) | 0);
@@ -138,6 +141,7 @@ export class Settings {
     }
     $("set-hdr").addEventListener("click", () => this.set({ quality: "custom", hdr: !this.state.hdr }));
     $("set-post").addEventListener("click", () => this.set({ quality: "custom", post: !this.state.post }));
+    $("set-weather").addEventListener("click", () => this.set({ quality: "custom", weather: !this.state.weather }));
     const scale = $("set-scale") as HTMLInputElement;
     // label live while dragging, but apply on release only: every apply reallocates
     // the render buffer, and a drag fires dozens of input events per second
@@ -308,6 +312,7 @@ export class Settings {
     }
     this.toggleBtn("set-hdr", s.hdr);
     this.toggleBtn("set-post", s.post);
+    this.toggleBtn("set-weather", s.weather);
     ($("set-scale") as HTMLInputElement).value = String(s.renderScale);
     $("set-scale-val").textContent = `${Math.round(s.renderScale * 100)}%`;
     ($("set-sens") as HTMLInputElement).value = String(s.sensitivity);

@@ -5,8 +5,8 @@
 // transform gizmo; all projection/picking math is done manually from the camera
 // basis so it doesn't depend on engine screen-space conventions.
 import {
-  AmbientLight, BackgroundMode, BloomEffect, BoundingBox, Camera, Color, DirectLight, Entity,
-  FogMode, MeshRenderer, MSAASamples, PostProcess, PrimitiveMesh, RenderFace,
+  AmbientLight, BackgroundMode, BloomEffect, BoundingBox, Camera, Color, DepthTextureMode, DirectLight, Entity,
+  FogMode, Layer, MeshRenderer, MSAASamples, PostProcess, PrimitiveMesh, RenderFace,
   SkyBoxMaterial, TextureCube, TonemappingEffect, TonemappingMode, UnlitMaterial, Vector3, WebGLEngine,
 } from "@galacean/engine";
 import type { MapDef, MaterialAsset, MaterialDef, ModelAsset, ModelMeta, Placement, ShadowQuality, TextureAsset, Tuple3, WorldTf } from "@slopwars/shared";
@@ -14,6 +14,8 @@ import { envSunColor, groupWorldTf, invComposeTf, resolveWorld } from "@slopwars
 import { applyFogFalloff, applyPost, applyShadows } from "@game/rendersettings";
 import { GameMap } from "@game/map";
 import { WaterFX } from "@game/water";
+import { WeatherFX } from "@game/weather";
+import { CLOUD_RT_LAYER } from "@game/clouds";
 import { GameModels, loadModels } from "@game/models";
 import { resolveTextures, type MapTextures } from "@game/textures";
 import { mapTextureFolders, objectCategory, objectIcon } from "@game/objects";
@@ -49,6 +51,7 @@ export class Viewport {
   private camera!: Camera;
   private sun!: DirectLight;
   private waterFX!: WaterFX;
+  private weatherFX!: WeatherFX;
   private amb!: AmbientLight;
   private skyMat!: SkyBoxMaterial;
   private bloom!: BloomEffect;
@@ -168,6 +171,12 @@ export class Viewport {
     // planar water reflections, exactly like the game — rebuild() re-aims the
     // plane after every map edit so water in the editor mirrors the live scene.
     this.waterFX = WaterFX.attach(this.root, this.camera, this.sun);
+
+    // atmospheric weather, exactly like the game: env.weather drives volumetric
+    // clouds / mist / sun rays / rain in the preview too. The cloud raymarch quad
+    // must never be seen by the viewport eye — mask its layer out.
+    this.camera.cullingMask = (Layer.Everything & ~CLOUD_RT_LAYER) as Layer;
+    this.weatherFX = WeatherFX.attach(this.root, this.camera, this.sun);
 
     // post stack — its bloom/tonemapping params are set per-map from env.post
     const pp = this.root.createChild("post").addComponent(PostProcess);
@@ -432,13 +441,25 @@ export class Viewport {
         this.amb.specularTexture = cube;
         scene.background.mode = BackgroundMode.Sky;
         scene.background.sky.material = this.skyMat;
+        // weather goes last: with clouds on it swaps in the compositing sky
+        this.weatherFX.apply(e, cube);
+        this.updateDepthMode();
       }).catch(() => { /* fall back to solid on load failure */ });
     } else {
       this.amb.specularTexture = null as unknown as TextureCube;
       const s = e.sky.solid ?? [0.04, 0.045, 0.05];
       scene.background.mode = BackgroundMode.SolidColor;
       scene.background.solidColor = new Color(s[0], s[1], s[2], 1);
+      this.weatherFX.apply(e, null);
+      this.updateDepthMode();
     }
+  }
+
+  /** the depth prepass serves water and the weather screen-space pass — either
+   *  keeps it on (mirrors the game's updateDepthMode) */
+  private updateDepthMode(): void {
+    const on = this.map.primaryWaterY() != null || this.weatherFX.needsDepth();
+    this.camera.depthTextureMode = on ? DepthTextureMode.PrePass : DepthTextureMode.None;
   }
 
   // ── camera basis + manual projection/picking ───────────────────────────────

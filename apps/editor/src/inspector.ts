@@ -7,7 +7,7 @@
 // "World" row edits the map's sky / lighting / effects. A group is a first-class
 // parent, so its inspector edits the group's own transform.
 import type { AssetCatalog, CollisionMode, CollisionShape, FogFalloff, MapDef, MaterialDef, MaterialType, ModelAnchor, ModelMeta, PhysicsProps, Placement, ShadowQuality, TextureMaps, ToneMode, Tuple3 } from "@slopwars/shared";
-import { ANCHOR_KINDS, MATERIAL_TYPES, PHYSICS_DEFAULTS, anchorLabel, defaultMaterialDef, envPost, envShadows } from "@slopwars/shared";
+import { ANCHOR_KINDS, MATERIAL_TYPES, PHYSICS_DEFAULTS, anchorLabel, defaultMaterialDef, envPost, envShadows, envWeather } from "@slopwars/shared";
 import { objectDefaults, placementDetail } from "@game/objects";
 import { behaviourCatalog, behaviourDefaults, behaviourLabel, type BehaviourSpec } from "@game/behaviours";
 import type { ThumbRenderer } from "./preview";
@@ -681,5 +681,70 @@ function worldInspector(host: HTMLElement, map: MapDef, touch: () => void): void
       (v) => { ((e.post ??= {}).bloom ??= {}).intensity = v; }, touch, 0.05, { min: 0 }));
     host.append(numField("bloom threshold", () => envPost(e).bloom.threshold,
       (v) => { ((e.post ??= {}).bloom ??= {}).threshold = v; }, touch, 0.05, { min: 0 }));
+  }
+
+  // ── weather: the volumetric atmosphere layers. A layer is ON when its block
+  // exists; knobs read RESOLVED values (envWeather) so a freshly-enabled layer
+  // shows its live defaults, while edits write into the raw env block (only
+  // touched fields are saved — same contract as shadows/post above). Colour
+  // swatches mutate a materialized array in place (the sky.solid pattern).
+  group(host, "Clouds");
+  host.append(checkField("volumetric clouds", () => !!e.weather?.clouds, (v) => {
+    (e.weather ??= {}).clouds = v ? {} : null;
+  }, () => state.commit(true)));
+  if (e.weather?.clouds) {
+    const c = e.weather.clouds;
+    const rc = (): NonNullable<ReturnType<typeof envWeather>["clouds"]> => envWeather(e).clouds!;
+    c.wind ??= [rc().wind[0], rc().wind[1]];
+    c.tint ??= [rc().tint[0], rc().tint[1], rc().tint[2]];
+    host.append(numField("coverage", () => rc().coverage, (v) => (c.coverage = v), touch, 0.02, UNIT));
+    host.append(numField("density", () => rc().density, (v) => (c.density = v), touch, 0.05, { min: 0 }));
+    host.append(numField("altitude", () => rc().base, (v) => (c.base = v), touch, 50, { min: 200 }));
+    host.append(numField("thickness", () => rc().thickness, (v) => (c.thickness = v), touch, 50, { min: 100 }));
+    host.append(numField("wind x", () => c.wind![0], (v) => (c.wind![0] = v), touch, 1));
+    host.append(numField("wind z", () => c.wind![1], (v) => (c.wind![1] = v), touch, 1));
+    host.append(colorField("tint", c.tint, touch, live));
+  }
+
+  group(host, "Mist");
+  host.append(checkField("height fog + ground mist", () => !!e.weather?.mist, (v) => {
+    (e.weather ??= {}).mist = v ? {} : null;
+  }, () => state.commit(true)));
+  if (e.weather?.mist) {
+    const m = e.weather.mist;
+    const rm = (): NonNullable<ReturnType<typeof envWeather>["mist"]> => envWeather(e).mist!;
+    m.color ??= [rm().color[0], rm().color[1], rm().color[2]];
+    host.append(colorField("color", m.color, touch, live));
+    host.append(numField("density", () => rm().density, (v) => (m.density = v), touch, 0.02, { min: 0 }));
+    host.append(numField("height", () => rm().height, (v) => (m.height = v), touch, 1, { min: 1 }));
+    host.append(numField("ground density", () => rm().ground, (v) => (m.ground = v), touch, 0.05, { min: 0 }));
+    host.append(numField("ground height", () => rm().groundHeight, (v) => (m.groundHeight = v), touch, 0.2, { min: 0.2 }));
+    host.append(numField("ground level", () => rm().base, (v) => (m.base = v), touch, 0.5));
+    host.append(numField("drift speed", () => rm().speed, (v) => (m.speed = v), touch, 0.1, { min: 0 }));
+  }
+
+  group(host, "Sun rays");
+  host.append(checkField("god rays", () => !!e.weather?.rays, (v) => {
+    (e.weather ??= {}).rays = v ? {} : null;
+  }, () => state.commit(true)));
+  if (e.weather?.rays) {
+    const r = e.weather.rays;
+    const rr = (): NonNullable<ReturnType<typeof envWeather>["rays"]> => envWeather(e).rays!;
+    r.color ??= [rr().color[0], rr().color[1], rr().color[2]];
+    host.append(numField("intensity", () => rr().intensity, (v) => (r.intensity = v), touch, 0.05, { min: 0 }));
+    host.append(colorField("color", r.color, touch, live));
+  }
+
+  group(host, "Rain");
+  host.append(checkField("rain", () => !!e.weather?.rain, (v) => {
+    (e.weather ??= {}).rain = v ? {} : null;
+  }, () => state.commit(true)));
+  if (e.weather?.rain) {
+    const p = e.weather.rain;
+    const rp = (): NonNullable<ReturnType<typeof envWeather>["rain"]> => envWeather(e).rain!;
+    p.wind ??= [rp().wind[0], rp().wind[1]];
+    host.append(numField("intensity", () => rp().intensity, (v) => (p.intensity = v), touch, 0.05, UNIT));
+    host.append(numField("wind x", () => p.wind![0], (v) => (p.wind![0] = v), touch, 0.5));
+    host.append(numField("wind z", () => p.wind![1], (v) => (p.wind![1] = v), touch, 0.5));
   }
 }

@@ -97,9 +97,9 @@ export type ToneMode = "none" | "neutral" | "aces";
 export type FogFalloff = "linear" | "exp" | "exp2";
 
 /** skybox + lighting + fog + render quality identity for the map. Newer fields
- *  (sun.intensity, fog.falloff/density, shadows, post) are all optional and fall
- *  back — via the resolve helpers below — to values that match the engine's
- *  original built-in look, so existing maps render identically. */
+ *  (sun.intensity, fog.falloff/density, shadows, post, weather) are all optional
+ *  and fall back — via the resolve helpers below — to values that match the
+ *  engine's original built-in look, so existing maps render identically. */
 export interface MapEnv {
   sky: { hdri?: string; solid?: Tuple3 };  // hdri path OR solid rgb (0..1) background
   fog?: { color: Tuple3; start: number; end: number; falloff?: FogFalloff; density?: number } | null;
@@ -112,6 +112,76 @@ export interface MapEnv {
   shadows?: { quality?: ShadowQuality; distance?: number; strength?: number };
   /** post-processing: tonemapping + bloom (defaults ≈ the old built-in stack) */
   post?: { tonemapping?: ToneMode; bloom?: { enabled?: boolean; intensity?: number; threshold?: number; scatter?: number } };
+  /** atmospheric layers (volumetric clouds / mist / sun rays / rain) — all off
+   *  when absent, so weather is pure opt-in per map */
+  weather?: WeatherEnv | null;
+}
+
+// ── weather (volumetric atmosphere) ──────────────────────────────────────────
+// Every layer is optional and independently toggleable; a layer is ON when its
+// block is present. All knobs are optional inside a block — the envWeather()
+// resolver fills defaults, following the envPost() pattern, so a map can say
+// just `"weather": { "rain": {} }` and get a sensible storm.
+
+export interface WeatherEnv {
+  /** raymarched volumetric cloud layer (rendered to an amortized sky panorama) */
+  clouds?: {
+    coverage?: number;        // 0..1 sky fraction covered (default 0.45)
+    density?: number;         // optical density multiplier (default 1)
+    base?: number;            // slab bottom altitude in metres (default 1400)
+    thickness?: number;       // slab height in metres (default 1600)
+    wind?: [number, number];  // drift m/s on x/z (default [14, 5])
+    tint?: Tuple3;            // multiplies cloud lighting (default [1,1,1])
+  } | null;
+  /** screen-space height fog + drifting ground mist (the "volumetric fog" pass) */
+  mist?: {
+    color?: Tuple3;           // inscatter colour (default [0.72, 0.76, 0.84])
+    density?: number;         // overall height-fog density (default 0.3)
+    height?: number;          // fog height falloff scale, metres (default 16)
+    ground?: number;          // extra ground-mist band density (default 0.9)
+    groundHeight?: number;    // mist band thickness, metres (default 2.4)
+    base?: number;            // ground level the mist sits on, metres (default 0)
+    speed?: number;           // mist noise drift speed multiplier (default 1)
+  } | null;
+  /** screen-space sun shafts radiating from the sun disc (god rays) */
+  rays?: {
+    intensity?: number;       // shaft strength 0..~1.5 (default 0.6)
+    color?: Tuple3;           // shaft colour (default: derived from sun colour)
+  } | null;
+  /** rainfall (camera-following particle field + ambience loop) */
+  rain?: {
+    intensity?: number;       // 0..1 → drop rate / opacity / audio (default 0.7)
+    wind?: [number, number];  // lateral drift m/s on x/z (default [2, 0])
+  } | null;
+}
+
+export interface EnvClouds { coverage: number; density: number; base: number; thickness: number; wind: [number, number]; tint: Tuple3 }
+export interface EnvMist { color: Tuple3; density: number; height: number; ground: number; groundHeight: number; base: number; speed: number }
+export interface EnvRays { intensity: number; color: Tuple3 }
+export interface EnvRain { intensity: number; wind: [number, number] }
+export interface EnvWeather { clouds: EnvClouds | null; mist: EnvMist | null; rays: EnvRays | null; rain: EnvRain | null }
+
+/** weather layers with defaults filled in; a layer is null when its block is
+ *  absent (= off). Rays default their colour to the sun's, softened. */
+export function envWeather(env: MapEnv): EnvWeather {
+  const w = env.weather ?? {};
+  const c = w.clouds, m = w.mist, r = w.rays, p = w.rain;
+  const sun = envSunColor(env);
+  return {
+    clouds: c ? {
+      coverage: c.coverage ?? 0.45, density: c.density ?? 1, base: c.base ?? 1400,
+      thickness: c.thickness ?? 1600, wind: c.wind ?? [14, 5], tint: c.tint ?? [1, 1, 1],
+    } : null,
+    mist: m ? {
+      color: m.color ?? [0.72, 0.76, 0.84], density: m.density ?? 0.18, height: m.height ?? 16,
+      ground: m.ground ?? 0.6, groundHeight: m.groundHeight ?? 2.4, base: m.base ?? 0, speed: m.speed ?? 1,
+    } : null,
+    rays: r ? {
+      intensity: r.intensity ?? 0.6,
+      color: r.color ?? [sun[0] * 0.55, sun[1] * 0.52, sun[2] * 0.45],
+    } : null,
+    rain: p ? { intensity: p.intensity ?? 0.7, wind: p.wind ?? [2, 0] } : null,
+  };
 }
 
 // ── resolved render settings (defaults centralised so game + editor agree) ────

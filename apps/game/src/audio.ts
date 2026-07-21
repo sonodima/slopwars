@@ -36,6 +36,7 @@ class Sfx {
   private theme: Loop | null = null;
   private interlude: Loop | null = null;
   private water: Loop | null = null;
+  private rainLoop: { src: AudioBufferSourceNode; gain: GainNode } | null = null;
 
   private ac(): AudioContext {
     if (!this.ctx) {
@@ -319,6 +320,35 @@ class Sfx {
     if (!w) return;
     this.water = null;
     try { w.src.stop(); } catch { /* already stopped */ }
+  }
+
+  // ── rain ambience (no sample exists — band-filtered noise IS rain) ──
+  startRain(level: number): void {
+    if (this.rainLoop) return;
+    const ctx = this.ac();
+    const src = ctx.createBufferSource();
+    src.buffer = this.noiseBuf(2.5);
+    src.loop = true;
+    const hp = ctx.createBiquadFilter();
+    hp.type = "highpass"; hp.frequency.value = 420;
+    const lp = ctx.createBiquadFilter();
+    lp.type = "lowpass"; lp.frequency.value = 3400;
+    const g = ctx.createGain();
+    g.gain.value = 0;
+    src.connect(hp).connect(lp).connect(g).connect(this.master);
+    src.start();
+    g.gain.linearRampToValueAtTime(0.16 * clamp(level, 0, 1) + 0.04, ctx.currentTime + 1.4);
+    this.rainLoop = { src, gain: g };
+  }
+  stopRain(): void {
+    const r = this.rainLoop;
+    if (!r) return;
+    this.rainLoop = null;
+    const now = this.ac().currentTime;
+    r.gain.gain.cancelScheduledValues(now);
+    r.gain.gain.setValueAtTime(r.gain.gain.value, now);
+    r.gain.gain.linearRampToValueAtTime(0, now + 0.8);
+    r.src.stop(now + 0.9);
   }
 }
 
