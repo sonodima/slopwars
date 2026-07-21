@@ -127,13 +127,17 @@ export function objectCatalog(): ObjEntry[] {
 const STRUCTURE_MATERIALS = ["metal", "stone", "crate", "wall"];
 
 /** per-model calibration metas, keyed by folder name (for resolving the materials a
- *  placed model's slots reference — those textures must load too). */
+ *  placed model's slots reference — those textures must load too). Dev-server-START
+ *  snapshot: the editor overrides it with its live metas (a just-imported model isn't
+ *  in here, so without the override its slot materials — and their textures — would be
+ *  skipped and the model would render untextured). */
 const MODEL_META = new Map<string, ModelMeta>(catalog.models.map((m) => [m.name, m.meta ?? {}]));
 
 /** every material a map references: each object's `mat` (merged over defaults), the
  *  materials each placed model's slots use, the ones structures use internally, and
- *  the default. */
-export function mapMaterials(def: MapDef): string[] {
+ *  the default. `modelMetas` overrides the compiled-in snapshot (the editor passes its
+ *  live metas so a just-imported model's slot materials are collected too). */
+export function mapMaterials(def: MapDef, modelMetas: Map<string, ModelMeta> = MODEL_META): string[] {
   const set = new Set<string>([DEFAULT_MATERIAL, ...STRUCTURE_MATERIALS]);
   for (const o of def.objects) {
     const t = REGISTRY.get(o.type);
@@ -142,7 +146,7 @@ export function mapMaterials(def: MapDef): string[] {
     if (typeof merged.mat === "string" && merged.mat) set.add(merged.mat);
     // a placed model shades its surfaces through its own materials → load them too
     if (typeof merged.model === "string" && merged.model) {
-      for (const m of modelMaterials(MODEL_META.get(merged.model))) set.add(m);
+      for (const m of modelMaterials(modelMetas.get(merged.model))) set.add(m);
     }
   }
   return [...set];
@@ -150,10 +154,11 @@ export function mapMaterials(def: MapDef): string[] {
 
 /** every texture folder the renderer must load for a map: the textures its
  *  referenced materials consume, plus particle-sprite `tex` folders (particles
- *  consume a raw sprite texture, not a surface material). `matDefs` may be the
- *  editor's live material defs so a just-assigned texture loads before rebuild. */
-export function mapTextureFolders(def: MapDef, matDefs?: Map<string, MaterialDef>): string[] {
-  const set = new Set<string>(materialTextureFolders(mapMaterials(def), matDefs));
+ *  consume a raw sprite texture, not a surface material). `matDefs`/`modelMetas` may be
+ *  the editor's live defs/metas so a just-imported model's (or material's) textures
+ *  load before rebuild instead of after a dev-server restart. */
+export function mapTextureFolders(def: MapDef, matDefs?: Map<string, MaterialDef>, modelMetas?: Map<string, ModelMeta>): string[] {
+  const set = new Set<string>(materialTextureFolders(mapMaterials(def, modelMetas), matDefs));
   for (const o of def.objects) {
     const t = REGISTRY.get(o.type);
     if (!t) continue;
