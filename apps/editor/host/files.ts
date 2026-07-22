@@ -19,27 +19,25 @@ export { scanAssets, scanMaps };
 // ── asset identity (uuid) helpers ─────────────────────────────────────────────
 // Every asset is a folder holding its resource file(s) plus a `meta.json` (the same
 // uniform shape for every kind — models, textures, audio, HDRIs, materials). The
-// meta.json carries the stable uuid `id` minted here at import/create time, plus a
-// display `name`. Because authored data references the id, renaming/moving an asset
-// never breaks a use — so the helpers below preserve the id and never repoint refs.
+// meta.json carries the stable uuid `id` minted here at import/create time, and
+// nothing else about identity: the asset's NAME is simply its folder name, so it's
+// never stored redundantly. Authored data references the id, so renaming/moving an
+// asset never breaks a use — the helpers below preserve the id and never repoint refs.
 
 function readJsonSafe(p: string): Record<string, unknown> | undefined {
   try { return JSON.parse(fs.readFileSync(p, "utf8")) as Record<string, unknown>; } catch { return undefined; }
 }
-/** an asset's identity: reuse an existing minted id/name, or mint a fresh id + take
- *  the slug as the name. */
-function ensureIdentity(existing: Record<string, unknown> | undefined, slug: string): { id: string; name: string } {
-  const id = typeof existing?.id === "string" && existing.id ? existing.id : randomUUID();
-  const name = typeof existing?.name === "string" && existing.name ? existing.name : slug;
-  return { id, name };
+/** an asset's stable id: reuse an existing minted one, or mint a fresh uuid. */
+function ensureId(existing: Record<string, unknown> | undefined): string {
+  return typeof existing?.id === "string" && existing.id ? existing.id : randomUUID();
 }
-/** write an asset folder's meta.json ({ id, name }), minting an id if none exists yet.
+/** write an asset folder's meta.json ({ id }), minting an id if none exists yet.
  *  `dir` is the asset's folder (absolute). Used by the audio/hdri import path. */
-function writeFolderMeta(dir: string, slug: string): void {
+function writeFolderMeta(dir: string): void {
   const p = path.join(dir, "meta.json");
-  const { id, name } = ensureIdentity(readJsonSafe(p), slug);
+  const id = ensureId(readJsonSafe(p));
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(p, JSON.stringify({ id, name }, null, 2) + "\n");
+  fs.writeFileSync(p, JSON.stringify({ id }, null, 2) + "\n");
 }
 
 /** one uploaded file for an import: base64 `data`, original `name`, optional
@@ -138,8 +136,7 @@ export function saveMaterial(root: string, name: string, def: MaterialDef): { ok
   if (!n) return { error: "invalid material name" };
   const p = matPath(root, n);
   fs.mkdirSync(path.dirname(p), { recursive: true });
-  const id = ensureIdentity(readJsonSafe(p), n);
-  fs.writeFileSync(p, JSON.stringify({ id: id.id, name: id.name, def }, null, 2) + "\n");
+  fs.writeFileSync(p, JSON.stringify({ id: ensureId(readJsonSafe(p)), def }, null, 2) + "\n");
   return { ok: true, name: n };
 }
 
@@ -153,12 +150,12 @@ export function createMaterial(root: string, type: MaterialType = "standard"): {
   while (fs.existsSync(matDir(root, n))) n = `${stem}_${++i}`;
   const p = matPath(root, n);
   fs.mkdirSync(path.dirname(p), { recursive: true });
-  fs.writeFileSync(p, JSON.stringify({ id: randomUUID(), name: n, def: defaultMaterialDef(type) }, null, 2) + "\n");
+  fs.writeFileSync(p, JSON.stringify({ id: randomUUID(), def: defaultMaterialDef(type) }, null, 2) + "\n");
   return { ok: true, name: n };
 }
 
-/** rename a material folder, keeping its id (so every reference survives) and updating
- *  its display name to match the new slug. Fails if the target already exists. */
+/** rename a material folder, keeping its id (so every reference survives). The folder
+ *  name IS the material's name. Fails if the target already exists. */
 export function renameMaterial(root: string, from: string, to: string): { ok?: boolean; error?: string; name?: string } {
   const a = matDir(root, from), bName = sanitize(to);
   if (!bName) return { error: "invalid name" };
@@ -166,10 +163,10 @@ export function renameMaterial(root: string, from: string, to: string): { ok?: b
   if (!fs.existsSync(a)) return { error: "material not found" };
   if (a !== b && fs.existsSync(b)) return { error: "a material with that name already exists" };
   const cur = readJsonSafe(path.join(a, "meta.json")) ?? {};
-  const id = typeof cur.id === "string" && cur.id ? cur.id : randomUUID();
+  const id = ensureId(cur);
   const def = (cur.def && typeof cur.def === "object" ? cur.def : cur) as MaterialDef;
   fs.renameSync(a, b);
-  fs.writeFileSync(path.join(b, "meta.json"), JSON.stringify({ id, name: bName, def }, null, 2) + "\n");
+  fs.writeFileSync(path.join(b, "meta.json"), JSON.stringify({ id, def }, null, 2) + "\n");
   return { ok: true, name: bName };
 }
 
@@ -238,11 +235,10 @@ export function saveModelMeta(root: string, name: string, meta: ModelMeta): { ok
   }
   // Prop-Hunt opt-in flag (also previously dropped on save).
   if (meta.propHunt) clean.propHunt = true;
-  // the model's stable id + display name live at the top of meta.json alongside its
-  // calibration; preserve them across saves (mint if this is the model's first meta),
-  // so an empty calibration still pins the identity instead of deleting it.
-  const identity = ensureIdentity(readJsonSafe(p), n);
-  fs.writeFileSync(p, JSON.stringify({ id: identity.id, name: identity.name, ...clean }, null, 2) + "\n");
+  // the model's stable id sits at the top of meta.json alongside its calibration;
+  // preserve it across saves (mint on the model's first meta) so an empty calibration
+  // still pins the identity instead of deleting it. The name is the folder.
+  fs.writeFileSync(p, JSON.stringify({ id: ensureId(readJsonSafe(p)), ...clean }, null, 2) + "\n");
   return { ok: true, name: n };
 }
 
@@ -312,7 +308,7 @@ export function geometryOnlyModel(root: string, name: string): void {
       const def = /glass/i.test(slot) ? glassDefFromPbr(pbr) : standardDefFromPbr(groupOf(m, asset), pbr, m.emissiveFactor);
       matId = randomUUID();
       fs.mkdirSync(path.dirname(matFile), { recursive: true });
-      fs.writeFileSync(matFile, JSON.stringify({ id: matId, name: asset, def }, null, 2) + "\n");
+      fs.writeFileSync(matFile, JSON.stringify({ id: matId, def }, null, 2) + "\n");
     } else {
       const cur = readJsonSafe(matFile);
       matId = typeof cur?.id === "string" && cur.id ? cur.id : randomUUID();
@@ -334,14 +330,14 @@ export function geometryOnlyModel(root: string, name: string): void {
   fs.writeFileSync(gltfPath, JSON.stringify(gltf, null, 2) + "\n");
 
   // record the per-slot material assignment on the model's meta, preserving (or minting)
-  // the model's own stable id + display name at the top (drop the legacy `material` field)
+  // the model's own stable id at the top (drop the legacy `material` field)
   const metaFile = path.join(dir, "meta.json");
-  let meta: any = readJsonSafe(metaFile) ?? {};
-  const modelId = ensureIdentity(meta, sanitize(name));
+  const meta: any = readJsonSafe(metaFile) ?? {};
+  const id = ensureId(meta);
   delete meta.id; delete meta.name;
   meta.materials = { ...(meta.materials ?? {}), ...assignments };
   delete meta.material;
-  fs.writeFileSync(metaFile, JSON.stringify({ id: modelId.id, name: modelId.name, ...meta }, null, 2) + "\n");
+  fs.writeFileSync(metaFile, JSON.stringify({ id, ...meta }, null, 2) + "\n");
 }
 
 /** delete a whole model folder (public/assets/models/<name>/) */
@@ -371,7 +367,7 @@ export function createTexture(root: string, name?: string): { ok?: boolean; erro
   const dir = path.join(base, n);
   fs.mkdirSync(dir, { recursive: true });
   // pin the set's identity: a fresh meta.json { id, name } so it's rename-safe from birth
-  fs.writeFileSync(path.join(dir, "meta.json"), JSON.stringify({ id: randomUUID(), name: n }, null, 2) + "\n");
+  fs.writeFileSync(path.join(dir, "meta.json"), JSON.stringify({ id: randomUUID() }, null, 2) + "\n");
   return { ok: true, name: n };
 }
 
@@ -386,10 +382,9 @@ export function renameTexture(root: string, from: string, to: string): { ok?: bo
   if (!fs.existsSync(a)) return { error: "texture not found" };
   if (a !== b && fs.existsSync(b)) return { error: "a texture with that name already exists" };
   fs.renameSync(a, b);
-  // keep the set's id, refresh its display name to the new slug
+  // keep the set's id (the folder name is its name)
   const metaFile = path.join(b, "meta.json");
-  const { id } = ensureIdentity(readJsonSafe(metaFile), bName);
-  fs.writeFileSync(metaFile, JSON.stringify({ id, name: bName }, null, 2) + "\n");
+  fs.writeFileSync(metaFile, JSON.stringify({ id: ensureId(readJsonSafe(metaFile)) }, null, 2) + "\n");
   return { ok: true, name: bName };
 }
 
@@ -479,9 +474,8 @@ export function importAsset(root: string, req: ImportRequest): ImportResult {
     }
     // pin the set's identity (mint on first import, preserve on re-import)
     const metaFile = path.join(dir, "meta.json");
-    const id = ensureIdentity(readJsonSafe(metaFile), name);
     fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(metaFile, JSON.stringify({ id: id.id, name: id.name }, null, 2) + "\n");
+    fs.writeFileSync(metaFile, JSON.stringify({ id: ensureId(readJsonSafe(metaFile)) }, null, 2) + "\n");
     return { ok: true, name, files: written };
   }
 
@@ -518,7 +512,7 @@ export function importAsset(root: string, req: ImportRequest): ImportResult {
     if (!base) return { error: "audio needs a name" };
     const rel = `audio/${base}/${base}.${ext}`;
     writeAssetB64(root, rel, f.data);
-    writeFolderMeta(path.join(root, "public", "assets", "audio", base), base);
+    writeFolderMeta(path.join(root, "public", "assets", "audio", base));
     return { ok: true, name: base, files: [rel] };
   }
 
@@ -530,7 +524,7 @@ export function importAsset(root: string, req: ImportRequest): ImportResult {
     if (!base) return { error: "hdri needs a name" };
     const rel = `hdri/${base}/${base}.${ext}`;
     writeAssetB64(root, rel, f.data);
-    writeFolderMeta(path.join(root, "public", "assets", "hdri", base), base);
+    writeFolderMeta(path.join(root, "public", "assets", "hdri", base));
     return { ok: true, name: base, files: [rel] };
   }
 
