@@ -8,7 +8,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { scanAssets, scanMaps, texSlot } from "../../../packages/shared/src/vite-asset-catalog";
+import { scanAssets, scanMaps } from "../../../packages/shared/src/vite-asset-catalog";
 import type { MapDef } from "../../../packages/shared/src/schema";
 import type { CollisionBox, ModelAnchor, ModelMeta } from "../../../packages/shared/src/catalog";
 import type { MaterialDef, MaterialType } from "../../../packages/shared/src/materials";
@@ -31,13 +31,14 @@ function readJsonSafe(p: string): Record<string, unknown> | undefined {
 function ensureId(existing: Record<string, unknown> | undefined): string {
   return typeof existing?.id === "string" && existing.id ? existing.id : randomUUID();
 }
-/** write an asset folder's meta.json ({ id }), minting an id if none exists yet.
- *  `dir` is the asset's folder (absolute). Used by the audio/hdri import path. */
-function writeFolderMeta(dir: string): void {
+/** write a single-resource asset's meta.json ({ id, file }) — `file` names the resource
+ *  explicitly (relative to the folder), so the scanner never guesses it. Mints an id if
+ *  none exists. Used by the audio/hdri import path. */
+function writeFolderMeta(dir: string, file: string): void {
   const p = path.join(dir, "meta.json");
   const id = ensureId(readJsonSafe(p));
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(p, JSON.stringify({ id }, null, 2) + "\n");
+  fs.writeFileSync(p, JSON.stringify({ id, file }, null, 2) + "\n");
 }
 
 /** one uploaded file for an import: base64 `data`, original `name`, optional
@@ -235,10 +236,12 @@ export function saveModelMeta(root: string, name: string, meta: ModelMeta): { ok
   }
   // Prop-Hunt opt-in flag (also previously dropped on save).
   if (meta.propHunt) clean.propHunt = true;
-  // the model's stable id sits at the top of meta.json alongside its calibration;
-  // preserve it across saves (mint on the model's first meta) so an empty calibration
-  // still pins the identity instead of deleting it. The name is the folder.
-  fs.writeFileSync(p, JSON.stringify({ id: ensureId(readJsonSafe(p)), ...clean }, null, 2) + "\n");
+  // the model's stable id + explicit glTF `file` sit at the top of meta.json alongside
+  // its calibration; preserve both across saves (mint the id on the model's first meta)
+  // so an empty calibration still pins the identity + resource. The name is the folder.
+  const cur = readJsonSafe(p) ?? {};
+  const file = typeof cur.file === "string" ? cur.file : undefined;
+  fs.writeFileSync(p, JSON.stringify({ id: ensureId(cur), ...(file ? { file } : {}), ...clean }, null, 2) + "\n");
   return { ok: true, name: n };
 }
 
@@ -277,8 +280,11 @@ function glassDefFromPbr(pbr: any): MaterialDef {
 export function geometryOnlyModel(root: string, name: string): void {
   const dir = path.join(root, "public", "assets", "models", sanitize(name));
   if (!fs.existsSync(dir)) return;
-  const gltfFile = fs.readdirSync(dir).find((f) => f.toLowerCase().endsWith(".gltf"));
-  if (!gltfFile) return;
+  // the model's glTF is whatever meta.file points at (set by importAsset). A .glb is
+  // binary — nothing to strip — so this only processes a .gltf.
+  const metaFile = path.join(dir, "meta.json");
+  const gltfFile = readJsonSafe(metaFile)?.file;
+  if (typeof gltfFile !== "string" || !/\.gltf$/i.test(gltfFile)) return;
   const gltfPath = path.join(dir, gltfFile);
   let gltf: any;
   try { gltf = JSON.parse(fs.readFileSync(gltfPath, "utf8")); } catch { return; }
@@ -330,8 +336,7 @@ export function geometryOnlyModel(root: string, name: string): void {
   fs.writeFileSync(gltfPath, JSON.stringify(gltf, null, 2) + "\n");
 
   // record the per-slot material assignment on the model's meta, preserving (or minting)
-  // the model's own stable id at the top (drop the legacy `material` field)
-  const metaFile = path.join(dir, "meta.json");
+  // the model's stable id + explicit `file` at the top (drop the legacy `material` field)
   const meta: any = readJsonSafe(metaFile) ?? {};
   const id = ensureId(meta);
   delete meta.id; delete meta.name;
@@ -381,10 +386,8 @@ export function renameTexture(root: string, from: string, to: string): { ok?: bo
   const b = path.join(base, bName);
   if (!fs.existsSync(a)) return { error: "texture not found" };
   if (a !== b && fs.existsSync(b)) return { error: "a texture with that name already exists" };
+  // the folder move carries meta.json (id + declared maps) along — nothing to rewrite
   fs.renameSync(a, b);
-  // keep the set's id (the folder name is its name)
-  const metaFile = path.join(b, "meta.json");
-  fs.writeFileSync(metaFile, JSON.stringify({ id: ensureId(readJsonSafe(metaFile)) }, null, 2) + "\n");
   return { ok: true, name: bName };
 }
 
@@ -395,17 +398,30 @@ export function deleteTexture(root: string, name: string): { ok?: boolean; error
   return { ok: true };
 }
 
-/** remove every image file backing one PBR slot (color / normal / arm) of a texture
- *  folder. Shared by the "clear a map" editor action and by a re-import that replaces
- *  a slot (so a color.png swapped for a color.jpg never leaves two color maps behind).
- *  Returns how many files were removed. */
-function clearTextureSlot(dir: string, slot: string): number {
-  if (!fs.existsSync(dir)) return 0;
-  let n = 0;
-  for (const f of fs.readdirSync(dir)) {
-    if (texSlot(f) === slot) { fs.rmSync(path.join(dir, f), { force: true }); n++; }
-  }
-  return n;
+// A texture set's meta.json declares its PBR maps EXPLICITLY: { id, maps: { color, normal,
+// arm } } where each value is the map's filename inside the folder. Nothing is inferred
+// from a filename, so the host reads/writes this map directly.
+
+/** the texture set's declared slot → filename map (from meta.json) */
+function texMaps(dir: string): Record<string, string> {
+  const m = readJsonSafe(path.join(dir, "meta.json"));
+  return (m?.maps && typeof m.maps === "object" ? { ...(m.maps as Record<string, string>) } : {});
+}
+/** write a texture set's meta.json ({ id, maps }), preserving its id + dropping empties */
+function writeTexMeta(dir: string, maps: Record<string, string>): void {
+  const p = path.join(dir, "meta.json");
+  const id = ensureId(readJsonSafe(p));
+  const clean: Record<string, string> = {};
+  for (const [k, v] of Object.entries(maps)) if (v) clean[k] = v;
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(p, JSON.stringify(Object.keys(clean).length ? { id, maps: clean } : { id }, null, 2) + "\n");
+}
+/** remove the file backing one PBR slot (color / normal / arm) + drop it from the set's
+ *  declared map. Used by the texture editor's per-map "clear" and by a slot re-import. */
+function clearTextureSlot(dir: string, slot: string): void {
+  if (!fs.existsSync(dir)) return;
+  const maps = texMaps(dir);
+  if (maps[slot]) { fs.rmSync(path.join(dir, maps[slot]), { force: true }); delete maps[slot]; writeTexMeta(dir, maps); }
 }
 
 /** clear a single PBR map of a texture set (public/assets/textures/<name>/), leaving
@@ -459,30 +475,31 @@ export function importAsset(root: string, req: ImportRequest): ImportResult {
   if (req.kind === "texture") {
     if (!name) return { error: "texture needs a name" };
     const dir = path.join(root, "public", "assets", "textures", name);
+    fs.mkdirSync(dir, { recursive: true });
+    const maps = texMaps(dir);
     const written: string[] = [];
     for (const f of files) {
       const slot = f.slot;
       const ext = extOf(f.name);
       if (!slot || !["color", "normal", "arm"].includes(slot)) return { error: `bad texture slot: ${slot}` };
       if (!IMG_EXT.has(ext)) return { error: `unsupported image type: .${ext}` };
-      // replacing a slot: drop any existing file for it first (differently-named or a
-      // different extension) so the set never ends up with two of the same map.
-      clearTextureSlot(dir, slot);
-      const rel = `textures/${name}/${slot}.${ext}`;
+      const filename = `${slot}.${ext}`;
+      // replacing a slot: drop the previously-declared file if it differs (avoids leaving
+      // a color.png behind when a color.jpg replaces it)
+      if (maps[slot] && maps[slot] !== filename) fs.rmSync(path.join(dir, maps[slot]), { force: true });
+      const rel = `textures/${name}/${filename}`;
       writeAssetB64(root, rel, f.data);
+      maps[slot] = filename;                       // declare the slot → file mapping explicitly
       written.push(rel);
     }
-    // pin the set's identity (mint on first import, preserve on re-import)
-    const metaFile = path.join(dir, "meta.json");
-    fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(metaFile, JSON.stringify({ id: ensureId(readJsonSafe(metaFile)) }, null, 2) + "\n");
+    writeTexMeta(dir, maps);
     return { ok: true, name, files: written };
   }
 
   if (req.kind === "model") {
     if (!name) return { error: "model needs a name" };
-    const hasGltf = files.some((f) => ["gltf", "glb"].includes(extOf(f.name)));
-    if (!hasGltf) return { error: "model needs a .gltf or .glb file" };
+    const main = files.find((f) => ["gltf", "glb"].includes(extOf(f.name)));
+    if (!main) return { error: "model needs a .gltf or .glb file" };
     // validate every file up front so a rejected one never leaves a half-written
     // folder behind (a model is geometry only — .gltf/.glb + its .bin, no textures).
     for (const f of files) {
@@ -495,25 +512,27 @@ export function importAsset(root: string, req: ImportRequest): ImportResult {
       writeAssetB64(root, rel, f.data);
       written.push(rel);
     }
-    // make the model geometry-only: strip the glTF's textures/material bindings and
-    // write meta.materials, so it loads + shades from the material library right away
-    // (an un-stripped glTF 404s on missing texture files and renders as nothing).
+    // record the model's glTF explicitly (meta.file), so the scanner never picks it by
+    // extension. Then make it geometry-only: strip the glTF's textures/material bindings
+    // and write meta.materials, so it loads + shades from the material library right away.
+    const metaFile = path.join(root, "public", "assets", "models", name, "meta.json");
+    fs.writeFileSync(metaFile, JSON.stringify({ id: ensureId(readJsonSafe(metaFile)), file: sanitizeFile(main.name) }, null, 2) + "\n");
     geometryOnlyModel(root, name);
     return { ok: true, name, files: written };
   }
 
-  // audio + HDRIs are a folder per clip/skybox (like every other asset): the resource
-  // file plus a meta.json holding its minted id.
+  // audio + HDRIs are a folder per clip/skybox (like every asset): the resource file plus
+  // a meta.json that names it explicitly.
   if (req.kind === "audio") {
     const f = files[0];
     const ext = extOf(f.name);
     if (!AUDIO_EXT.has(ext)) return { error: `unsupported audio type: .${ext}` };
     const base = name || sanitize(f.name.replace(/\.[^.]+$/, ""));
     if (!base) return { error: "audio needs a name" };
-    const rel = `audio/${base}/${base}.${ext}`;
-    writeAssetB64(root, rel, f.data);
-    writeFolderMeta(path.join(root, "public", "assets", "audio", base));
-    return { ok: true, name: base, files: [rel] };
+    const filename = `${base}.${ext}`;
+    writeAssetB64(root, `audio/${base}/${filename}`, f.data);
+    writeFolderMeta(path.join(root, "public", "assets", "audio", base), filename);
+    return { ok: true, name: base, files: [`audio/${base}/${filename}`] };
   }
 
   if (req.kind === "hdri") {
@@ -522,10 +541,10 @@ export function importAsset(root: string, req: ImportRequest): ImportResult {
     if (!["hdr", "exr"].includes(ext)) return { error: `unsupported hdri type: .${ext}` };
     const base = name || sanitize(f.name.replace(/\.[^.]+$/, ""));
     if (!base) return { error: "hdri needs a name" };
-    const rel = `hdri/${base}/${base}.${ext}`;
-    writeAssetB64(root, rel, f.data);
-    writeFolderMeta(path.join(root, "public", "assets", "hdri", base));
-    return { ok: true, name: base, files: [rel] };
+    const filename = `${base}.${ext}`;
+    writeAssetB64(root, `hdri/${base}/${filename}`, f.data);
+    writeFolderMeta(path.join(root, "public", "assets", "hdri", base), filename);
+    return { ok: true, name: base, files: [`hdri/${base}/${filename}`] };
   }
 
   return { error: `unknown import kind: ${(req as { kind: string }).kind}` };

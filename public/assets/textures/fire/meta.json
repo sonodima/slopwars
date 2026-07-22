@@ -1,3 +1,6 @@
 {
-  "id": "bfb2ab13-e9bf-40fe-befc-8983a0a98903"
+  "id": "bfb2ab13-e9bf-40fe-befc-8983a0a98903",
+  "maps": {
+    "color": "color.png"
+  }
 }
