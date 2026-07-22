@@ -17,13 +17,12 @@ import { defaultMaterialDef } from "../../../packages/shared/src/materials";
 export { scanAssets, scanMaps };
 
 // ── asset identity (uuid) helpers ─────────────────────────────────────────────
-// Every asset carries a stable uuid `id` minted here, at import/create time, plus a
-// display `name`. The id lives in the asset's companion metadata (a model/texture's
-// meta.json, a material file's own top level, an audio/hdri `<file>.meta.json`
-// sidecar). Because authored data references the id, renaming/moving an asset never
-// breaks a use — so the rename helpers below preserve the id and never repoint refs.
+// Every asset is a folder holding its resource file(s) plus a `meta.json` (the same
+// uniform shape for every kind — models, textures, audio, HDRIs, materials). The
+// meta.json carries the stable uuid `id` minted here at import/create time, plus a
+// display `name`. Because authored data references the id, renaming/moving an asset
+// never breaks a use — so the helpers below preserve the id and never repoint refs.
 
-const META_SUFFIX = ".meta.json";
 function readJsonSafe(p: string): Record<string, unknown> | undefined {
   try { return JSON.parse(fs.readFileSync(p, "utf8")) as Record<string, unknown>; } catch { return undefined; }
 }
@@ -34,12 +33,13 @@ function ensureIdentity(existing: Record<string, unknown> | undefined, slug: str
   const name = typeof existing?.name === "string" && existing.name ? existing.name : slug;
   return { id, name };
 }
-/** write a flat-file asset's `<file>.meta.json` sidecar, minting an id if none exists */
-function writeSidecar(root: string, rel: string, slug: string): void {
-  const abs = path.join(root, "public", "assets", rel + META_SUFFIX);
-  const { id, name } = ensureIdentity(readJsonSafe(abs), slug);
-  fs.mkdirSync(path.dirname(abs), { recursive: true });
-  fs.writeFileSync(abs, JSON.stringify({ id, name }, null, 2) + "\n");
+/** write an asset folder's meta.json ({ id, name }), minting an id if none exists yet.
+ *  `dir` is the asset's folder (absolute). Used by the audio/hdri import path. */
+function writeFolderMeta(dir: string, slug: string): void {
+  const p = path.join(dir, "meta.json");
+  const { id, name } = ensureIdentity(readJsonSafe(p), slug);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(p, JSON.stringify({ id, name }, null, 2) + "\n");
 }
 
 /** one uploaded file for an import: base64 `data`, original `name`, optional
@@ -124,17 +124,20 @@ export function saveMap(root: string, id: string, def: MapDef): { ok?: boolean; 
 
 // ── materials (created + edited in the editor; git-first JSON) ────────────────
 
+// A material is a folder like every other asset: public/assets/materials/<slug>/meta.json
+// holds { id, name, def } (its "resource" is the def, so meta.json is the only file).
 const MAT_DIR = "public/assets/materials";
-function matPath(root: string, name: string): string { return path.join(root, MAT_DIR, `${sanitize(name)}.json`); }
+function matDir(root: string, name: string): string { return path.join(root, MAT_DIR, sanitize(name)); }
+function matPath(root: string, name: string): string { return path.join(matDir(root, name), "meta.json"); }
 
-/** write a material to public/assets/materials/<slug>.json as { id, name, def }
+/** write a material to public/assets/materials/<slug>/meta.json as { id, name, def }
  *  (pretty + newline). The stable id + display name are preserved across saves;
- *  a brand-new file mints an id. */
+ *  a brand-new material mints an id. */
 export function saveMaterial(root: string, name: string, def: MaterialDef): { ok?: boolean; error?: string; name?: string } {
   const n = sanitize(name);
   if (!n) return { error: "invalid material name" };
-  fs.mkdirSync(path.join(root, MAT_DIR), { recursive: true });
   const p = matPath(root, n);
+  fs.mkdirSync(path.dirname(p), { recursive: true });
   const id = ensureIdentity(readJsonSafe(p), n);
   fs.writeFileSync(p, JSON.stringify({ id: id.id, name: id.name, def }, null, 2) + "\n");
   return { ok: true, name: n };
@@ -144,35 +147,36 @@ export function saveMaterial(root: string, name: string, def: MaterialDef): { ok
  *  slug. Defaults to a plain gray `standard` material — the kind is chosen afterward
  *  in the inspector's type switcher, not up front. */
 export function createMaterial(root: string, type: MaterialType = "standard"): { ok?: boolean; error?: string; name?: string } {
-  fs.mkdirSync(path.join(root, MAT_DIR), { recursive: true });
   const stem = type === "standard" ? "material" : type;
   let n = stem;
   let i = 1;
-  while (fs.existsSync(matPath(root, n))) n = `${stem}_${++i}`;
-  fs.writeFileSync(matPath(root, n), JSON.stringify({ id: randomUUID(), name: n, def: defaultMaterialDef(type) }, null, 2) + "\n");
+  while (fs.existsSync(matDir(root, n))) n = `${stem}_${++i}`;
+  const p = matPath(root, n);
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  fs.writeFileSync(p, JSON.stringify({ id: randomUUID(), name: n, def: defaultMaterialDef(type) }, null, 2) + "\n");
   return { ok: true, name: n };
 }
 
-/** rename a material file, keeping its id (so every reference survives) and updating
+/** rename a material folder, keeping its id (so every reference survives) and updating
  *  its display name to match the new slug. Fails if the target already exists. */
 export function renameMaterial(root: string, from: string, to: string): { ok?: boolean; error?: string; name?: string } {
-  const a = matPath(root, from), bName = sanitize(to);
+  const a = matDir(root, from), bName = sanitize(to);
   if (!bName) return { error: "invalid name" };
-  const b = matPath(root, bName);
+  const b = matDir(root, bName);
   if (!fs.existsSync(a)) return { error: "material not found" };
   if (a !== b && fs.existsSync(b)) return { error: "a material with that name already exists" };
-  const cur = readJsonSafe(a) ?? {};
+  const cur = readJsonSafe(path.join(a, "meta.json")) ?? {};
   const id = typeof cur.id === "string" && cur.id ? cur.id : randomUUID();
   const def = (cur.def && typeof cur.def === "object" ? cur.def : cur) as MaterialDef;
-  fs.rmSync(a);
-  fs.writeFileSync(b, JSON.stringify({ id, name: bName, def }, null, 2) + "\n");
+  fs.renameSync(a, b);
+  fs.writeFileSync(path.join(b, "meta.json"), JSON.stringify({ id, name: bName, def }, null, 2) + "\n");
   return { ok: true, name: bName };
 }
 
-/** delete a material file */
+/** delete a material folder */
 export function deleteMaterial(root: string, name: string): { ok?: boolean; error?: string } {
-  const p = matPath(root, name);
-  if (fs.existsSync(p)) fs.rmSync(p);
+  const dir = matDir(root, name);
+  if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
   return { ok: true };
 }
 
@@ -307,7 +311,7 @@ export function geometryOnlyModel(root: string, name: string): void {
     if (!fs.existsSync(matFile)) {
       const def = /glass/i.test(slot) ? glassDefFromPbr(pbr) : standardDefFromPbr(groupOf(m, asset), pbr, m.emissiveFactor);
       matId = randomUUID();
-      fs.mkdirSync(path.join(root, MAT_DIR), { recursive: true });
+      fs.mkdirSync(path.dirname(matFile), { recursive: true });
       fs.writeFileSync(matFile, JSON.stringify({ id: matId, name: asset, def }, null, 2) + "\n");
     } else {
       const cur = readJsonSafe(matFile);
@@ -421,16 +425,19 @@ export function deleteTextureMap(root: string, name: string, slot: string): { ok
   return { ok: true };
 }
 
-/** delete an asset file by its catalog-relative path (e.g. "hdri/sky.hdr",
- *  "audio/clip.mp3"). Guarded so it can only remove files inside public/assets/. */
+/** delete a single-file asset (audio / hdri) by its catalog-relative resource path
+ *  (e.g. "hdri/sky/sky.hdr", "audio/clip/clip.mp3") — removes the whole asset folder
+ *  (resource + meta.json). Guarded so it can only remove paths inside public/assets/,
+ *  and never a kind root (a direct child of assets/). */
 export function deleteAssetFile(root: string, file: string): { ok?: boolean; error?: string } {
   const base = path.resolve(root, "public", "assets");
   const abs = path.resolve(base, String(file));
   if (!abs.startsWith(base + path.sep)) return { error: "path outside assets" };
-  if (fs.existsSync(abs)) fs.rmSync(abs, { recursive: true, force: true });
-  // drop the asset's id sidecar too (audio/hdri), so no orphan metadata is left behind
-  const sidecar = abs + META_SUFFIX;
-  if (fs.existsSync(sidecar)) fs.rmSync(sidecar, { force: true });
+  // the asset folder is the file's parent dir; only remove it when it's an asset folder
+  // (nested under a kind root), else fall back to removing just the file (legacy flat).
+  const dir = path.dirname(abs);
+  const target = path.dirname(dir) !== base ? dir : abs;
+  if (fs.existsSync(target)) fs.rmSync(target, { recursive: true, force: true });
   return { ok: true };
 }
 
@@ -501,15 +508,17 @@ export function importAsset(root: string, req: ImportRequest): ImportResult {
     return { ok: true, name, files: written };
   }
 
+  // audio + HDRIs are a folder per clip/skybox (like every other asset): the resource
+  // file plus a meta.json holding its minted id.
   if (req.kind === "audio") {
     const f = files[0];
     const ext = extOf(f.name);
     if (!AUDIO_EXT.has(ext)) return { error: `unsupported audio type: .${ext}` };
     const base = name || sanitize(f.name.replace(/\.[^.]+$/, ""));
     if (!base) return { error: "audio needs a name" };
-    const rel = `audio/${base}.${ext}`;
+    const rel = `audio/${base}/${base}.${ext}`;
     writeAssetB64(root, rel, f.data);
-    writeSidecar(root, rel, base);   // mint the clip's stable id (rename-safe)
+    writeFolderMeta(path.join(root, "public", "assets", "audio", base), base);
     return { ok: true, name: base, files: [rel] };
   }
 
@@ -519,9 +528,9 @@ export function importAsset(root: string, req: ImportRequest): ImportResult {
     if (!["hdr", "exr"].includes(ext)) return { error: `unsupported hdri type: .${ext}` };
     const base = name || sanitize(f.name.replace(/\.[^.]+$/, ""));
     if (!base) return { error: "hdri needs a name" };
-    const rel = `hdri/${base}.${ext}`;
+    const rel = `hdri/${base}/${base}.${ext}`;
     writeAssetB64(root, rel, f.data);
-    writeSidecar(root, rel, base);   // mint the skybox's stable id (rename-safe)
+    writeFolderMeta(path.join(root, "public", "assets", "hdri", base), base);
     return { ok: true, name: base, files: [rel] };
   }
 

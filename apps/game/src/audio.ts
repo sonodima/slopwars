@@ -1,20 +1,32 @@
 // ─── Audio: real sample playback (SFX), music (theme/interlude), ambience ─────
-// Samples in public/assets/audio/. Pure-feedback cues (reload, hit, jump…) keep a
-// tiny synth since no sample was provided for them.
+// Samples in public/assets/audio/. Each entry below names an audio asset by its
+// *slug* (its on-disk folder name), resolved to a file path through the catalog —
+// so these engine SFX are decoupled from the on-disk layout (audio is a folder per
+// clip like every other asset) and survive a folder move. Pure-feedback cues
+// (reload, hit, jump…) keep a tiny synth since no sample was provided for them.
+import catalog from "virtual:asset-catalog";
+import { assetBySlug } from "@slopwars/shared";
 import { assetUrl } from "./assets";
 import type { WeaponId } from "./types";
 
 const SAMPLES = {
-  knife: "knife.mp3", usp: "desert_eagle.mp3", ak47: "mp5.mp3", awp: "awp.mp3", luger: "luger_p08.mp3", m4a1: "m4a1.mp3", suomi: "suomi.mp3", shotgun: "shotgun.mp3",
-  boom: "bomb.mp3", shatter: "bottle_breaking.mp3", fire: "fire_loop.mp3",
-  step1: "walking_rock_1.wav", step2: "walking_rock_2.wav", water: "water_loop.mp3",
-  theme: "slopwars_theme_song_loop.mp3", interlude: "round_interlude.mp3",
-  roundStart: "round_starts.mp3", roundEnd: "round_end.mp3",
-  hit: "hitmarker.mp3", headshot: "headshot.mp3",
-  jumpStart: "jump_start.mp3", jumpEnd: "jump_end.mp3", deathScreen: "death_screen.mp3",
-  portalShot: "portal_gun.mp3", portalLoop: "portal_loop.mp3",
+  knife: "knife", usp: "desert_eagle", ak47: "mp5", awp: "awp", luger: "luger_p08", m4a1: "m4a1", suomi: "suomi", shotgun: "shotgun",
+  boom: "bomb", shatter: "bottle_breaking", fire: "fire_loop",
+  step1: "walking_rock_1", step2: "walking_rock_2", water: "water_loop",
+  theme: "slopwars_theme_song_loop", interlude: "round_interlude",
+  roundStart: "round_starts", roundEnd: "round_end",
+  hit: "hitmarker", headshot: "headshot",
+  jumpStart: "jump_start", jumpEnd: "jump_end", deathScreen: "death_screen",
+  portalShot: "portal_gun", portalLoop: "portal_loop",
 } as const;
 type SampleName = keyof typeof SAMPLES;
+
+/** URL for a sample: resolve its slug to the catalog's file path (folder-per-clip),
+ *  falling back to a flat path so a not-yet-scanned clip still tries to load. */
+function sampleUrl(name: SampleName): string {
+  const slug = SAMPLES[name];
+  return assetUrl(assetBySlug(catalog.audio, slug)?.file ?? `audio/${slug}.mp3`);
+}
 
 interface Loop { src: AudioBufferSourceNode; gain: GainNode; pan?: StereoPannerNode }
 
@@ -84,7 +96,7 @@ class Sfx {
     let p = this.loading.get(name);
     if (!p) {
       const ctx = this.ac();
-      p = fetch(assetUrl(`audio/${SAMPLES[name]}`))
+      p = fetch(sampleUrl(name))
         .then((r) => r.arrayBuffer())
         .then((a) => ctx.decodeAudioData(a))
         .then((b) => { this.buffers.set(name, b); return b; });
