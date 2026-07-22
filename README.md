@@ -81,8 +81,11 @@ public/
 
 Content is **file-driven**: the shared Vite plugin scans `public/assets/` into
 virtual catalog modules, so the game and the editor both discover assets from
-the filesystem. A model is pure geometry — every surface is shaded by a
-first-class **material** from the library. A map is a folder
+the filesystem. Every asset carries a stable **UUID** minted at import time —
+authored data (maps, a model's slot materials, a map's HDRI) references that id,
+never the name or path, so an asset can be renamed or reorganised into folders
+without breaking a single use. A model is pure geometry — every surface is shaded
+by a first-class **material** from the library. A map is a folder
 (`public/assets/maps/<id>/map.json`) holding a flat list of typed objects with
 transforms — geometry, props, spawns, pickups, lights, sounds. Drop a
 `preview.jpg` next to it and the map picker grows a screenshot.

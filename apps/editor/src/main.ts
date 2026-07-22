@@ -7,6 +7,7 @@
 // clicking an asset in the bottom browser opens (or focuses) its tab; New/Load open
 // map tabs. Everything placed in a map is an object saved to maps/<id>.json.
 import type { AssetCatalog, MaterialDef, ModelMeta, Placement, Tuple3 } from "@slopwars/shared";
+import { assetBySlug } from "@slopwars/shared";
 import { Viewport, Tool, PerfStats } from "./viewport";
 import { PreviewScene } from "./previewscene";
 import { ThumbRenderer } from "./preview";
@@ -100,7 +101,7 @@ function anyDirty(): boolean {
  *  changes how its browser swatch — and any model card using it — should look, so the
  *  stale cached thumbnails are dropped and the browser re-rendered. */
 async function saveMaterialFile(name: string): Promise<void> {
-  const def = catalog.materials.find((m) => m.name === name)?.def;
+  const def = assetBySlug(catalog.materials, name)?.def;
   if (!def) return;
   try {
     await api.saveMaterial(name, def); dirtyMaterials.delete(name); renderTabStrip(); renderSaveButtons();
@@ -122,7 +123,7 @@ async function saveModelFile(name: string): Promise<void> {
 function liveMeta(name: string): ModelMeta {
   const hit = modelEdits.get(name);
   if (hit) return hit;
-  const seed: ModelMeta = JSON.parse(JSON.stringify(catalog.models.find((x) => x.name === name)?.meta ?? {}));
+  const seed: ModelMeta = JSON.parse(JSON.stringify(assetBySlug(catalog.models, name)?.meta ?? {}));
   modelEdits.set(name, seed);
   return seed;
 }
@@ -149,10 +150,12 @@ async function main(): Promise<void> {
     anchorRemove: (kind) => anchorRemove(kind),
   });
   setInspectorTextureHooks({
-    maps: (name) => catalog.textures.find((t) => t.name === name)?.maps ?? {},
+    maps: (name) => assetBySlug(catalog.textures, name)?.maps ?? {},
     setMap: (name, slot, file) => void setTextureMap(name, slot, file),
     clearMap: (name, slot) => void clearTextureMap(name, slot),
-    usedBy: (name) => catalog.materials.filter((m) => m.def.type === "standard" && m.def.texture === name).map((m) => m.name),
+    // a material references its texture by id → resolve this set's id, then find the
+    // materials pointing at it (returns their slugs so a click opens their tab).
+    usedBy: (name) => { const id = assetBySlug(catalog.textures, name)?.id; return id ? catalog.materials.filter((m) => m.def.type === "standard" && m.def.texture === id).map((m) => m.slug) : []; },
     renamed: (from, to) => { void renameTexture(from, to); },
   });
 
@@ -230,15 +233,15 @@ function syncViewport(): void {
   const key = tab ? `${tab.kind}:${tab.material ?? tab.model ?? tab.texture ?? ""}:${tab.view ?? ""}` : "";
   if (isPreview && key !== previewKey && preview.ready) {
     if (tab!.kind === "material") {
-      const m = catalog.materials.find((x) => x.name === tab!.material);
-      if (m) { ensureMatHist(m.name); void preview.showMaterial(m.name, m.def); }
+      const m = assetBySlug(catalog.materials, tab!.material);
+      if (m) { ensureMatHist(m.slug); void preview.showMaterial(m.slug, m.def); }
     } else if (tab!.kind === "model") {
       selBox = -1;
       selAnchor = null; preview.selectAnchor(null);
       ensureMetaHist(tab!.model!);
       void preview.showModel(tab!.model!, tab!.view ?? "model", liveMeta(tab!.model!));
     } else if (tab!.kind === "texture") {
-      void preview.showTexture(tab!.texture!, catalog.textures.find((t) => t.name === tab!.texture)?.maps ?? {});
+      void preview.showTexture(tab!.texture!, assetBySlug(catalog.textures, tab!.texture)?.maps ?? {});
     }
   }
   previewKey = isPreview ? key : "";
@@ -267,7 +270,7 @@ function applyMaterialEffects(name: string, def: MaterialDef): void {
 
 // ── material undo/redo (preview tabs) — same snapshot scheme as model metas ───
 const matHistory = new Map<string, MetaHist>();
-function matDefOf(name: string): MaterialDef | null { return catalog.materials.find((m) => m.name === name)?.def ?? null; }
+function matDefOf(name: string): MaterialDef | null { return assetBySlug(catalog.materials, name)?.def ?? null; }
 function ensureMatHist(name: string): MetaHist | null {
   const def = matDefOf(name); if (!def) return null;
   let h = matHistory.get(name);
@@ -794,20 +797,14 @@ async function createTextureFlow(): Promise<void> {
   } catch (e) { toast("create texture failed: " + e, true); }
 }
 
-/** rename a texture set folder + repoint every material that referenced it (persisting
- *  those materials), then retarget its open tab — mirrors the material rename flow. */
+/** rename a texture set folder, then retarget its open tab. Materials reference a
+ *  texture by its stable id, not its folder name, so nothing needs repointing — the
+ *  whole point of the uuid identity. */
 async function renameTexture(from: string, to: string): Promise<void> {
   if (!to || to === from) return;
   try {
     const r = await api.renameTexture(from, to);
     if (!r.name) { toast("rename failed: " + (r.error ?? ""), true); return; }
-    // repoint materials that used the old texture set (write them so disk stays consistent)
-    for (const m of catalog.materials) {
-      if (m.def.type === "standard" && m.def.texture === from) {
-        const def = { ...m.def, texture: r.name };
-        try { await api.saveMaterial(m.name, def); } catch (e) { toast("repoint failed: " + e, true); }
-      }
-    }
     tabs.retargetTexture(from, r.name);
     await refreshCatalog(true);
     await browser?.reload();
@@ -820,7 +817,7 @@ async function renameTexture(from: string, to: string): Promise<void> {
 /** patch the in-memory catalog with a live model-meta edit so the map viewport
  *  (which reads catalog metas) previews it before the debounced file write lands */
 function applyLiveModelMeta(name: string, meta: ModelMeta): void {
-  const m = catalog.models.find((x) => x.name === name);
+  const m = assetBySlug(catalog.models, name);
   if (m) m.meta = JSON.parse(JSON.stringify(meta));
 }
 
@@ -879,7 +876,7 @@ async function afterTextureEdit(name: string): Promise<void> {
   await browser?.reload();
   const tab = tabs.active();
   if (tab?.kind === "texture" && tab.texture === name) {
-    void preview.showTexture(name, catalog.textures.find((t) => t.name === name)?.maps ?? {}, true);
+    void preview.showTexture(name, assetBySlug(catalog.textures, name)?.maps ?? {}, true);
   }
   refreshInspector();
 }
@@ -926,15 +923,12 @@ async function deleteMapFlow(file: string): Promise<void> {
   } catch (e) { toast("delete failed: " + e, true); }
 }
 
-/** rename a material file + repoint every open map's references, then retarget its tab */
+/** rename a material file, then retarget its tab. A map references a material by its
+ *  stable id, not its file name, so no map objects need repointing — renaming is safe. */
 async function renameMaterial(from: string, to: string): Promise<void> {
   try {
     const r = await api.renameMaterial(from, to);
     if (!r.name) { toast("rename failed: " + (r.error ?? ""), true); return; }
-    // repoint references in the active map (other open maps repoint on next load)
-    for (const o of state.map?.objects ?? []) {
-      if ((o.params as { mat?: string } | undefined)?.mat === from) (o.params as { mat: string }).mat = r.name;
-    }
     if (dirtyMaterials.delete(from)) dirtyMaterials.add(r.name);   // carry unsaved state to the new name
     const h = matHistory.get(from); if (h) { matHistory.delete(from); matHistory.set(r.name, h); }
     tabs.retargetMaterial(from, r.name);
@@ -1012,8 +1006,9 @@ function setupDrop(): void {
     const raw = e.dataTransfer?.getData("application/x-slop"); if (!raw) return;
     const p = JSON.parse(raw) as Payload;
     const at = viewport.dropSurface(e.clientX, e.clientY) ?? [0, 0, 0] as Tuple3;
-    if (p.kind === "model") add({ type: "prop", at, params: { model: p.name } });
-    else if (p.kind === "audio") add({ type: "sound", at: [at[0], at[1] + 1.5, at[2]], params: { clip: p.name } });
+    // asset placements store the asset's stable id (rename-safe); object types drop by name
+    if (p.kind === "model") add({ type: "prop", at, params: { model: p.id ?? p.name } });
+    else if (p.kind === "audio") add({ type: "sound", at: [at[0], at[1] + 1.5, at[2]], params: { clip: p.id ?? p.name } });
     else if (p.kind === "object") add(objectPlacement(p.name, at));
   });
 }

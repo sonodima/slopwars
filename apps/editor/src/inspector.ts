@@ -7,7 +7,7 @@
 // "World" row edits the map's sky / lighting / effects. A group is a first-class
 // parent, so its inspector edits the group's own transform.
 import type { AssetCatalog, CollisionMode, CollisionShape, FogFalloff, MapDef, MaterialDef, MaterialType, ModelAnchor, ModelMeta, PhysicsProps, Placement, ShadowQuality, TextureMaps, ToneMode, Tuple3 } from "@slopwars/shared";
-import { ANCHOR_KINDS, MATERIAL_TYPES, PHYSICS_DEFAULTS, anchorLabel, defaultMaterialDef, envPost, envShadows, envWeather } from "@slopwars/shared";
+import { ANCHOR_KINDS, MATERIAL_TYPES, PHYSICS_DEFAULTS, anchorLabel, assetBySlug, defaultMaterialDef, envPost, envShadows, envWeather } from "@slopwars/shared";
 import { objectDefaults, placementDetail } from "@game/objects";
 import { behaviourCatalog, behaviourDefaults, behaviourLabel, type BehaviourSpec } from "@game/behaviours";
 import type { ThumbRenderer } from "./preview";
@@ -89,8 +89,8 @@ export function renderInspector(host: HTMLElement): void {
   clear(host);
   const tab = tabs.active();
   if (tab?.kind === "material") {
-    const m = catalog.materials.find((x) => x.name === tab.material);
-    if (m) return materialInspector(host, m.name, m.def);
+    const m = assetBySlug(catalog.materials, tab.material);
+    if (m) return materialInspector(host, m.slug, m.def);
     host.append(el("div", "empty", "material not found")); return;
   }
   if (tab?.kind === "model" && tab.model) return modelInspector(host, tab.model);
@@ -246,7 +246,7 @@ function textureMapSlot(name: string, slot: TexSlot, label: string, hint: string
 // this inspector mutate the same object). Collision authoring (placing solids) lives
 // in the left panel; here you choose the mode and calibrate the model.
 function modelInspector(host: HTMLElement, name: string): void {
-  const asset = catalog.models.find((x) => x.name === name);
+  const asset = assetBySlug(catalog.models, name);
   host.append(el("h3", "insp-title", name));
   host.append(el("div", "insp-sub", "model"));
   if (!asset || !modelHooks) { host.append(el("div", "empty", "model not found")); return; }
@@ -598,17 +598,6 @@ function isColorKey(key: string): boolean {
 }
 
 // ── world / environment ─────────────────────────────────────────────────────
-/** map a stored sky path ("hdri/sky.hdr") to its catalog asset name ("sky") */
-function hdriName(path: string | undefined): string {
-  if (!path) return "";
-  const h = catalog.hdri.find((x) => x.file === path);
-  return h ? h.name : path.replace(/^.*\//, "").replace(/\.(hdr|exr)$/i, "");
-}
-/** map a catalog asset name back to the path stored on the map's env */
-function hdriPath(name: string): string {
-  return catalog.hdri.find((x) => x.name === name)?.file ?? `hdri/${name}.hdr`;
-}
-
 function worldInspector(host: HTMLElement, map: MapDef, touch: () => void): void {
   head(host, "World");
   const e = map.env;
@@ -623,11 +612,12 @@ function worldInspector(host: HTMLElement, map: MapDef, touch: () => void): void
 
   group(host, "Sky");
   // HDRI is a drag-droppable asset slot (drop from the Skyboxes browser, or click
-  // to pick) with a live preview of the sky. Stored as a path; shown by name.
+  // to pick) with a live preview of the sky. Stored as the HDRI's asset id, so the
+  // skybox survives a rename of the HDRI file.
   host.append(assetField({
     label: "hdri", kind: "hdri", catalog, thumbs,
-    get: () => hdriName(e.sky.hdri),
-    set: (v) => { e.sky.hdri = v ? hdriPath(v) : undefined; },
+    get: () => e.sky.hdri ?? "",
+    set: (v) => { e.sky.hdri = v || undefined; },
     onChange: () => state.commit(true),
   }));
   if (!e.sky.solid) e.sky.solid = [0.05, 0.06, 0.08];

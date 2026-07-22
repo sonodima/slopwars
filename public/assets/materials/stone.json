@@ -1,4 +1,8 @@
 {
-  "type": "standard",
-  "texture": "stone"
+  "id": "f7996775-dc09-4754-85d0-be0b0b70a9a6",
+  "name": "stone",
+  "def": {
+    "type": "standard",
+    "texture": "628ada9e-f3f1-42b9-b297-060b714eb63a"
+  }
 }

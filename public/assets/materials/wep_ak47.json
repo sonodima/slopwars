@@ -1,4 +1,8 @@
 {
-  "type": "standard",
-  "texture": "wep_ak47"
+  "id": "c23e8970-ecee-4ce4-9898-621eb050aec3",
+  "name": "wep_ak47",
+  "def": {
+    "type": "standard",
+    "texture": "127dcc58-ecb9-4724-af7b-d7f7e35786ca"
+  }
 }

@@ -1,9 +1,16 @@
 // ─── Asset reference field (inspector) ───────────────────────────────────────
-// An Unreal-style slot for a model / texture / audio reference: shows an inline
-// rendered preview + the asset name, accepts a drag from the asset browser, and
-// clicking it opens a thumbnail picker. Used for object params like a prop's
-// `model`, a box's `tex`, or a sound's `clip`.
-import type { AssetCatalog } from "@slopwars/shared";
+// An Unreal-style slot for a model / texture / audio / material / hdri reference:
+// shows an inline rendered preview + the asset's display name, accepts a drag from
+// the asset browser, and clicking it opens a thumbnail picker. Used for object
+// params like a prop's `model`, a box's `tex`, a sound's `clip`, or a map's HDRI.
+//
+// The VALUE the field reads/writes is the asset's stable id (what authored data
+// stores), never its name — so renaming an asset never breaks the reference. The
+// field resolves that id back to the asset for its name + preview; a value that
+// resolves to nothing is flagged as dangling. A code-default slug (e.g. a particle
+// `tex` of "fire") also resolves, via assetByRef.
+import type { AssetCatalog, AssetId } from "@slopwars/shared";
+import { assetByRef } from "@slopwars/shared";
 import type { ThumbRenderer } from "./preview";
 import { clear, el, modal } from "./ui";
 import { icon, type IconName } from "./icons";
@@ -20,13 +27,13 @@ export interface AssetFieldOpts {
   onChange: () => void;
 }
 
-/** names available for a kind, for the picker + drop validation */
-function names(cat: AssetCatalog, kind: AssetKind): string[] {
-  if (kind === "model") return cat.models.map((m) => m.name);
-  if (kind === "audio") return cat.audio.map((a) => a.name);
-  if (kind === "hdri") return cat.hdri.map((h) => h.name);
-  if (kind === "material") return cat.materials.map((m) => m.name);
-  return cat.textures.map((t) => t.name);
+/** the catalog list for a kind (each entry carries id / slug / name / folder) */
+function assets(cat: AssetCatalog, kind: AssetKind): readonly AssetId[] {
+  if (kind === "model") return cat.models;
+  if (kind === "audio") return cat.audio;
+  if (kind === "hdri") return cat.hdri;
+  if (kind === "material") return cat.materials;
+  return cat.textures;
 }
 
 /** placeholder icon for an empty / loading slot of a given kind */
@@ -34,23 +41,23 @@ function kindIcon(kind: AssetKind): IconName {
   return kind === "audio" ? "volume" : kind === "texture" ? "image" : kind === "material" ? "material" : kind === "hdri" ? "mountain" : "box";
 }
 
-/** kick off the inline preview render for `name`, filling `slot` when ready */
-function preview(slot: HTMLElement, o: AssetFieldOpts, name: string): void {
+/** kick off the inline preview render for the asset with id `ref`, filling `slot` */
+function preview(slot: HTMLElement, o: AssetFieldOpts, ref: string): void {
   clear(slot);
   const ico = (): HTMLElement => { const s = el("span", "af-ico"); s.append(icon(kindIcon(o.kind))); return s; };
-  if (!name) { slot.append(ico()); return; }
+  if (!ref) { slot.append(ico()); return; }
   slot.append(ico());
   const t = o.thumbs; if (!t) return;
   let p: Promise<string | null> | null = null;
-  if (o.kind === "model") { const m = o.catalog.models.find((x) => x.name === name); if (m) p = t.modelThumb(m.gltf); }
+  if (o.kind === "model") { const m = o.catalog.models.find((x) => x.id === ref); if (m) p = t.modelThumb(m.gltf); }
   else if (o.kind === "texture") {
     // textures show their flat bitmap, not a lit sphere — you're picking raw image data
-    const tx = o.catalog.textures.find((x) => x.name === name);
+    const tx = o.catalog.textures.find((x) => x.id === ref);
     if (tx?.maps.color) { clear(slot); const img = el("img", "af-prev"); img.src = `${import.meta.env.BASE_URL}assets/${tx.maps.color}`; slot.append(img); }
     return;
   }
-  else if (o.kind === "material") { const mt = o.catalog.materials.find((x) => x.name === name); if (mt) p = t.materialThumb(mt.name, mt.def, o.catalog); }
-  else if (o.kind === "hdri") { const h = o.catalog.hdri.find((x) => x.name === name); if (h) p = t.hdriThumb(h.file); }
+  else if (o.kind === "material") { const mt = o.catalog.materials.find((x) => x.id === ref); if (mt) p = t.materialThumb(mt.id, mt.def, o.catalog); }
+  else if (o.kind === "hdri") { const h = o.catalog.hdri.find((x) => x.id === ref); if (h) p = t.hdriThumb(h.file); }
   if (!p) return;
   void p.then((url) => { if (!url) return; clear(slot); const img = el("img", "af-prev"); img.src = url; slot.append(img); });
 }
@@ -66,29 +73,30 @@ export function assetField(o: AssetFieldOpts): HTMLElement {
   warn.title = "missing asset — falls back to a default; pick another or clear it";
   const refresh = (): void => {
     const v = o.get();
-    // a reference to an asset that no longer exists (deleted) is dangling: keep the
-    // name but flag it red. The engine + game fall back gracefully (default material,
-    // default texture, no model), so the map still loads.
-    const missing = !!v && !names(o.catalog, o.kind).includes(v);
-    nameEl.textContent = v || "none";
+    // resolve the stored id (or a code-default slug) to its asset; a reference that
+    // resolves to nothing is dangling — show it flagged red. The engine + game fall
+    // back gracefully (default material/texture, no model), so the map still loads.
+    const asset = v ? assetByRef(assets(o.catalog, o.kind), v) : undefined;
+    const missing = !!v && !asset;
+    nameEl.textContent = asset ? asset.name : (v ? "missing" : "none");
     nameEl.classList.toggle("empty", !v);
     nameEl.classList.toggle("dangling", missing);
     box.classList.toggle("dangling", missing);
     warn.style.display = missing ? "" : "none";
-    preview(prev, o, v);
+    preview(prev, o, asset ? asset.id : "");
   };
 
   const apply = (v: string): void => { o.set(v); o.onChange(); refresh(); };
 
-  // drag from the asset browser
+  // drag from the asset browser (payload carries the asset id)
   box.addEventListener("dragover", (e) => { e.preventDefault(); box.classList.add("drop"); });
   box.addEventListener("dragleave", () => box.classList.remove("drop"));
   box.addEventListener("drop", (e) => {
     e.preventDefault(); box.classList.remove("drop");
     const raw = e.dataTransfer?.getData("application/x-slop"); if (!raw) return;
     try {
-      const p = JSON.parse(raw) as { kind: string; name: string };
-      if (p.kind === o.kind && p.name) apply(p.name);
+      const p = JSON.parse(raw) as { kind: string; id?: string; name?: string };
+      if (p.kind === o.kind && p.id) apply(p.id);
     } catch { /* ignore malformed */ }
   });
 
@@ -105,7 +113,7 @@ export function assetField(o: AssetFieldOpts): HTMLElement {
   return row;
 }
 
-/** modal grid of thumbnails for the field's kind */
+/** modal grid of thumbnails for the field's kind — picking one stores its id */
 function openPicker(o: AssetFieldOpts, apply: (v: string) => void): void {
   const grid = el("div", "picker-grid");
   const dlg = modal(`Pick ${o.kind}`, grid);
@@ -113,12 +121,14 @@ function openPicker(o: AssetFieldOpts, apply: (v: string) => void): void {
   none.append(el("div", "asset-thumb", ""), el("div", "asset-name", "none"));
   none.addEventListener("click", () => { dlg.close(); apply(""); });
   grid.append(none);
-  for (const name of names(o.catalog, o.kind)) {
+  // group by folder so a large, foldered library stays navigable
+  for (const a of [...assets(o.catalog, o.kind)].sort((x, y) => x.folder.localeCompare(y.folder) || x.name.localeCompare(y.name))) {
     const card = el("button", "picker-card");
     const thumb = el("div", "asset-thumb");
-    card.append(thumb, el("div", "asset-name", name));
-    preview(thumb, o, name);
-    card.addEventListener("click", () => { dlg.close(); apply(name); });
+    const label = a.folder ? `${a.folder}/${a.name}` : a.name;
+    card.append(thumb, el("div", "asset-name", label));
+    preview(thumb, o, a.id);
+    card.addEventListener("click", () => { dlg.close(); apply(a.id); });
     grid.append(card);
   }
 }

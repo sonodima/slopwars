@@ -14,25 +14,36 @@ import { modelSlotMaterial } from "@slopwars/shared";
 import { MapTextures, PbrSet, DEFAULT_FOLDER } from "./textures";
 import { WATER_LOOK, createWaterMaterial, type WaterLook } from "./water";
 
-/** the scanned material defs (file-based). The editor can pass a live override
- *  map into a MaterialLibrary so unsaved edits preview in the viewport. */
-const CATALOG_DEFS = new Map<string, MaterialDef>(catalog.materials.map((m) => [m.name, m.def]));
-/** a material guaranteed to exist — the fallback for an object that names a gap */
-export const DEFAULT_MATERIAL = CATALOG_DEFS.has("gray") ? "gray" : (catalog.materials[0]?.name ?? "gray");
+/** the scanned material defs, keyed by asset id (what authored data references). The
+ *  editor can pass a live override map (also id-keyed) into a MaterialLibrary so unsaved
+ *  edits preview in the viewport. */
+const CATALOG_DEFS = new Map<string, MaterialDef>(catalog.materials.map((m) => [m.id, m.def]));
+/** slug → id, so the game's own built-ins (DEFAULT_MATERIAL, structure surfaces) can
+ *  still name a material by its file slug ("gray", "wall", …). */
+const ID_BY_SLUG = new Map<string, string>(catalog.materials.map((m) => [m.slug, m.id]));
 
-/** look up a material def by name (falls back to the default material) */
-export function materialDef(name: string, defs: Map<string, MaterialDef> = CATALOG_DEFS): MaterialDef {
-  return defs.get(name) ?? defs.get(DEFAULT_MATERIAL) ?? CATALOG_DEFS.get(DEFAULT_MATERIAL) ?? { type: "standard" };
+/** resolve a material reference (an authored id, or a built-in's slug) to its id */
+export function materialId(ref: string): string { return ID_BY_SLUG.get(ref) ?? ref; }
+
+/** a material guaranteed to exist — the fallback for an object that names a gap */
+export const DEFAULT_MATERIAL = ID_BY_SLUG.get("gray") ?? catalog.materials[0]?.id ?? "gray";
+
+/** look up a material def by reference — an id (authored data), or a slug (a code
+ *  built-in). Falls back to the default material for a dangling reference. */
+export function materialDef(ref: string, defs: Map<string, MaterialDef> = CATALOG_DEFS): MaterialDef {
+  const id = defs.has(ref) ? ref : materialId(ref);
+  return defs.get(id) ?? defs.get(DEFAULT_MATERIAL) ?? CATALOG_DEFS.get(DEFAULT_MATERIAL) ?? { type: "standard" };
 }
 
 /** the texture folders a set of materials need loaded (only `standard` materials
- *  with a texture; glass/water carry no textures). `defs` may be an editor-live
- *  override so a just-assigned texture is loaded before the rebuild. */
-export function materialTextureFolders(names: Iterable<string>, defs: Map<string, MaterialDef> = CATALOG_DEFS): string[] {
+ *  with a texture; glass/water carry no textures). Returns texture references (ids).
+ *  `defs` may be an editor-live override so a just-assigned texture loads before the
+ *  rebuild. */
+export function materialTextureFolders(refs: Iterable<string>, defs: Map<string, MaterialDef> = CATALOG_DEFS): string[] {
   const set = new Set<string>();
-  for (const n of names) {
-    const d = defs.get(n);
-    if (d?.type === "standard" && d.texture) set.add(d.texture);
+  for (const r of refs) {
+    const d = materialDef(r, defs);
+    if (d.type === "standard" && d.texture) set.add(d.texture);
   }
   return [...set];
 }
@@ -74,11 +85,13 @@ export class MaterialLibrary {
   /** build (or fetch the cached) material for a surface at the given per-instance
    *  tiling. Water materials are fully self-animating (see water.ts) — nothing
    *  extra to attach. */
-  build(name: string, tu = 1, tv = 1): Material {
-    const key = `${name}:${tu}:${tv}`;
+  build(ref: string, tu = 1, tv = 1): Material {
+    // key by the resolved id so the same material named by id and by slug shares one build
+    const id = this.defs.has(ref) ? ref : materialId(ref);
+    const key = `${id}:${tu}:${tv}`;
     let m = this.cache.get(key);
     if (m) return m;
-    const d = this.def(name);
+    const d = this.def(ref);
     m = d.type === "glass" ? this.buildGlass(d)
       : d.type === "water" ? this.buildWater(d, tu)
       : this.buildStandard(d.type === "standard" ? d : { type: "standard" }, tu, tv);

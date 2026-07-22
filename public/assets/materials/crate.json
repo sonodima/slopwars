@@ -1,4 +1,8 @@
 {
-  "type": "standard",
-  "texture": "crate"
+  "id": "95d9214e-b7d6-4bcf-b542-942511a0fe06",
+  "name": "crate",
+  "def": {
+    "type": "standard",
+    "texture": "2f0610e5-3dfc-46a0-86b7-92a9526a389e"
+  }
 }

@@ -1,4 +1,8 @@
 {
-  "type": "standard",
-  "texture": "wep_knife"
+  "id": "4afea7f7-ccfe-4cf4-9c93-c86e436ce3c3",
+  "name": "wep_knife",
+  "def": {
+    "type": "standard",
+    "texture": "2e688370-bc98-4de9-8636-04ce65073381"
+  }
 }

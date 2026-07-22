@@ -1,7 +1,9 @@
 {
+  "id": "73b6e05f-83e8-4db8-a614-f0de9b532f7b",
+  "name": "wep_frag",
   "scale": 0.02,
   "materials": {
-    "FragGrenade_MasterMat": "wep_frag"
+    "FragGrenade_MasterMat": "4dd9d8b7-855f-45d0-8e62-8b8b7759a4b3"
   },
   "anchors": {
     "ammo": {

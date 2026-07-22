@@ -1,6 +1,8 @@
 {
+  "id": "4b296b0b-a1e4-4066-b080-e5b3ac4cc50b",
+  "name": "metal_toolbox",
   "materials": {
-    "metal_toolbox": "metal_toolbox"
+    "metal_toolbox": "6c179177-9870-4524-86ee-d2800cd3fcae"
   },
   "propHunt": true
 }

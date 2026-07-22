@@ -19,46 +19,52 @@ export interface PbrSet {
 /** resolved textures for a map: folder name → its loaded PBR set */
 export type MapTextures = Map<string, PbrSet>;
 
-const BY_NAME = new Map(catalog.textures.map((t) => [t.name, t]));
+const BY_ID = new Map(catalog.textures.map((t) => [t.id, t]));
+const ID_BY_SLUG = new Map(catalog.textures.map((t) => [t.slug, t.id]));
 /** a folder guaranteed to exist — used when an object omits `tex` or names a gap */
-export const DEFAULT_FOLDER = BY_NAME.has("wall") ? "wall" : (catalog.textures[0]?.name ?? "wall");
+export const DEFAULT_FOLDER = ID_BY_SLUG.get("wall") ?? catalog.textures[0]?.id ?? "wall";
 
-/** resolve the concrete file path for one PBR map of a folder, with fallback to
+/** resolve a texture reference (an authored id, or a built-in's slug) to its id */
+export function textureId(ref: string): string { return ID_BY_SLUG.get(ref) ?? ref; }
+
+/** resolve the concrete file path for one PBR map of a texture, with fallback to
  *  the same map of the default folder (keeps rendering resilient to gaps). */
-function pathFor(byName: Map<string, TextureAsset>, folder: string, slot: "color" | "normal" | "arm"): string {
-  return byName.get(folder)?.maps[slot] ?? byName.get(DEFAULT_FOLDER)?.maps[slot] ?? `textures/${folder}/${slot}.jpg`;
+function pathFor(byId: Map<string, TextureAsset>, id: string, slot: "color" | "normal" | "arm"): string {
+  return byId.get(id)?.maps[slot] ?? byId.get(DEFAULT_FOLDER)?.maps[slot] ?? `textures/${id}/${slot}.jpg`;
 }
 
-/** folder → its loaded set (shared across all maps; loaded at most once) */
+/** texture id → its loaded set (shared across all maps; loaded at most once) */
 const cache = new Map<string, Promise<PbrSet>>();
 
-function loadSet(engine: Engine, byName: Map<string, TextureAsset>, folder: string): Promise<PbrSet> {
-  let p = cache.get(folder);
+function loadSet(engine: Engine, byId: Map<string, TextureAsset>, id: string): Promise<PbrSet> {
+  let p = cache.get(id);
   if (!p) {
     p = (async (): Promise<PbrSet> => {
       const [color, normal, arm] = await Promise.all([
-        loadTexture2D(engine, pathFor(byName, folder, "color")),          // albedo — sRGB
-        loadTexture2D(engine, pathFor(byName, folder, "normal"), false),  // tangent normals — linear data
-        loadTexture2D(engine, pathFor(byName, folder, "arm"), false),     // AO/Rough/Metal — linear data
+        loadTexture2D(engine, pathFor(byId, id, "color")),          // albedo — sRGB
+        loadTexture2D(engine, pathFor(byId, id, "normal"), false),  // tangent normals — linear data
+        loadTexture2D(engine, pathFor(byId, id, "arm"), false),     // AO/Rough/Metal — linear data
       ]);
       return { color, normal, arm };
     })();
-    cache.set(folder, p);
+    cache.set(id, p);
   }
   return p;
 }
 
-/** load every folder in `folders` (plus the default), returning a folder→set map.
- *  Unknown folders resolve to the default folder's set so builds never break.
+/** load every texture in `refs` (ids or slugs, plus the default), returning an
+ *  id→set map. An unknown reference resolves to the default so builds never break.
  *  `index` overrides the compiled-in catalog (the editor passes its live texture
  *  list so a just-imported folder resolves without a dev-server restart — the
  *  virtual catalog is a dev-server-start snapshot); the game omits it. */
-export async function resolveTextures(engine: Engine, folders: string[], index?: TextureAsset[]): Promise<MapTextures> {
-  const byName = index ? new Map(index.map((t) => [t.name, t])) : BY_NAME;
-  const want = new Set<string>([DEFAULT_FOLDER, ...folders]);
+export async function resolveTextures(engine: Engine, refs: string[], index?: TextureAsset[]): Promise<MapTextures> {
+  const byId = index ? new Map(index.map((t) => [t.id, t])) : BY_ID;
+  const bySlug = index ? new Map(index.map((t) => [t.slug, t.id])) : ID_BY_SLUG;
+  const idOf = (ref: string): string => (byId.has(ref) ? ref : bySlug.get(ref) ?? ref);
+  const want = new Set<string>([DEFAULT_FOLDER, ...refs.map(idOf)]);
   const list = [...want];
-  const sets = await Promise.all(list.map((f) => loadSet(engine, byName, byName.has(f) ? f : DEFAULT_FOLDER)));
+  const sets = await Promise.all(list.map((id) => loadSet(engine, byId, byId.has(id) ? id : DEFAULT_FOLDER)));
   const out: MapTextures = new Map();
-  list.forEach((f, i) => out.set(f, sets[i]));
+  list.forEach((id, i) => out.set(id, sets[i]));
   return out;
 }

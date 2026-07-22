@@ -1,4 +1,8 @@
 {
-  "type": "standard",
-  "texture": "koi_stone"
+  "id": "6441afc7-cbde-4d0b-aee9-448821fb9bc0",
+  "name": "koi_stone",
+  "def": {
+    "type": "standard",
+    "texture": "847cd9f6-6b8f-4c6e-9232-fbd78f45dad5"
+  }
 }

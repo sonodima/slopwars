@@ -17,7 +17,7 @@ import {
   SkyBoxMaterial, TextureCube, UnlitMaterial, Vector3, Vector4, WebGLEngine,
 } from "@galacean/engine";
 import type { AssetCatalog, CollisionBox, MaterialDef, ModelAnchor, ModelMeta, TextureMaps, Tuple3 } from "@slopwars/shared";
-import { rotateEulerInv, modelSlotMaterial } from "@slopwars/shared";
+import { assetByRef, assetBySlug, rotateEulerInv, modelSlotMaterial } from "@slopwars/shared";
 import { loadGLTF, loadHDRCube, loadTexture2D } from "@game/assets";
 import { createWaterMaterial, setWaterSun, WATER_LOOK, type WaterLook } from "@game/water";
 import { buildGlassMaterial } from "@game/materials";
@@ -221,7 +221,7 @@ export class PreviewScene {
     const m = new PBRMaterial(this.engine);
     if (def.type === "standard") {
       if (def.texture) {
-        const maps = this.catalog.textures.find((t) => t.name === def.texture)?.maps ?? {};
+        const maps = assetByRef(this.catalog.textures, def.texture)?.maps ?? {};
         const [color, normal, arm] = await Promise.all([
           maps.color ? loadTexture2D(this.engine, maps.color) : null,
           maps.normal ? loadTexture2D(this.engine, maps.normal, false) : null,
@@ -320,7 +320,7 @@ export class PreviewScene {
     this.content = { kind: "model", name, view };
     this.clearHolder();
     this.clearCollision();
-    const asset = this.catalog.models.find((m) => m.name === name);
+    const asset = assetBySlug(this.catalog.models, name);
     if (!asset) return;
     const res = await loadGLTF(this.engine, asset.gltf).catch(() => null);
     if (!res || this.content.kind !== "model" || this.content.name !== name) return;
@@ -372,9 +372,9 @@ export class PreviewScene {
   private applyModelMaterials(e: Entity, meta: ModelMeta): void {
     for (const r of e.getComponentsIncludeChildren(MeshRenderer, [])) {
       const slot = r.getMaterial()?.name ?? "";
-      const name = modelSlotMaterial(meta, slot);
-      if (!name) continue;
-      const def = this.catalog.materials.find((m) => m.name === name)?.def;
+      const ref = modelSlotMaterial(meta, slot);
+      if (!ref) continue;
+      const def = assetByRef(this.catalog.materials, ref)?.def;
       if (!def) continue;
       void this.buildMaterial(def).then((m) => { if (!r.destroyed && !e.destroyed) r.setMaterial(m); });
     }

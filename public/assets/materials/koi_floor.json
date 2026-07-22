@@ -1,4 +1,8 @@
 {
-  "type": "standard",
-  "texture": "koi_floor"
+  "id": "f17090a6-dc0d-4f2c-893b-ac7883c17b64",
+  "name": "koi_floor",
+  "def": {
+    "type": "standard",
+    "texture": "9d3cdad5-b58d-472c-baa9-527050cff67f"
+  }
 }

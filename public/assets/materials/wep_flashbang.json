@@ -1,4 +1,8 @@
 {
-  "type": "standard",
-  "texture": "wep_flashbang"
+  "id": "688c88c6-4b2b-4afe-924b-a23cb8ff8e73",
+  "name": "wep_flashbang",
+  "def": {
+    "type": "standard",
+    "texture": "52e27908-cc78-4b48-b4ed-26e4365bf103"
+  }
 }

@@ -5,7 +5,7 @@ import {
 } from "@galacean/engine";
 import { sfx } from "./audio";
 import { AmmoTag } from "./ammotag";
-import { GameModels, instantiate, modelMetaOf } from "./models";
+import { GameModels, instantiate, modelId, modelMetaOf } from "./models";
 import { MaterialLibrary, shadeModelSlots } from "./materials";
 import { Vec3, WEAPONS, WeaponDef, WeaponId, ALL_WEAPONS, LOADOUT, clamp } from "./types";
 import { modelAnchor, type ModelMeta } from "@slopwars/shared";
@@ -308,7 +308,7 @@ export class WeaponSystem {
     // applyModelMaterials shade them with their library materials, like a placed prop.
     for (const id of ALL_WEAPONS) {
       const folder = WEAPON_MODEL[id];
-      const m = instantiate(this.src[folder]);
+      const m = instantiate(this.src[modelId(folder)]);
       if (!m) { console.warn("[weapon] model missing:", folder); continue; }
       // The Luger's glTF ships with a magazine ("Clip") node we don't want on the viewmodel.
       if (id === "luger") m.findByName("Clip")?.destroy();

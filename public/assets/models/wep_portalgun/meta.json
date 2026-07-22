@@ -1,4 +1,6 @@
 {
+  "id": "b4274795-e213-4404-b1f4-670a222d7bb4",
+  "name": "wep_portalgun",
   "scale": 0.17,
   "baseRot": [
     0,
@@ -6,7 +8,7 @@
     -10
   ],
   "materials": {
-    "PortalGun": "wep_portalgun"
+    "PortalGun": "dc9b6d00-3e86-4fd5-ae38-8ea60cff579b"
   },
   "anchors": {
     "muzzle": {

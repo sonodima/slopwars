@@ -1,4 +1,8 @@
 {
-  "type": "standard",
-  "texture": "wep_portalgun"
+  "id": "dc9b6d00-3e86-4fd5-ae38-8ea60cff579b",
+  "name": "wep_portalgun",
+  "def": {
+    "type": "standard",
+    "texture": "2d57d5cb-11ff-4102-86a3-6daba3634ee7"
+  }
 }

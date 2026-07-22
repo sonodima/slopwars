@@ -12,7 +12,7 @@ import {
 } from "@galacean/engine";
 import { modelAnchor } from "@slopwars/shared";
 import { AABB, rayAABB } from "./map";
-import { GameModels, buildProp, instantiate, modelMetaOf } from "./models";
+import { GameModels, buildProp, instantiate, modelId, modelMetaOf } from "./models";
 import { shadeModelSlots, type MaterialLibrary } from "./materials";
 import { INTERP_DELAY, PlayerState, Vec3, WeaponId, clamp } from "./types";
 
@@ -148,7 +148,7 @@ export class RemotePlayer {
     this.models = models;
     this.entity = parent.createChild("rp-" + id);
 
-    const char = instantiate(models[CHARACTER_MODEL]);
+    const char = instantiate(models[modelId(CHARACTER_MODEL)]);
     if (char) this.buildCharacter(char);
 
     this.weaponHolder = this.entity.createChild("held");
@@ -310,7 +310,7 @@ export class RemotePlayer {
     // mount origin by scale only (the model origin lands on the hand), which for models
     // whose origin isn't the grip makes the gun float in the hand.
     const grip = modelAnchor(meta, "grip");
-    const m = instantiate(this.models[folder]);
+    const m = instantiate(this.models[modelId(folder)]);
     if (!m) return;
     // Guns are geometry-only glTFs — their surfaces come from the model's assigned
     // materials, exactly like the first-person viewmodel (weapons.applyModelMaterials).

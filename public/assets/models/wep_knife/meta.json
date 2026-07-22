@@ -1,7 +1,9 @@
 {
+  "id": "7161f34d-655b-4063-b0e1-08f638da35af",
+  "name": "wep_knife",
   "scale": 0.01,
   "materials": {
-    "Combat_Knife_Material": "wep_knife"
+    "Combat_Knife_Material": "4afea7f7-ccfe-4cf4-9c93-c86e436ce3c3"
   },
   "anchors": {
     "grip": {

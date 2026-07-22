@@ -1,4 +1,8 @@
 {
-  "type": "standard",
-  "texture": "metal"
+  "id": "2a4b9bf3-3225-4158-a777-a2e36552def8",
+  "name": "metal",
+  "def": {
+    "type": "standard",
+    "texture": "dcec57d0-86f3-4a9f-9e60-861e3edc4123"
+  }
 }

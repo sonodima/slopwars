@@ -6,7 +6,8 @@
 // (apps/editor/host/); file tools like asset import run there directly and never
 // reach this bridge. This is how Claude Code / Codex / other agents "act in the
 // editor" while it's open.
-import type { AssetCatalog, Placement, Tuple3 } from "@slopwars/shared";
+import type { AssetCatalog, AssetId, Placement, Tuple3 } from "@slopwars/shared";
+import { assetByRef } from "@slopwars/shared";
 import { objectCatalog, objectTypeNames } from "@game/objects";
 import { state } from "./state";
 import { tabs, type ModelView } from "./tabs";
@@ -49,6 +50,23 @@ export function startMcpBridge(ctx: McpBridgeCtx): void {
 /** serialize a placement for tool responses (index-tagged) */
 function objInfo(o: Placement, i: number): Record<string, unknown> {
   return { index: i, type: o.type, name: o.name ?? null, at: o.at, rot: o.rot ?? [0, 0, 0], scale: o.scale ?? [1, 1, 1], params: o.params ?? {}, group: o.group ?? null };
+}
+
+/** resolve the well-known asset params (mat/model/tex → material/model/texture,
+ *  clip → audio) from a human name to the asset's stable id, so a map always stores
+ *  ids. A value that's already an id — or an unknown name — is left untouched. Agents
+ *  refer to assets by name; this is where that name becomes the rename-safe id. */
+function resolveParamRefs(ctx: McpBridgeCtx, params: Record<string, unknown> | undefined): void {
+  if (!params) return;
+  const c = ctx.getCatalog();
+  const conv = (list: readonly AssetId[], key: string): void => {
+    const v = params[key];
+    if (typeof v === "string" && v) params[key] = assetByRef(list, v)?.id ?? v;
+  };
+  conv(c.materials, "mat");
+  conv(c.models, "model");
+  conv(c.textures, "tex");
+  conv(c.audio, "clip");
 }
 
 function requireMap(): NonNullable<typeof state.map> {
@@ -94,6 +112,7 @@ async function run(ctx: McpBridgeCtx, cmd: Cmd): Promise<unknown> {
       if (!o || typeof o.type !== "string") throw new Error("addObject needs { object: { type, at, … } }");
       if (!objectTypeNames().includes(o.type)) throw new Error(`unknown object type: ${o.type}`);
       if (!Array.isArray(o.at)) o.at = [0, 0, 0];
+      resolveParamRefs(ctx, o.params as Record<string, unknown> | undefined);
       const i = state.add(o);
       return { ok: true, index: i };
     }
@@ -105,7 +124,7 @@ async function run(ctx: McpBridgeCtx, cmd: Cmd): Promise<unknown> {
       if (p.scale) o.scale = p.scale as Tuple3;
       if (typeof p.name === "string") o.name = p.name || undefined;
       if (typeof p.group === "string" || p.group === undefined) o.group = p.group;
-      if (p.params) o.params = { ...(o.params ?? {}), ...(p.params as Record<string, unknown>) };
+      if (p.params) { resolveParamRefs(ctx, p.params as Record<string, unknown>); o.params = { ...(o.params ?? {}), ...(p.params as Record<string, unknown>) }; }
       state.commit(true);
       return { ok: true, object: objInfo(o, cmd.index as number) };
     }

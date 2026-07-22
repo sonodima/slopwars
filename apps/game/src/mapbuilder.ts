@@ -8,8 +8,8 @@ import {
 } from "@galacean/engine";
 import { buildParticles, reconfigureParticles, type ParticleLook } from "./particles";
 import catalog from "virtual:asset-catalog";
-import { GameModels, instantiate } from "./models";
-import { MapTextures, PbrSet, DEFAULT_FOLDER } from "./textures";
+import { GameModels, instantiate, modelId } from "./models";
+import { MapTextures, PbrSet, DEFAULT_FOLDER, textureId } from "./textures";
 import { MaterialLibrary, shadeModelSlots } from "./materials";
 import { WATER_LAYER } from "./water";
 import type { GroupDef, MaterialDef, ModelMeta, PhysicsProps, Tuple3 } from "@slopwars/shared";
@@ -19,7 +19,7 @@ import type { AABB, GameMap } from "./map";
 /** author-tuned per-model defaults (base offset / scale / material override),
  *  discovered from models/{name}/meta.json by the asset scanner. Applied to every
  *  instantiation so a model is calibrated once, not per placement. */
-const MODEL_META = new Map<string, ModelMeta>(catalog.models.map((m) => [m.name, m.meta ?? {}]));
+const MODEL_META = new Map<string, ModelMeta>(catalog.models.map((m) => [m.id, m.meta ?? {}]));
 
 type Vec3T = readonly [number, number, number];
 
@@ -83,7 +83,7 @@ export class MapBuilder {
   /** raw PBR texture set for a folder (falls back to the default) — for sprite
    *  consumers like the particle emitter that need an image, not a material. */
   texOf(folder?: string): PbrSet {
-    return (folder && this.tex.get(folder)) || this.tex.get(DEFAULT_FOLDER) || this.tex.values().next().value!;
+    return (folder && this.tex.get(textureId(folder))) || this.tex.get(DEFAULT_FOLDER) || this.tex.values().next().value!;
   }
 
   /** the colour map of a texture folder for use as a raw sprite (particle emitter),
@@ -91,7 +91,7 @@ export class MapBuilder {
    *  default folder: a particle whose `tex` can't be resolved shows the procedural
    *  soft puff (see particles.ts) instead of the opaque wall texture as a hard square. */
   texColorOf(folder?: string): Texture2D | null {
-    const set = folder ? this.tex.get(folder) : null;
+    const set = folder ? this.tex.get(textureId(folder)) : null;
     return set ? set.color : null;
   }
 
@@ -151,8 +151,8 @@ export class MapBuilder {
   }
 
   /** instantiate a loaded glTF model (null-safe: returns null if it failed to load) */
-  placeModel(id: string, x: number, y: number, z: number, scale: number, rotY = 0): Entity | null {
-    const e = instantiate(this.models[id]);
+  placeModel(ref: string, x: number, y: number, z: number, scale: number, rotY = 0): Entity | null {
+    const e = instantiate(this.models[modelId(ref)]);
     if (!e) return null;
     e.transform.setPosition(x, y, z);
     e.transform.setScale(scale, scale, scale);
@@ -167,10 +167,11 @@ export class MapBuilder {
    *  multiplier, a `base` vertical offset so it rests on its footing, and per-slot
    *  `materials` that shade each glTF surface. Used by every model placement
    *  (props, veg, explodables, lanterns) so a model is tuned once. */
-  placeModelTf(id: string, at: Vec3T, rot: Vec3T, scale: Vec3T): Entity | null {
-    const e = instantiate(this.models[id]);
+  placeModelTf(ref: string, at: Vec3T, rot: Vec3T, scale: Vec3T): Entity | null {
+    const mid = modelId(ref);
+    const e = instantiate(this.models[mid]);
     if (!e) return null;
-    const meta = this.modelMeta.get(id) ?? {};
+    const meta = this.modelMeta.get(mid) ?? {};
     const { ms, base } = modelCalib(meta);
     const sx = scale[0] * ms, sy = scale[1] * ms, sz = scale[2] * ms;
     e.transform.setScale(sx, sy, sz);
@@ -196,9 +197,9 @@ export class MapBuilder {
    *  (transformed by the placement + meta calibration) so e.g. only a tree's trunk
    *  blocks the player; "auto" (default) pushes one AABB hugging the whole mesh.
    *  `at`/`rot`/`scale` are the placement's WORLD transform (groups already resolved). */
-  pushModelSolids(id: string, entity: Entity, at: Vec3T, rot: Vec3T, scale: Vec3T): void {
+  pushModelSolids(ref: string, entity: Entity, at: Vec3T, rot: Vec3T, scale: Vec3T): void {
     if (this.suppressSolids) return;
-    const meta = this.modelMeta.get(id) ?? {};
+    const meta = this.modelMeta.get(modelId(ref)) ?? {};
     const boxes = meta.collision === "manual" ? (meta.collisionBoxes ?? []) : null;
     if (boxes) {
       const { ms, base } = modelCalib(meta);
@@ -250,9 +251,9 @@ export class MapBuilder {
    *  from its mesh bounds. `phys` carries mass (kg) plus the optional PhysX tuning
    *  (grip / bounce / damping). The simulation lives in the game (PhysicsWorld); the
    *  editor just leaves the prop where placed. */
-  pushDynamicBody(id: string, entity: Entity, at: Vec3T, rot: Vec3T, scale: Vec3T, phys: PhysicsProps): void {
+  pushDynamicBody(ref: string, entity: Entity, at: Vec3T, rot: Vec3T, scale: Vec3T, phys: PhysicsProps): void {
     if (this.suppressSolids) return;   // inside a physics group → the group body owns collision
-    const meta = this.modelMeta.get(id) ?? {};
+    const meta = this.modelMeta.get(modelId(ref)) ?? {};
     const { ms, base } = modelCalib(meta);
     const sx = scale[0] * ms, sy = scale[1] * ms, sz = scale[2] * ms;
     const pos = { x: at[0], y: at[1] + base * sy, z: at[2] };   // entity origin (matches placeModelTf)

@@ -17,7 +17,7 @@ import {
   MeshRenderer, PBRMaterial, PrimitiveMesh, RefractionMode, SkyBoxMaterial, Vector3, Vector4, WebGLEngine,
 } from "@galacean/engine";
 import type { AssetCatalog, MapDef, MaterialDef, ModelMeta, TextureMaps } from "@slopwars/shared";
-import { modelSlotMaterial } from "@slopwars/shared";
+import { assetByRef, modelSlotMaterial } from "@slopwars/shared";
 import catalog from "virtual:asset-catalog";
 import { loadGLTF, loadHDRCube, loadTexture2D } from "@game/assets";
 import { GameMap } from "@game/map";
@@ -61,7 +61,10 @@ export class ThumbRenderer {
   // meta/material/texture lookups must see post-start imports or a freshly
   // imported model/texture renders its card unshaded until a dev-server restart.
   private live: AssetCatalog = catalog;
-  private texByName = new Map(catalog.textures.map((t) => [t.name, t]));
+  // texture sets keyed by id (what materials reference), plus slug → id for any
+  // code-default (a particle sprite folder) that names a set by slug.
+  private texById = new Map(catalog.textures.map((t) => [t.id, t]));
+  private texBySlug = new Map(catalog.textures.map((t) => [t.slug, t.id]));
   private setCache = new Map<string, Promise<PbrSet>>();
   // lazily-built sky material + cube mesh, reused by every HDRI preview
   private skyMat: SkyBoxMaterial | null = null;
@@ -75,7 +78,8 @@ export class ThumbRenderer {
   /** swap in the editor's live catalog (call after every catalog refresh) */
   setCatalog(c: AssetCatalog): void {
     this.live = c;
-    this.texByName = new Map(c.textures.map((t) => [t.name, t]));
+    this.texById = new Map(c.textures.map((t) => [t.id, t]));
+    this.texBySlug = new Map(c.textures.map((t) => [t.slug, t.id]));
   }
 
   async init(): Promise<void> {
@@ -124,8 +128,8 @@ export class ThumbRenderer {
       const meta = this.live.models.find((m) => m.gltf === gltfPath)?.meta as ModelMeta | undefined;
       if (meta?.materials || meta?.material) {
         for (const r of e.getComponentsIncludeChildren(MeshRenderer, [])) {
-          const name = modelSlotMaterial(meta, r.getMaterial()?.name ?? "");
-          const def = name ? this.live.materials.find((x) => x.name === name)?.def : undefined;
+          const ref = modelSlotMaterial(meta, r.getMaterial()?.name ?? "");
+          const def = ref ? assetByRef(this.live.materials, ref)?.def : undefined;
           if (def) r.setMaterial(await this.buildDefMaterial(def));
         }
       }
@@ -140,7 +144,7 @@ export class ThumbRenderer {
     const m = new PBRMaterial(this.engine!);
     if (def.type === "standard") {
       if (def.texture) {
-        const maps = this.live.textures.find((t) => t.name === def.texture)?.maps ?? {};
+        const maps = assetByRef(this.live.textures, def.texture)?.maps ?? {};
         const [color, normal, arm] = await Promise.all([
           maps.color ? loadTexture2D(this.engine!, maps.color) : null,
           maps.normal ? loadTexture2D(this.engine!, maps.normal, false) : null,
@@ -279,11 +283,14 @@ export class ThumbRenderer {
   }
 
   // engine-local texture loading (mirrors game/textures but bound to THIS engine)
-  private pathFor(folder: string, slot: "color" | "normal" | "arm"): string {
-    return this.texByName.get(folder)?.maps[slot] ?? this.texByName.get(DEFAULT_FOLDER)?.maps[slot] ?? `textures/${folder}/${slot}.jpg`;
+  /** resolve a texture reference (id or slug) to its id */
+  private texId(ref: string): string { return this.texById.has(ref) ? ref : (this.texBySlug.get(ref) ?? ref); }
+  private pathFor(id: string, slot: "color" | "normal" | "arm"): string {
+    return this.texById.get(id)?.maps[slot] ?? this.texById.get(DEFAULT_FOLDER)?.maps[slot] ?? `textures/${id}/${slot}.jpg`;
   }
   private loadSet(folder: string): Promise<PbrSet> {
-    const key = this.texByName.has(folder) ? folder : DEFAULT_FOLDER;
+    const id = this.texId(folder);
+    const key = this.texById.has(id) ? id : DEFAULT_FOLDER;
     let p = this.setCache.get(key);
     if (!p) {
       p = (async (): Promise<PbrSet> => {
@@ -299,10 +306,11 @@ export class ThumbRenderer {
     return p;
   }
   private async resolveTex(folders: string[]): Promise<MapTextures> {
-    const list = [...new Set<string>([DEFAULT_FOLDER, ...folders])];
-    const sets = await Promise.all(list.map((f) => this.loadSet(f)));
+    // key by resolved id so MapBuilder.texOf (which resolves a ref → id) finds each set
+    const ids = [...new Set<string>([DEFAULT_FOLDER, ...folders.map((f) => this.texId(f))])];
+    const sets = await Promise.all(ids.map((id) => this.loadSet(id)));
     const out: MapTextures = new Map();
-    list.forEach((f, i) => out.set(f, sets[i]));
+    ids.forEach((id, i) => out.set(id, sets[i]));
     return out;
   }
 
