@@ -160,9 +160,8 @@ async function importHdri(root: string, id: string, want: string): Promise<PhImp
     files: [{ name: `${sanitize(id)}.${ext}`, data: await fetchB64(f.url) }],
   });
   if (r.error || !r.name) return { error: r.error ?? "import failed" };
-  // hdri/ is a flat dir (no per-asset folder), so provenance rides a sidecar the
-  // catalog scanner ignores (it only picks up .hdr/.exr).
-  writeNotice(root, `hdri/${r.name}.NOTICE.txt`, noticeText(id, `HDRI "${r.name}"`, picked.res));
+  // an HDRI is a folder per skybox now (like every asset), so provenance lives inside it
+  writeNotice(root, `hdri/${r.name}/NOTICE.txt`, noticeText(id, `HDRI "${r.name}"`, picked.res));
   return { ok: true, name: r.name, res: picked.res };
 }
 
