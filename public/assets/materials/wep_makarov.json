@@ -1,4 +1,8 @@
 {
-  "type": "standard",
-  "texture": "wep_makarov"
+  "id": "e23b26dd-3a7d-4440-9f15-15a0bbe1e059",
+  "name": "wep_makarov",
+  "def": {
+    "type": "standard",
+    "texture": "0b42aa83-833a-4085-a354-998bc6a7b35d"
+  }
 }

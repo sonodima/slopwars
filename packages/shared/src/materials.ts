@@ -6,6 +6,7 @@
 // reference a material by name; the game's material factory (game/materials.ts)
 // turns a def into an engine material. New surface = a new `type`, no schema churn.
 import type { Tuple3 } from "./schema";
+import type { AssetId } from "./catalog";
 
 /** the built-in shading models */
 export type MaterialType = "standard" | "glass" | "water";
@@ -51,9 +52,19 @@ export interface WaterMaterialDef {
 
 export type MaterialDef = StandardMaterialDef | GlassMaterialDef | WaterMaterialDef;
 
-/** a material discovered under public/assets/materials/{name}.json */
-export interface MaterialAsset {
-  name: string;                     // file name (minus .json) = canonical key
+/** a material discovered under public/assets/materials/**\/{slug}.json. The file is a
+ *  `MaterialFile` ({ id, name, def }); identity (id/slug/name/folder) is pulled up to
+ *  the asset, and `def` carries the shading model + params. */
+export interface MaterialAsset extends AssetId {
+  def: MaterialDef;
+}
+
+/** the on-disk shape of a material file: stable id, display name, and the def.
+ *  Wrapping the def (rather than inlining id/name onto it) keeps MaterialDef a clean
+ *  discriminated union while every material still carries a rename-safe identity. */
+export interface MaterialFile {
+  id: string;
+  name: string;
   def: MaterialDef;
 }
 

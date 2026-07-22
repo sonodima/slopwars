@@ -1,5 +1,9 @@
 {
-  "type": "standard",
-  "texture": "didelta_spinosa",
-  "metallic": 0
+  "id": "9df49eb6-de81-4e01-947f-58303b9f6290",
+  "name": "didelta_spinosa",
+  "def": {
+    "type": "standard",
+    "texture": "28ad4b01-914f-4d67-a4fb-0f269941e742",
+    "metallic": 0
+  }
 }

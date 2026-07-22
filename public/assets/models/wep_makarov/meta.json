@@ -1,7 +1,9 @@
 {
+  "id": "f70a928f-fef1-42e9-9894-18cc8d9a5d4a",
+  "name": "wep_makarov",
   "scale": 1.15,
   "materials": {
-    "Makarov_MasterMat": "wep_makarov"
+    "Makarov_MasterMat": "e23b26dd-3a7d-4440-9f15-15a0bbe1e059"
   },
   "anchors": {
     "muzzle": {

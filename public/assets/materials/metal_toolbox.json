@@ -1,4 +1,8 @@
 {
-  "type": "standard",
-  "texture": "metal_toolbox"
+  "id": "6c179177-9870-4524-86ee-d2800cd3fcae",
+  "name": "metal_toolbox",
+  "def": {
+    "type": "standard",
+    "texture": "2a3cfb87-b7df-4e3d-9f7f-1bb5ebc13cb5"
+  }
 }

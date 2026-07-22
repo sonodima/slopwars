@@ -1,4 +1,8 @@
 {
-  "type": "standard",
-  "texture": "Lantern_01_brass"
+  "id": "fdbac8ca-cebc-4486-a1cc-9a9819ab25da",
+  "name": "Lantern_01_brass",
+  "def": {
+    "type": "standard",
+    "texture": "4ab5abe2-98c1-43df-ac17-3e2786639e0f"
+  }
 }

@@ -1,4 +1,8 @@
 {
-  "type": "standard",
-  "texture": "metal_trash_can_rust"
+  "id": "b7c63cd9-04b7-4e1b-9dc4-db6e22fa0c3b",
+  "name": "metal_trash_can_rust",
+  "def": {
+    "type": "standard",
+    "texture": "0eab44db-7f37-4a19-b3ba-310d3b586bf1"
+  }
 }

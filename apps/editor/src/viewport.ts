@@ -234,7 +234,9 @@ export class Viewport {
   /** update the material defs used to shade the viewport (from the editor catalog
    *  and any unsaved material edits). Pass `rebuild` to re-shade immediately. */
   setMaterials(materials: MaterialAsset[], rebuild = false): void {
-    this.matDefs = new Map(materials.map((m) => [m.name, m.def]));
+    // keyed by asset id — the map + model metas reference materials by id, so the live
+    // override map must match (the runtime resolves any built-in slug to its id itself).
+    this.matDefs = new Map(materials.map((m) => [m.id, m.def]));
     this.texKey = "";   // force a texture re-resolve (a material may point at a new folder)
     if (rebuild && this.ready && state.map) void this.render(state.map);
   }
@@ -253,7 +255,8 @@ export class Viewport {
   /** update the per-model calibration metas used to pose/reskin model placements
    *  (from the editor catalog + any unsaved model-inspector edit). */
   setModelMetas(models: ModelAsset[], rebuild = false): void {
-    this.modelMetas = new Map(models.map((m) => [m.name, m.meta ?? {}]));
+    // keyed by asset id — mapbuilder looks up a placed model's meta by its resolved id
+    this.modelMetas = new Map(models.map((m) => [m.id, m.meta ?? {}]));
     this.texKey = "";   // a material override may pull in a new texture folder
     if (rebuild && this.ready && state.map) void this.render(state.map);
   }

@@ -1,4 +1,8 @@
 {
-  "type": "standard",
-  "texture": "military_crate_m_01"
+  "id": "7f115257-f30e-439f-94af-8b1551b8fe79",
+  "name": "military_crate_m_01",
+  "def": {
+    "type": "standard",
+    "texture": "1d3cc15b-4c6c-4cfb-8594-b1db2ff5150a"
+  }
 }

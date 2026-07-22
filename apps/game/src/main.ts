@@ -11,6 +11,7 @@ import { Cursor } from "./cursor";
 import { Hud } from "./hud";
 import { GameMap } from "./map";
 import catalog from "virtual:asset-catalog";
+import { assetByRef } from "@slopwars/shared";
 import { resolveTextures } from "./textures";
 import { mapTextureFolders } from "./objects";
 import { MaterialLibrary, materialTextureFolders } from "./materials";
@@ -2978,10 +2979,13 @@ class Game {
 
   // ─── map loading / rotation ───────────────────────────────────────────────────
 
-  /** HDRI cube for a path, loaded at most once (skybox + IBL specular source) */
-  loadHdri(path: string): Promise<TextureCube> {
-    let p = this.hdriCache.get(path);
-    if (!p) { p = loadHDRCube(this.engine, path); this.hdriCache.set(path, p); }
+  /** HDRI cube for a map's sky reference (an asset id, or a slug), loaded at most once
+   *  (skybox + IBL specular source). The reference resolves to the HDRI's file path
+   *  through the catalog, so an HDRI can be renamed without breaking a map. */
+  loadHdri(ref: string): Promise<TextureCube> {
+    const file = assetByRef(catalog.hdri, ref)?.file ?? ref;
+    let p = this.hdriCache.get(file);
+    if (!p) { p = loadHDRCube(this.engine, file); this.hdriCache.set(file, p); }
     return p;
   }
 

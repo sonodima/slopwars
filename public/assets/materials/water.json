@@ -1,12 +1,24 @@
 {
-  "type": "water",
-  "color": [0.015, 0.06, 0.08],
-  "opacity": 0.96,
-  "roughness": 0.12,
-  "ior": 1.33,
-  "flow": 0.05,
-  "waves": 0.6,
-  "depthColor": [0.04, 0.18, 0.22],
-  "depth": 1.6,
-  "clarity": 0.4
+  "id": "7cc6c7b6-821f-488c-862a-9b6e4c6b6b38",
+  "name": "water",
+  "def": {
+    "type": "water",
+    "color": [
+      0.015,
+      0.06,
+      0.08
+    ],
+    "opacity": 0.96,
+    "roughness": 0.12,
+    "ior": 1.33,
+    "flow": 0.05,
+    "waves": 0.6,
+    "depthColor": [
+      0.04,
+      0.18,
+      0.22
+    ],
+    "depth": 1.6,
+    "clarity": 0.4
+  }
 }

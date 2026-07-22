@@ -121,14 +121,14 @@ export function renderBrowser(host: HTMLElement, ctx: PanelCtx): BrowserControl 
   };
   const drawModels = (): void => {
     for (const m of ctx.catalog.models) {
-      if (!match(m.name)) continue;
-      const c = card(m.name, "box", () => ({ kind: "model", name: m.name }));
+      if (!match(m.name) && !match(m.folder)) continue;
+      const c = card(m.name, "box", () => ({ kind: "model", name: m.name, id: m.id, slug: m.slug }), m.folder);
       c.title = "double-click to open · drag into the viewport to place · right-click for actions";
-      c.addEventListener("dblclick", () => ctx.onOpenModel(m.name));
+      c.addEventListener("dblclick", () => ctx.onOpenModel(m.slug));
       ctxMenu(c, () => [
-        { label: "Open", icon: "eye", onClick: () => ctx.onOpenModel(m.name) },
+        { label: "Open", icon: "eye", onClick: () => ctx.onOpenModel(m.slug) },
         { sep: true },
-        { label: "Delete", icon: "trash", danger: true, onClick: () => confirmDelete(`model "${m.name}"`, () => ctx.onDeleteModel(m.name)) },
+        { label: "Delete", icon: "trash", danger: true, onClick: () => confirmDelete(`model "${m.name}"`, () => ctx.onDeleteModel(m.slug)) },
       ]);
       fillThumb(c, ctx.thumbs.modelThumb(m.gltf));
       grid.append(c);
@@ -136,16 +136,16 @@ export function renderBrowser(host: HTMLElement, ctx: PanelCtx): BrowserControl 
   };
   const drawMaterials = (): void => {
     for (const mt of ctx.catalog.materials) {
-      if (!match(mt.name)) continue;
-      const c = card(mt.name, "material", () => ({ kind: "material", name: mt.name }));
+      if (!match(mt.name) && !match(mt.folder)) continue;
+      const c = card(mt.name, "material", () => ({ kind: "material", name: mt.name, id: mt.id, slug: mt.slug }), mt.folder);
       c.title = "double-click to open · right-click for actions";
-      c.addEventListener("dblclick", () => ctx.onOpenMaterial(mt.name));
+      c.addEventListener("dblclick", () => ctx.onOpenMaterial(mt.slug));
       ctxMenu(c, () => [
-        { label: "Open", icon: "eye", onClick: () => ctx.onOpenMaterial(mt.name) },
+        { label: "Open", icon: "eye", onClick: () => ctx.onOpenMaterial(mt.slug) },
         { sep: true },
-        { label: "Delete", icon: "trash", danger: true, onClick: () => confirmDelete(`material "${mt.name}"`, () => ctx.onDeleteMaterial(mt.name)) },
+        { label: "Delete", icon: "trash", danger: true, onClick: () => confirmDelete(`material "${mt.name}"`, () => ctx.onDeleteMaterial(mt.slug)) },
       ]);
-      fillThumb(c, ctx.thumbs.materialThumb(mt.name, mt.def, ctx.catalog));
+      fillThumb(c, ctx.thumbs.materialThumb(mt.id, mt.def, ctx.catalog));
       grid.append(c);
     }
   };
@@ -154,14 +154,14 @@ export function renderBrowser(host: HTMLElement, ctx: PanelCtx): BrowserControl 
   // materials are what turn a set into a surface. Double-click opens the set editor.
   const drawTextures = (): void => {
     for (const t of ctx.catalog.textures) {
-      if (!match(t.name)) continue;
-      const c = card(t.name, "image", () => ({ kind: "texture", name: t.name }));
+      if (!match(t.name) && !match(t.folder)) continue;
+      const c = card(t.name, "image", () => ({ kind: "texture", name: t.name, id: t.id, slug: t.slug }), t.folder);
       c.title = "double-click to open · drag onto a material's texture slot · right-click for actions";
-      c.addEventListener("dblclick", () => ctx.onOpenTexture(t.name));
+      c.addEventListener("dblclick", () => ctx.onOpenTexture(t.slug));
       ctxMenu(c, () => [
-        { label: "Open", icon: "eye", onClick: () => ctx.onOpenTexture(t.name) },
+        { label: "Open", icon: "eye", onClick: () => ctx.onOpenTexture(t.slug) },
         { sep: true },
-        { label: "Delete", icon: "trash", danger: true, onClick: () => confirmDelete(`texture "${t.name}"`, () => ctx.onDeleteTexture(t.name)) },
+        { label: "Delete", icon: "trash", danger: true, onClick: () => confirmDelete(`texture "${t.name}"`, () => ctx.onDeleteTexture(t.slug)) },
       ]);
       fillTexGrid(c, t.maps);
       grid.append(c);
@@ -169,8 +169,8 @@ export function renderBrowser(host: HTMLElement, ctx: PanelCtx): BrowserControl 
   };
   const drawSkyboxes = (): void => {
     for (const h of ctx.catalog.hdri) {
-      if (!match(h.name)) continue;
-      const c = card(h.name, "mountain", () => ({ kind: "hdri", name: h.name }));
+      if (!match(h.name) && !match(h.folder)) continue;
+      const c = card(h.name, "mountain", () => ({ kind: "hdri", name: h.name, id: h.id, slug: h.slug }), h.folder);
       c.title = "drag onto the world's sky slot · right-click for actions";
       ctxMenu(c, () => [
         { label: "Delete", icon: "trash", danger: true, onClick: () => confirmDelete(`skybox "${h.name}"`, () => ctx.onDeleteHdri(h.file)) },
@@ -181,8 +181,8 @@ export function renderBrowser(host: HTMLElement, ctx: PanelCtx): BrowserControl 
   };
   const drawAudio = (): void => {
     for (const a of ctx.catalog.audio) {
-      if (!match(a.name)) continue;
-      const c = card(a.name, "volume", () => ({ kind: "audio", name: a.name }));
+      if (!match(a.name) && !match(a.folder)) continue;
+      const c = card(a.name, "volume", () => ({ kind: "audio", name: a.name, id: a.id, slug: a.slug }), a.folder);
       c.title = "drag into the viewport to place a sound · click ▶ to preview · right-click for actions";
       ctxMenu(c, () => [
         { label: "Delete", icon: "trash", danger: true, onClick: () => confirmDelete(`audio "${a.name}"`, () => ctx.onDeleteAudio(a.file)) },
@@ -223,11 +223,13 @@ export function renderBrowser(host: HTMLElement, ctx: PanelCtx): BrowserControl 
   };
 }
 
-/** a draggable asset card carrying a placement payload */
-function card(name: string, ic: IconName, payload: () => Payload): HTMLElement {
+/** a draggable asset card carrying a placement payload. `sub` is an optional second
+ *  line (the asset's group folder), so a foldered library reads as grouped. */
+function card(name: string, ic: IconName, payload: () => Payload, sub?: string): HTMLElement {
   const c = el("div", "asset-card grab");
   const thumb = el("div", "asset-thumb"); thumb.append(icon(ic, "asset-icon-svg"));
   c.append(thumb, el("div", "asset-name", name));
+  if (sub) c.append(el("div", "asset-sub", sub));
   c.draggable = true;
   c.addEventListener("dragstart", (e) => { e.dataTransfer?.setData("application/x-slop", JSON.stringify(payload())); });
   return c;
@@ -259,4 +261,4 @@ function fillTexGrid(c: HTMLElement, maps: Record<string, string | undefined>): 
   slot.replaceChildren(gridEl);
 }
 
-export interface Payload { kind: "object" | "model" | "audio" | "texture" | "material" | "hdri"; name: string }
+export interface Payload { kind: "object" | "model" | "audio" | "texture" | "material" | "hdri"; name: string; id?: string; slug?: string }

@@ -7,6 +7,44 @@
 
 import type { Tuple3 } from "./schema";
 
+// ─── Asset identity: UUID, not name ───────────────────────────────────────────
+// Every asset carries a stable `id` (a UUID minted once, at import time) that is
+// the ONLY thing authored data (maps, a model's slot materials, a map's HDRI)
+// references. Because the reference is the id — never the name or file path — an
+// asset can be renamed or moved between folders without breaking a single use.
+// The other fields are how humans and code find it: `name` is the mutable display
+// label, `slug` is the on-disk folder/file basename (a stable key CODE uses for
+// its built-ins — weapon models, the "gray"/"wall" defaults — which are engine
+// assets, not user content), and `folder` is the group path the asset lives under
+// ("" = top level, "props/crates" = nested), derived purely from the directory
+// structure so an importer can drop thousands of assets into folders and have them
+// grouped automatically.
+
+export interface AssetId {
+  /** stable UUID minted at import time — the canonical identity authored data references */
+  id: string;
+  /** on-disk folder/file basename (sanitized) — the stable key code uses for built-ins */
+  slug: string;
+  /** mutable display name (defaults to the slug) */
+  name: string;
+  /** group path under the kind root, "/"-joined ("" = top level) */
+  folder: string;
+}
+
+/** find an asset by its canonical id (what authored data stores) */
+export function assetById<T extends AssetId>(list: readonly T[], id: string | undefined): T | undefined {
+  return id ? list.find((a) => a.id === id) : undefined;
+}
+/** find an asset by its on-disk slug (what code uses for engine built-ins) */
+export function assetBySlug<T extends AssetId>(list: readonly T[], slug: string | undefined): T | undefined {
+  return slug ? list.find((a) => a.slug === slug) : undefined;
+}
+/** resolve a reference that may be either an id (authored data) or a slug (a code
+ *  built-in, or legacy data being read) — id wins. For display/lookup resilience. */
+export function assetByRef<T extends AssetId>(list: readonly T[], ref: string | undefined): T | undefined {
+  return assetById(list, ref) ?? assetBySlug(list, ref);
+}
+
 /** the primitive a collision solid is shaped from. A "box" fills its `size` bounds;
  *  a "cylinder" is upright along Y (radius = size.x/2 = size.z/2, height = size.y);
  *  a "sphere" is centred (radius = size.x/2). Cylinders/spheres let round props
@@ -103,9 +141,8 @@ export interface ModelMeta {
   [k: string]: unknown;
 }
 
-/** a glTF model discovered under public/assets/models/{name}/ */
-export interface ModelAsset {
-  name: string;            // folder name = canonical asset key
+/** a glTF model discovered under public/assets/models/**\/{slug}/ */
+export interface ModelAsset extends AssetId {
   gltf: string;            // path under assets/ e.g. "models/Barrel_01/Barrel_01.gltf"
   meta?: ModelMeta;
   /** the model's material slots (glTF `materials[].name`, in order), scanned from the
@@ -148,22 +185,19 @@ export interface TextureMaps {
   [k: string]: string | undefined;
 }
 
-/** a PBR texture set discovered under public/assets/textures/{name}/ */
-export interface TextureAsset {
-  name: string;
+/** a PBR texture set discovered under public/assets/textures/**\/{slug}/ */
+export interface TextureAsset extends AssetId {
   maps: TextureMaps;
   meta?: Record<string, unknown>;
 }
 
-/** an audio clip discovered under public/assets/audio/ (flat file or folder) */
-export interface AudioAsset {
-  name: string;
+/** an audio clip discovered under public/assets/audio/ (flat file, nestable in folders) */
+export interface AudioAsset extends AssetId {
   file: string;            // path under assets/
 }
 
 /** an HDRI environment map under public/assets/hdri/ */
-export interface HdriAsset {
-  name: string;
+export interface HdriAsset extends AssetId {
   file: string;            // path under assets/
 }
 
@@ -191,12 +225,12 @@ export interface MapCatalogEntry {
   previews?: string[];
 }
 
-// ── lookup helpers (used by both apps) ──────────────────────────────────────
+// ── lookup helpers (used by both apps) — resolve by canonical id ─────────────
 
-export function findModel(cat: AssetCatalog, name: string): ModelAsset | undefined {
-  return cat.models.find((m) => m.name === name);
+export function findModel(cat: AssetCatalog, id: string): ModelAsset | undefined {
+  return assetById(cat.models, id);
 }
 
-export function findTexture(cat: AssetCatalog, name: string): TextureAsset | undefined {
-  return cat.textures.find((t) => t.name === name);
+export function findTexture(cat: AssetCatalog, id: string): TextureAsset | undefined {
+  return assetById(cat.textures, id);
 }

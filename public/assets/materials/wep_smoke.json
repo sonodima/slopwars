@@ -1,4 +1,8 @@
 {
-  "type": "standard",
-  "texture": "wep_smoke"
+  "id": "024973b2-0693-4195-860a-abce72c967cb",
+  "name": "wep_smoke",
+  "def": {
+    "type": "standard",
+    "texture": "9b613fa9-f861-4f49-8f02-8b8986d045ae"
+  }
 }

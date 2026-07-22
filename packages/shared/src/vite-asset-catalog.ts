@@ -17,6 +17,7 @@
 // catalog to both apps.
 import fs from "node:fs";
 import path from "node:path";
+import crypto from "node:crypto";
 import type { Plugin } from "vite";
 import type {
   AssetCatalog, AudioAsset, HdriAsset, MapCatalogEntry,
@@ -48,6 +49,92 @@ function readFilesFlat(dir: string): string[] {
   return fs.readdirSync(dir, { withFileTypes: true }).filter((d) => d.isFile()).map((d) => d.name);
 }
 
+// ── asset identity: uuid + folder grouping (see catalog.ts AssetId) ───────────
+// Companion metadata sits next to the asset (a model/texture's own meta.json, a
+// material file's own {id,name,def}, or a `<file>.meta.json` sidecar for a flat
+// audio/hdri file). The scanner reads the minted `id`/`name` from it; a file that
+// carries none yet (a hand-dropped asset) gets a deterministic id derived from its
+// path, so it still resolves — it just isn't rename-safe until an id is minted for
+// it (which the import + rename flows do). The forward slash `folder` group path
+// comes purely from the directory structure, so an importer that drops assets into
+// nested folders gets them grouped for free.
+
+const META_SUFFIX = ".meta.json";
+const toPosix = (p: string): string => p.split(path.sep).join("/");
+
+/** parse a JSON file, or undefined if missing/malformed */
+function readJson(p: string): Record<string, unknown> | undefined {
+  try { return JSON.parse(fs.readFileSync(p, "utf8")) as Record<string, unknown>; } catch { return undefined; }
+}
+
+/** a stable, UUIDv5-formatted id derived from a kind + repo-relative asset path — the
+ *  fallback identity for an asset with no minted id. Deterministic across scans. */
+function derivedId(kind: string, rel: string): string {
+  const h = crypto.createHash("sha1").update(`slopwars-asset:${kind}:${rel}`).digest("hex");
+  const s = (i: number, n: number): string => h.slice(i, i + n);
+  const variant = ((parseInt(h[16], 16) & 0x3) | 0x8).toString(16);
+  return `${s(0, 8)}-${s(8, 4)}-5${s(13, 3)}-${variant}${s(17, 3)}-${s(20, 12)}`;
+}
+
+/** resolve an asset's identity: a minted `id`/`name` from its companion metadata, or a
+ *  derived id + the slug as the name. `folder`/`slug`/`rel` come from the file layout. */
+function identity(
+  kind: string, folder: string, slug: string, rel: string, meta: Record<string, unknown> | undefined,
+): { id: string; slug: string; name: string; folder: string } {
+  const id = typeof meta?.id === "string" && meta.id ? meta.id : derivedId(kind, rel);
+  const name = typeof meta?.name === "string" && meta.name ? meta.name : slug;
+  return { id, slug, name, folder };
+}
+
+/** drop the identity keys from a raw metadata object, returning the remainder (a model's
+ *  calibration meta) or undefined when nothing else is left. */
+function stripIdentity(raw: Record<string, unknown>): Record<string, unknown> | undefined {
+  const rest = { ...raw };
+  delete rest.id; delete rest.name;
+  return Object.keys(rest).length ? rest : undefined;
+}
+
+/** every asset-leaf DIRECTORY under `base`: a directory that directly holds a file
+ *  matched by `isAsset` (models, texture sets). Directories that hold only other
+ *  directories are groups — recursed into so their `folder` path accumulates. */
+function walkAssetDirs(base: string, isAsset: (files: string[]) => boolean): { dir: string; folder: string; slug: string; rel: string }[] {
+  const out: { dir: string; folder: string; slug: string; rel: string }[] = [];
+  const walk = (dir: string): void => {
+    if (isAsset(readFilesFlat(dir))) {
+      const folder = toPosix(path.relative(base, path.dirname(dir)));
+      const slug = path.basename(dir);
+      out.push({ dir, folder, slug, rel: folder ? `${folder}/${slug}` : slug });
+      return;                                     // an asset dir is a leaf — never descend
+    }
+    for (const sub of readDirs(dir)) walk(path.join(dir, sub));
+  };
+  if (fs.existsSync(base)) for (const sub of readDirs(base)) walk(path.join(base, sub));
+  return out;
+}
+
+/** every asset FILE under `base` matching `match` (materials, audio, hdri), at any
+ *  nesting depth. `*.meta.json` sidecars are skipped; `folder` is the file's directory
+ *  path (grouping), `slug` its basename without extension. */
+function walkAssetFiles(base: string, match: RegExp): { dir: string; folder: string; file: string; slug: string; rel: string }[] {
+  const out: { dir: string; folder: string; file: string; slug: string; rel: string }[] = [];
+  const walk = (dir: string): void => {
+    for (const f of readFilesFlat(dir)) {
+      if (f.endsWith(META_SUFFIX) || !match.test(f)) continue;
+      const folder = toPosix(path.relative(base, dir));
+      const slug = f.replace(/\.[^.]+$/, "");
+      out.push({ dir, folder, file: f, slug, rel: folder ? `${folder}/${slug}` : slug });
+    }
+    for (const sub of readDirs(dir)) walk(path.join(dir, sub));
+  };
+  if (fs.existsSync(base)) walk(base);
+  return out;
+}
+
+/** stable ordering: by group folder, then display name */
+function byFolderName(a: { folder: string; name: string }, b: { folder: string; name: string }): number {
+  return a.folder.localeCompare(b.folder) || a.name.localeCompare(b.name);
+}
+
 /** classify a texture map file by its role (color / normal / arm / …). Exported so
  *  the editor host can find (and replace/clear) the file backing a given PBR slot. */
 export function texSlot(file: string): string {
@@ -62,77 +149,74 @@ export function texSlot(file: string): string {
 
 function scanModels(assets: string): ModelAsset[] {
   const base = path.join(assets, "models");
-  return readDirs(base).map((name): ModelAsset | null => {
-    const dir = path.join(base, name);
+  const isModel = (files: string[]): boolean => files.some((f) => /\.(gltf|glb)$/i.test(f));
+  return walkAssetDirs(base, isModel).map(({ dir, folder, slug, rel }): ModelAsset | null => {
     const files = readFilesFlat(dir);
-    // prefer <name>.gltf/.glb, else the first gltf/glb in the folder
-    const exact = files.find((f) => f === `${name}.gltf` || f === `${name}.glb`);
+    // prefer <slug>.gltf/.glb, else the first gltf/glb in the folder
+    const exact = files.find((f) => f === `${slug}.gltf` || f === `${slug}.glb`);
     const any = exact ?? files.find((f) => /\.(gltf|glb)$/i.test(f));
     if (!any) return null;
-    const metaFile = files.find((f) => f === `${name}.meta.json` || f === "meta.json");
-    let meta: Record<string, unknown> | undefined;
-    if (metaFile) { try { meta = JSON.parse(fs.readFileSync(path.join(dir, metaFile), "utf8")); } catch { /* ignore */ } }
+    const metaFile = files.find((f) => f === `${slug}.meta.json` || f === "meta.json");
+    const raw = metaFile ? readJson(path.join(dir, metaFile)) : undefined;
+    const { id, name } = identity("model", folder, slug, rel, raw);
+    const meta = raw ? stripIdentity(raw) : undefined;
     // parse the glTF's named material slots (JSON only — a .glb is binary, skipped) so
     // the editor can offer a per-slot material assignment without loading the mesh.
     let slots: string[] | undefined;
     if (/\.gltf$/i.test(any)) {
-      try {
-        const gltf = JSON.parse(fs.readFileSync(path.join(dir, any), "utf8")) as { materials?: { name?: string }[] };
-        const names = (gltf.materials ?? []).map((m, i) => m.name ?? `material_${i}`);
-        if (names.length) slots = names;
-      } catch { /* ignore malformed gltf */ }
+      const gltf = readJson(path.join(dir, any)) as { materials?: { name?: string }[] } | undefined;
+      const names = (gltf?.materials ?? []).map((m, i) => m.name ?? `material_${i}`);
+      if (names.length) slots = names;
     }
-    return { name, gltf: `models/${name}/${any}`, meta, slots };
-  }).filter((m): m is ModelAsset => m !== null).sort((a, b) => a.name.localeCompare(b.name));
+    return { id, slug, name, folder, gltf: toPosix(path.relative(assets, path.join(dir, any))), meta, slots };
+  }).filter((m): m is ModelAsset => m !== null).sort(byFolderName);
 }
 
 function scanTextures(assets: string): TextureAsset[] {
   const base = path.join(assets, "textures");
-  return readDirs(base).map((name): TextureAsset => {
-    const dir = path.join(base, name);
+  const isTexture = (files: string[]): boolean => files.some((f) => IMG.test(f));
+  return walkAssetDirs(base, isTexture).map(({ dir, folder, slug, rel }): TextureAsset => {
     const maps: TextureMaps = {};
     for (const f of readFilesFlat(dir)) {
       if (!IMG.test(f)) continue;
-      const slot = texSlot(f);
-      if (slot && !maps[slot]) maps[slot] = `textures/${name}/${f}`;
+      const s = texSlot(f);
+      if (s && !maps[s]) maps[s] = toPosix(path.relative(assets, path.join(dir, f)));
     }
-    return { name, maps };
-  }).sort((a, b) => a.name.localeCompare(b.name));
+    const raw = readJson(path.join(dir, "meta.json"));
+    const { id, name } = identity("texture", folder, slug, rel, raw);
+    return { id, slug, name, folder, maps };
+  }).sort(byFolderName);
 }
 
-/** materials are JSON files under public/assets/materials/ — the parsed def is
- *  inlined into the catalog (they're tiny) so no runtime fetch is needed. */
+/** materials are JSON files under public/assets/materials/ — each a { id, name, def }.
+ *  The def is inlined into the catalog (they're tiny) so no runtime fetch is needed. */
 function scanMaterials(assets: string): MaterialAsset[] {
   const base = path.join(assets, "materials");
-  const out: MaterialAsset[] = [];
-  for (const f of readFilesFlat(base)) {
-    if (!f.endsWith(".json")) continue;
-    try {
-      const def = JSON.parse(fs.readFileSync(path.join(base, f), "utf8")) as MaterialDef;
-      out.push({ name: f.replace(/\.json$/, ""), def });
-    } catch { /* skip malformed */ }
-  }
-  return out.sort((a, b) => a.name.localeCompare(b.name));
+  return walkAssetFiles(base, /\.json$/i).map(({ dir, folder, file, slug, rel }): MaterialAsset | null => {
+    const raw = readJson(path.join(dir, file));
+    if (!raw) return null;
+    const def = (raw.def && typeof raw.def === "object" ? raw.def : raw) as MaterialDef;
+    const { id, name } = identity("material", folder, slug, rel, raw);
+    return { id, slug, name, folder, def };
+  }).filter((m): m is MaterialAsset => m !== null).sort(byFolderName);
 }
 
 function scanAudio(assets: string): AudioAsset[] {
   const base = path.join(assets, "audio");
-  const out: AudioAsset[] = [];
-  for (const f of readFilesFlat(base)) {
-    if (AUDIO.test(f)) out.push({ name: f.replace(AUDIO, ""), file: `audio/${f}` });
-  }
-  for (const name of readDirs(base)) {
-    const inner = readFilesFlat(path.join(base, name)).find((f) => AUDIO.test(f));
-    if (inner) out.push({ name, file: `audio/${name}/${inner}` });
-  }
-  return out.sort((a, b) => a.name.localeCompare(b.name));
+  return walkAssetFiles(base, AUDIO).map(({ dir, folder, file, slug, rel }): AudioAsset => {
+    const raw = readJson(path.join(dir, file + META_SUFFIX));
+    const { id, name } = identity("audio", folder, slug, rel, raw);
+    return { id, slug, name, folder, file: toPosix(path.relative(assets, path.join(dir, file))) };
+  }).sort(byFolderName);
 }
 
 function scanHdri(assets: string): HdriAsset[] {
   const base = path.join(assets, "hdri");
-  return readFilesFlat(base).filter((f) => /\.(hdr|exr)$/i.test(f))
-    .map((f): HdriAsset => ({ name: f.replace(/\.(hdr|exr)$/i, ""), file: `hdri/${f}` }))
-    .sort((a, b) => a.name.localeCompare(b.name));
+  return walkAssetFiles(base, /\.(hdr|exr)$/i).map(({ dir, folder, file, slug, rel }): HdriAsset => {
+    const raw = readJson(path.join(dir, file + META_SUFFIX));
+    const { id, name } = identity("hdri", folder, slug, rel, raw);
+    return { id, slug, name, folder, file: toPosix(path.relative(assets, path.join(dir, file))) };
+  }).sort(byFolderName);
 }
 
 export function scanAssets(root: string): AssetCatalog {

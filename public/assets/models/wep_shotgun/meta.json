@@ -1,7 +1,9 @@
 {
+  "id": "5ee0e844-7299-402b-88a4-f07094c82677",
+  "name": "wep_shotgun",
   "scale": 0.7,
   "materials": {
-    "Mat": "wep_shotgun"
+    "Mat": "ea3ba7c6-cf44-4872-a7e2-e93b39048bc8"
   },
   "anchors": {
     "muzzle": {

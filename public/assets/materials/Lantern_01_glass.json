@@ -1,17 +1,21 @@
 {
-  "type": "glass",
-  "color": [
-    0.85,
-    0.92,
-    0.95
-  ],
-  "opacity": 0.18,
-  "roughness": 0.04,
-  "ior": 1.5,
-  "thickness": 0.3,
-  "tint": [
-    0.9,
-    0.96,
-    0.98
-  ]
+  "id": "56ff7026-e6c1-4b86-9a62-4f08a4c2b8c2",
+  "name": "Lantern_01_glass",
+  "def": {
+    "type": "glass",
+    "color": [
+      0.85,
+      0.92,
+      0.95
+    ],
+    "opacity": 0.18,
+    "roughness": 0.04,
+    "ior": 1.5,
+    "thickness": 0.3,
+    "tint": [
+      0.9,
+      0.96,
+      0.98
+    ]
+  }
 }

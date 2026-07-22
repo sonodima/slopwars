@@ -1,6 +1,10 @@
 {
-  "type": "standard",
-  "texture": "wep_molotov_Fabric",
-  "roughness": 0.5,
-  "metallic": 0
+  "id": "a513b7f5-13e7-4114-ba48-17dac3995f53",
+  "name": "wep_molotov_Fabric",
+  "def": {
+    "type": "standard",
+    "texture": "0d9d67f8-d0a1-4dbb-a208-a89e5eb4064a",
+    "roughness": 0.5,
+    "metallic": 0
+  }
 }

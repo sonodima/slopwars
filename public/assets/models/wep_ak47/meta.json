@@ -1,7 +1,9 @@
 {
+  "id": "81aabb84-66e5-4534-ae4f-168e8dfef115",
+  "name": "wep_ak47",
   "scale": 0.007,
   "materials": {
-    "AK47_MasterMat": "wep_ak47"
+    "AK47_MasterMat": "c23e8970-ecee-4ce4-9898-621eb050aec3"
   },
   "anchors": {
     "muzzle": {

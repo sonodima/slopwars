@@ -16,7 +16,7 @@ import {
   type PointLightLook, type DirLightLook, type SpotLightLook,
 } from "./lights";
 import type { MapDef, Placement, MaterialDef } from "./maps/schema";
-import { modelMaterials, type ModelMeta } from "@slopwars/shared";
+import { assetByRef, modelMaterials, type ModelMeta } from "@slopwars/shared";
 import { attachBehaviours, behavioursOwnCollision, type BehaviourSpec } from "./behaviours";
 
 /** a resolved transform passed to every object build() */
@@ -105,11 +105,16 @@ export function isDeferredType(name: string): boolean {
 
 // ── editor introspection ──────────────────────────────────────────────────────
 /** the human sub-label for a placement: the salient param that identifies it (a
- *  prop's model, a sound's clip), or "" for a plain typed object. Shared by the
- *  editor outliner + inspector so both name an object the same way. */
+ *  prop's model, a sound's clip), resolved from its asset id to the display name, or
+ *  "" for a plain typed object. Shared by the editor outliner + inspector so both name
+ *  an object the same way. */
 export function placementDetail(o: Placement): string {
-  if (o.type === "prop" && typeof o.params?.model === "string") return o.params.model;
-  if (o.type === "sound" && typeof o.params?.clip === "string") return o.params.clip;
+  if (o.type === "prop" && typeof o.params?.model === "string" && o.params.model) {
+    return assetByRef(catalog.models, o.params.model)?.name ?? o.params.model;
+  }
+  if (o.type === "sound" && typeof o.params?.clip === "string" && o.params.clip) {
+    return assetByRef(catalog.audio, o.params.clip)?.name ?? o.params.clip;
+  }
   return "";
 }
 
@@ -131,7 +136,7 @@ const STRUCTURE_MATERIALS = ["metal", "stone", "crate", "wall"];
  *  snapshot: the editor overrides it with its live metas (a just-imported model isn't
  *  in here, so without the override its slot materials — and their textures — would be
  *  skipped and the model would render untextured). */
-const MODEL_META = new Map<string, ModelMeta>(catalog.models.map((m) => [m.name, m.meta ?? {}]));
+const MODEL_META = new Map<string, ModelMeta>(catalog.models.map((m) => [m.id, m.meta ?? {}]));
 
 /** every material a map references: each object's `mat` (merged over defaults), the
  *  materials each placed model's slots use, the ones structures use internally, and
@@ -216,7 +221,7 @@ defineObject<{ clip: string; radius: number; volume: number; loop: boolean; spat
   defaults: { clip: "", radius: 12, volume: 1, loop: true, spatial: true },
   category: "sound",
   build(b, t, p) {
-    const a = catalog.audio.find((c) => c.name === p.clip);
+    const a = assetByRef(catalog.audio, p.clip);
     if (!a) { if (p.clip) console.warn("[sound] clip not found:", p.clip); return; }
     const spatial = p.spatial !== false;
     // re-adopt a still-playing element for the same clip (an editor rebuild) so the
