@@ -1,3 +1,8 @@
 {
-  "id": "11e5e486-ba42-4efb-8467-03a50291587c"
+  "id": "11e5e486-ba42-4efb-8467-03a50291587c",
+  "maps": {
+    "arm": "arm.jpg",
+    "color": "color.jpg",
+    "normal": "normal.jpg"
+  }
 }
