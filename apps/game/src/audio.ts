@@ -5,7 +5,7 @@
 // clip like every other asset) and survive a folder move. Pure-feedback cues
 // (reload, hit, jump…) keep a tiny synth since no sample was provided for them.
 import catalog from "virtual:asset-catalog";
-import { assetBySlug } from "@slopwars/shared";
+import { assetByName } from "@slopwars/shared";
 import { assetUrl } from "./assets";
 import type { WeaponId } from "./types";
 
@@ -21,11 +21,11 @@ const SAMPLES = {
 } as const;
 type SampleName = keyof typeof SAMPLES;
 
-/** URL for a sample: resolve its slug to the catalog's file path (folder-per-clip),
- *  falling back to a flat path so a not-yet-scanned clip still tries to load. */
+/** URL for a sample: resolve its folder name to the catalog's file path (a clip is a
+ *  folder like every asset). Empty when the clip is absent — a fetch that fails quietly. */
 function sampleUrl(name: SampleName): string {
-  const slug = SAMPLES[name];
-  return assetUrl(assetBySlug(catalog.audio, slug)?.file ?? `audio/${slug}.mp3`);
+  const clip = assetByName(catalog.audio, SAMPLES[name]);
+  return clip ? assetUrl(clip.file) : "";
 }
 
 interface Loop { src: AudioBufferSourceNode; gain: GainNode; pan?: StereoPannerNode }

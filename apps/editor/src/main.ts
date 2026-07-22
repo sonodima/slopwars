@@ -7,7 +7,7 @@
 // clicking an asset in the bottom browser opens (or focuses) its tab; New/Load open
 // map tabs. Everything placed in a map is an object saved to maps/<id>.json.
 import type { AssetCatalog, MaterialDef, ModelMeta, Placement, Tuple3 } from "@slopwars/shared";
-import { assetBySlug } from "@slopwars/shared";
+import { assetByName } from "@slopwars/shared";
 import { Viewport, Tool, PerfStats } from "./viewport";
 import { PreviewScene } from "./previewscene";
 import { ThumbRenderer } from "./preview";
@@ -101,7 +101,7 @@ function anyDirty(): boolean {
  *  changes how its browser swatch — and any model card using it — should look, so the
  *  stale cached thumbnails are dropped and the browser re-rendered. */
 async function saveMaterialFile(name: string): Promise<void> {
-  const def = assetBySlug(catalog.materials, name)?.def;
+  const def = assetByName(catalog.materials, name)?.def;
   if (!def) return;
   try {
     await api.saveMaterial(name, def); dirtyMaterials.delete(name); renderTabStrip(); renderSaveButtons();
@@ -123,7 +123,7 @@ async function saveModelFile(name: string): Promise<void> {
 function liveMeta(name: string): ModelMeta {
   const hit = modelEdits.get(name);
   if (hit) return hit;
-  const seed: ModelMeta = JSON.parse(JSON.stringify(assetBySlug(catalog.models, name)?.meta ?? {}));
+  const seed: ModelMeta = JSON.parse(JSON.stringify(assetByName(catalog.models, name)?.meta ?? {}));
   modelEdits.set(name, seed);
   return seed;
 }
@@ -150,12 +150,12 @@ async function main(): Promise<void> {
     anchorRemove: (kind) => anchorRemove(kind),
   });
   setInspectorTextureHooks({
-    maps: (name) => assetBySlug(catalog.textures, name)?.maps ?? {},
+    maps: (name) => assetByName(catalog.textures, name)?.maps ?? {},
     setMap: (name, slot, file) => void setTextureMap(name, slot, file),
     clearMap: (name, slot) => void clearTextureMap(name, slot),
     // a material references its texture by id → resolve this set's id, then find the
     // materials pointing at it (returns their slugs so a click opens their tab).
-    usedBy: (name) => { const id = assetBySlug(catalog.textures, name)?.id; return id ? catalog.materials.filter((m) => m.def.type === "standard" && m.def.texture === id).map((m) => m.slug) : []; },
+    usedBy: (name) => { const id = assetByName(catalog.textures, name)?.id; return id ? catalog.materials.filter((m) => m.def.type === "standard" && m.def.texture === id).map((m) => m.name) : []; },
     renamed: (from, to) => { void renameTexture(from, to); },
   });
 
@@ -233,15 +233,15 @@ function syncViewport(): void {
   const key = tab ? `${tab.kind}:${tab.material ?? tab.model ?? tab.texture ?? ""}:${tab.view ?? ""}` : "";
   if (isPreview && key !== previewKey && preview.ready) {
     if (tab!.kind === "material") {
-      const m = assetBySlug(catalog.materials, tab!.material);
-      if (m) { ensureMatHist(m.slug); void preview.showMaterial(m.slug, m.def); }
+      const m = assetByName(catalog.materials, tab!.material);
+      if (m) { ensureMatHist(m.name); void preview.showMaterial(m.name, m.def); }
     } else if (tab!.kind === "model") {
       selBox = -1;
       selAnchor = null; preview.selectAnchor(null);
       ensureMetaHist(tab!.model!);
       void preview.showModel(tab!.model!, tab!.view ?? "model", liveMeta(tab!.model!));
     } else if (tab!.kind === "texture") {
-      void preview.showTexture(tab!.texture!, assetBySlug(catalog.textures, tab!.texture)?.maps ?? {});
+      void preview.showTexture(tab!.texture!, assetByName(catalog.textures, tab!.texture)?.maps ?? {});
     }
   }
   previewKey = isPreview ? key : "";
@@ -270,7 +270,7 @@ function applyMaterialEffects(name: string, def: MaterialDef): void {
 
 // ── material undo/redo (preview tabs) — same snapshot scheme as model metas ───
 const matHistory = new Map<string, MetaHist>();
-function matDefOf(name: string): MaterialDef | null { return assetBySlug(catalog.materials, name)?.def ?? null; }
+function matDefOf(name: string): MaterialDef | null { return assetByName(catalog.materials, name)?.def ?? null; }
 function ensureMatHist(name: string): MetaHist | null {
   const def = matDefOf(name); if (!def) return null;
   let h = matHistory.get(name);
@@ -817,7 +817,7 @@ async function renameTexture(from: string, to: string): Promise<void> {
 /** patch the in-memory catalog with a live model-meta edit so the map viewport
  *  (which reads catalog metas) previews it before the debounced file write lands */
 function applyLiveModelMeta(name: string, meta: ModelMeta): void {
-  const m = assetBySlug(catalog.models, name);
+  const m = assetByName(catalog.models, name);
   if (m) m.meta = JSON.parse(JSON.stringify(meta));
 }
 
@@ -876,7 +876,7 @@ async function afterTextureEdit(name: string): Promise<void> {
   await browser?.reload();
   const tab = tabs.active();
   if (tab?.kind === "texture" && tab.texture === name) {
-    void preview.showTexture(name, assetBySlug(catalog.textures, name)?.maps ?? {}, true);
+    void preview.showTexture(name, assetByName(catalog.textures, name)?.maps ?? {}, true);
   }
   refreshInspector();
 }

@@ -7,10 +7,9 @@
 // The VALUE the field reads/writes is the asset's stable id (what authored data
 // stores), never its name — so renaming an asset never breaks the reference. The
 // field resolves that id back to the asset for its name + preview; a value that
-// resolves to nothing is flagged as dangling. A code-default slug (e.g. a particle
-// `tex` of "fire") also resolves, via assetByRef.
+// resolves to nothing is flagged as dangling.
 import type { AssetCatalog, AssetId } from "@slopwars/shared";
-import { assetByRef } from "@slopwars/shared";
+import { assetById } from "@slopwars/shared";
 import type { ThumbRenderer } from "./preview";
 import { clear, el, modal } from "./ui";
 import { icon, type IconName } from "./icons";
@@ -73,10 +72,10 @@ export function assetField(o: AssetFieldOpts): HTMLElement {
   warn.title = "missing asset — falls back to a default; pick another or clear it";
   const refresh = (): void => {
     const v = o.get();
-    // resolve the stored id (or a code-default slug) to its asset; a reference that
-    // resolves to nothing is dangling — show it flagged red. The engine + game fall
-    // back gracefully (default material/texture, no model), so the map still loads.
-    const asset = v ? assetByRef(assets(o.catalog, o.kind), v) : undefined;
+    // resolve the stored id to its asset; a reference that resolves to nothing is
+    // dangling — show it flagged red. The engine + game degrade gracefully (default
+    // material/texture, no model), so the map still loads.
+    const asset = v ? assetById(assets(o.catalog, o.kind), v) : undefined;
     const missing = !!v && !asset;
     nameEl.textContent = asset ? asset.name : (v ? "missing" : "none");
     nameEl.classList.toggle("empty", !v);

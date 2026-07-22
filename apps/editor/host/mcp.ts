@@ -19,7 +19,7 @@ import {
 } from "./files";
 import type { MaterialDef } from "../../../packages/shared/src/materials";
 import type { CollisionBox, ModelMeta } from "../../../packages/shared/src/catalog";
-import { assetByRef, assetBySlug } from "../../../packages/shared/src/catalog";
+import { assetByName } from "../../../packages/shared/src/catalog";
 
 interface Deps {
   root: string;
@@ -143,7 +143,7 @@ export function createMcp({ root, bridge }: Deps): { handle: (msg: any) => Promi
       run: () => ({ materials: scanAssets(root).materials }) },
     { name: "editor_get_material", description: "Get one material's def by name.",
       inputSchema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] },
-      run: (a) => { const m = assetBySlug(scanAssets(root).materials, a.name); if (!m) throw new Error(`material not found: ${a.name}`); return m; } },
+      run: (a) => { const m = assetByName(scanAssets(root).materials, a.name); if (!m) throw new Error(`material not found: ${a.name}`); return m; } },
     { name: "editor_create_material", description: "Create a new material (default gray `standard`, or a `water`/`glass`). Returns its name.",
       inputSchema: { type: "object", properties: { type: { type: "string", enum: ["standard", "water", "glass"] } } },
       run: (a) => { const r = createMaterial(root, a.type); if (r.error) throw new Error(r.error); bridge.notify("reloadCatalog"); return r; } },
@@ -160,7 +160,7 @@ export function createMcp({ root, bridge }: Deps): { handle: (msg: any) => Promi
     // ── model calibration + collision (models/<name>/meta.json) ──
     { name: "editor_get_model_meta", description: "Get a model's calibration meta (base/scale/material/collision).",
       inputSchema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] },
-      run: (a) => { const m = assetBySlug(scanAssets(root).models, a.name); if (!m) throw new Error(`model not found: ${a.name}`); return { name: m.slug, meta: m.meta ?? {} }; } },
+      run: (a) => { const m = assetByName(scanAssets(root).models, a.name); if (!m) throw new Error(`model not found: ${a.name}`); return { name: m.name, meta: m.meta ?? {} }; } },
     { name: "editor_set_model_meta", description: "Set a model's calibration + collision. `baseRot` is a baked orientation (euler degrees). `collision` is \"auto\" (whole-mesh box) or \"manual\"; when manual, `collisionBoxes` is an array of solids in model-local space, each { at:[x,y,z], size:[x,y,z], rot?:[x,y,z] euler degrees, shape?: \"box\"|\"cylinder\"|\"sphere\" } (e.g. just a tree trunk, or a diagonal beam via `rot`). `anchors` are named model-local attach points { grip?: {...}, muzzle?: {...} }, each { at:[x,y,z], rot?:[x,y,z] euler degrees } — grip is where a hand holds the model, muzzle is where a weapon's flash/shots originate.",
       inputSchema: { type: "object", properties: {
         name: { type: "string" }, base: { type: "number" }, scale: { type: "number" },
@@ -176,10 +176,10 @@ export function createMcp({ root, bridge }: Deps): { handle: (msg: any) => Promi
       }, required: ["name"] },
       run: (a) => {
         const cat = scanAssets(root);
-        const cur = assetBySlug(cat.models, a.name);
+        const cur = assetByName(cat.models, a.name);
         if (!cur) throw new Error(`model not found: ${a.name}`);
         // agents pass material NAMES; a model's slot materials are stored as ids
-        const matId = (ref: string): string => assetByRef(cat.materials, ref)?.id ?? ref;
+        const matId = (ref: string): string => assetByName(cat.materials, ref)?.id ?? ref;
         const meta: ModelMeta = { ...(cur.meta ?? {}) };
         if (a.base !== undefined) meta.base = a.base;
         if (a.scale !== undefined) meta.scale = a.scale;

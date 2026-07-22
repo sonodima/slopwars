@@ -20,17 +20,18 @@ export interface PbrSet {
 export type MapTextures = Map<string, PbrSet>;
 
 const BY_ID = new Map(catalog.textures.map((t) => [t.id, t]));
-const ID_BY_SLUG = new Map(catalog.textures.map((t) => [t.slug, t.id]));
-/** a folder guaranteed to exist — used when an object omits `tex` or names a gap */
-export const DEFAULT_FOLDER = ID_BY_SLUG.get("wall") ?? catalog.textures[0]?.id ?? "wall";
+const ID_BY_NAME = new Map(catalog.textures.map((t) => [t.name, t.id]));
+/** the id of a texture set guaranteed to exist — the graceful default for a gap */
+export const DEFAULT_FOLDER = ID_BY_NAME.get("wall") ?? catalog.textures[0]?.id ?? "wall";
 
-/** resolve a texture reference (an authored id, or a built-in's slug) to its id */
-export function textureId(ref: string): string { return ID_BY_SLUG.get(ref) ?? ref; }
+/** resolve a texture reference to its id: an authored id passes through; a built-in's
+ *  folder name is looked up. */
+export function textureId(ref: string): string { return ID_BY_NAME.get(ref) ?? ref; }
 
-/** resolve the concrete file path for one PBR map of a texture, with fallback to
- *  the same map of the default folder (keeps rendering resilient to gaps). */
+/** the concrete file path for one PBR map of a texture, falling back to the same map of
+ *  the default set (keeps rendering resilient to a missing map). */
 function pathFor(byId: Map<string, TextureAsset>, id: string, slot: "color" | "normal" | "arm"): string {
-  return byId.get(id)?.maps[slot] ?? byId.get(DEFAULT_FOLDER)?.maps[slot] ?? `textures/${id}/${slot}.jpg`;
+  return byId.get(id)?.maps[slot] ?? byId.get(DEFAULT_FOLDER)?.maps[slot] ?? "";
 }
 
 /** texture id → its loaded set (shared across all maps; loaded at most once) */
@@ -59,8 +60,8 @@ function loadSet(engine: Engine, byId: Map<string, TextureAsset>, id: string): P
  *  virtual catalog is a dev-server-start snapshot); the game omits it. */
 export async function resolveTextures(engine: Engine, refs: string[], index?: TextureAsset[]): Promise<MapTextures> {
   const byId = index ? new Map(index.map((t) => [t.id, t])) : BY_ID;
-  const bySlug = index ? new Map(index.map((t) => [t.slug, t.id])) : ID_BY_SLUG;
-  const idOf = (ref: string): string => (byId.has(ref) ? ref : bySlug.get(ref) ?? ref);
+  const byName = index ? new Map(index.map((t) => [t.name, t.id])) : ID_BY_NAME;
+  const idOf = (ref: string): string => (byId.has(ref) ? ref : byName.get(ref) ?? ref);
   const want = new Set<string>([DEFAULT_FOLDER, ...refs.map(idOf)]);
   const list = [...want];
   const sets = await Promise.all(list.map((id) => loadSet(engine, byId, byId.has(id) ? id : DEFAULT_FOLDER)));

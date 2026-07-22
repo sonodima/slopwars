@@ -18,15 +18,16 @@ import { WATER_LOOK, createWaterMaterial, type WaterLook } from "./water";
  *  editor can pass a live override map (also id-keyed) into a MaterialLibrary so unsaved
  *  edits preview in the viewport. */
 const CATALOG_DEFS = new Map<string, MaterialDef>(catalog.materials.map((m) => [m.id, m.def]));
-/** slug → id, so the game's own built-ins (DEFAULT_MATERIAL, structure surfaces) can
- *  still name a material by its file slug ("gray", "wall", …). */
-const ID_BY_SLUG = new Map<string, string>(catalog.materials.map((m) => [m.slug, m.id]));
+/** folder name → id, so the engine's built-ins (DEFAULT_MATERIAL, structure surfaces)
+ *  can name a material by its folder ("gray", "wall", …) and resolve it at startup. */
+const ID_BY_NAME = new Map<string, string>(catalog.materials.map((m) => [m.name, m.id]));
 
-/** resolve a material reference (an authored id, or a built-in's slug) to its id */
-export function materialId(ref: string): string { return ID_BY_SLUG.get(ref) ?? ref; }
+/** resolve a material reference to its id: an authored id passes through; a built-in's
+ *  folder name is looked up. */
+export function materialId(ref: string): string { return ID_BY_NAME.get(ref) ?? ref; }
 
-/** a material guaranteed to exist — the fallback for an object that names a gap */
-export const DEFAULT_MATERIAL = ID_BY_SLUG.get("gray") ?? catalog.materials[0]?.id ?? "gray";
+/** the id of the material guaranteed to exist — the graceful default for a gap */
+export const DEFAULT_MATERIAL = ID_BY_NAME.get("gray") ?? catalog.materials[0]?.id ?? "gray";
 
 /** look up a material def by reference — an id (authored data), or a slug (a code
  *  built-in). Falls back to the default material for a dangling reference. */
