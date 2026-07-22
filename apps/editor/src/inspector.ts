@@ -7,7 +7,7 @@
 // "World" row edits the map's sky / lighting / effects. A group is a first-class
 // parent, so its inspector edits the group's own transform.
 import type { AssetCatalog, CollisionMode, CollisionShape, FogFalloff, MapDef, MaterialDef, MaterialType, ModelAnchor, ModelMeta, PhysicsProps, Placement, ShadowQuality, TextureMaps, ToneMode, Tuple3 } from "@slopwars/shared";
-import { ANCHOR_KINDS, MATERIAL_TYPES, PHYSICS_DEFAULTS, anchorLabel, assetBySlug, defaultMaterialDef, envPost, envShadows, envWeather } from "@slopwars/shared";
+import { ANCHOR_KINDS, MATERIAL_TYPES, PHYSICS_DEFAULTS, anchorLabel, assetByName, defaultMaterialDef, envPost, envShadows, envWeather } from "@slopwars/shared";
 import { objectDefaults, placementDetail } from "@game/objects";
 import { behaviourCatalog, behaviourDefaults, behaviourLabel, type BehaviourSpec } from "@game/behaviours";
 import type { ThumbRenderer } from "./preview";
@@ -89,8 +89,8 @@ export function renderInspector(host: HTMLElement): void {
   clear(host);
   const tab = tabs.active();
   if (tab?.kind === "material") {
-    const m = assetBySlug(catalog.materials, tab.material);
-    if (m) return materialInspector(host, m.slug, m.def);
+    const m = assetByName(catalog.materials, tab.material);
+    if (m) return materialInspector(host, m.name, m.def);
     host.append(el("div", "empty", "material not found")); return;
   }
   if (tab?.kind === "model" && tab.model) return modelInspector(host, tab.model);
@@ -246,7 +246,7 @@ function textureMapSlot(name: string, slot: TexSlot, label: string, hint: string
 // this inspector mutate the same object). Collision authoring (placing solids) lives
 // in the left panel; here you choose the mode and calibrate the model.
 function modelInspector(host: HTMLElement, name: string): void {
-  const asset = assetBySlug(catalog.models, name);
+  const asset = assetByName(catalog.models, name);
   host.append(el("h3", "insp-title", name));
   host.append(el("div", "insp-sub", "model"));
   if (!asset || !modelHooks) { host.append(el("div", "empty", "model not found")); return; }

@@ -9,14 +9,15 @@
 import catalog from "virtual:asset-catalog";
 import type { MapBuilder } from "./mapbuilder";
 import { assetUrl } from "./assets";
-import { DEFAULT_MATERIAL, materialTextureFolders } from "./materials";
+import { DEFAULT_MATERIAL, materialId, materialTextureFolders } from "./materials";
+import { textureId } from "./textures";
 import { PARTICLE_LOOK, type ParticleLook } from "./particles";
 import {
   buildPointLight, buildDirLight, buildSpotLight, POINT_LIGHT, DIR_LIGHT, SPOT_LIGHT,
   type PointLightLook, type DirLightLook, type SpotLightLook,
 } from "./lights";
 import type { MapDef, Placement, MaterialDef } from "./maps/schema";
-import { assetByRef, modelMaterials, type ModelMeta } from "@slopwars/shared";
+import { assetById, modelMaterials, type ModelMeta } from "@slopwars/shared";
 import { attachBehaviours, behavioursOwnCollision, type BehaviourSpec } from "./behaviours";
 
 /** a resolved transform passed to every object build() */
@@ -110,10 +111,10 @@ export function isDeferredType(name: string): boolean {
  *  an object the same way. */
 export function placementDetail(o: Placement): string {
   if (o.type === "prop" && typeof o.params?.model === "string" && o.params.model) {
-    return assetByRef(catalog.models, o.params.model)?.name ?? o.params.model;
+    return assetById(catalog.models, o.params.model)?.name ?? o.params.model;
   }
   if (o.type === "sound" && typeof o.params?.clip === "string" && o.params.clip) {
-    return assetByRef(catalog.audio, o.params.clip)?.name ?? o.params.clip;
+    return assetById(catalog.audio, o.params.clip)?.name ?? o.params.clip;
   }
   return "";
 }
@@ -127,9 +128,10 @@ export function objectCatalog(): ObjEntry[] {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/** materials structures reference internally (not exposed as a `mat` param) —
- *  seeded so their textures are always loaded even if no object names them. */
-const STRUCTURE_MATERIALS = ["metal", "stone", "crate", "wall"];
+/** material ids the structure primitives reference internally (not exposed as a `mat`
+ *  param) — their built-in folder names resolved to ids once, so their textures are
+ *  always loaded even if no object names them. */
+const STRUCTURE_MATERIALS = ["metal", "stone", "crate", "wall"].map(materialId);
 
 /** per-model calibration metas, keyed by folder name (for resolving the materials a
  *  placed model's slots reference — those textures must load too). Dev-server-START
@@ -221,7 +223,7 @@ defineObject<{ clip: string; radius: number; volume: number; loop: boolean; spat
   defaults: { clip: "", radius: 12, volume: 1, loop: true, spatial: true },
   category: "sound",
   build(b, t, p) {
-    const a = assetByRef(catalog.audio, p.clip);
+    const a = assetById(catalog.audio, p.clip);
     if (!a) { if (p.clip) console.warn("[sound] clip not found:", p.clip); return; }
     const spatial = p.spatial !== false;
     // re-adopt a still-playing element for the same clip (an editor rebuild) so the
@@ -300,17 +302,17 @@ defineObject<ParticleLook & { tex: string }>("particles", {
   },
 });
 
-// `tex` points each preset at its realistic sprite folder (public/assets/textures/
-// {fire,smoke}/) — a flame teardrop and a billowy smoke puff. Drop a different
-// sheet into that folder to restyle every fire/smoke in the game.
+// `tex` is the id of each preset's sprite texture, resolved once from its built-in
+// folder name (public/assets/textures/{fire,smoke}/) — a flame teardrop and a billowy
+// smoke puff. Drop a different sheet into that folder to restyle every fire/smoke.
 definePreset<ParticleLook & { tex: string }>("fire", "particles", {
-  tex: "fire",
+  tex: textureId("fire"),
   rate: 46, lifetime: 1.1, speed: 1.6, size: 0.7, growth: 0.25, spread: 16,
   gravity: -0.35, color: [1.0, 0.55, 0.14], opacity: 0.9, additive: true, world: true,
 }, "entity");
 
 definePreset<ParticleLook & { tex: string }>("smoke", "particles", {
-  tex: "smoke",
+  tex: textureId("smoke"),
   rate: 14, lifetime: 3.2, speed: 0.8, size: 0.8, growth: 2.6, spread: 22,
   gravity: -0.1, color: [0.28, 0.28, 0.3], opacity: 0.45, additive: false, world: true,
 }, "entity");

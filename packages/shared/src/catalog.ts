@@ -10,39 +10,33 @@ import type { Tuple3 } from "./schema";
 // ─── Asset identity: UUID, not name ───────────────────────────────────────────
 // Every asset carries a stable `id` (a UUID minted once, at import time) that is
 // the ONLY thing authored data (maps, a model's slot materials, a map's HDRI)
-// references. Because the reference is the id — never the name or file path — an
-// asset can be renamed or moved between folders without breaking a single use.
-// The other fields are how humans and code find it: `name` is the mutable display
-// label, `slug` is the on-disk folder/file basename (a stable key CODE uses for
-// its built-ins — weapon models, the "gray"/"wall" defaults — which are engine
-// assets, not user content), and `folder` is the group path the asset lives under
-// ("" = top level, "props/crates" = nested), derived purely from the directory
-// structure so an importer can drop thousands of assets into folders and have them
-// grouped automatically.
+// references, and the only thing the runtime resolves by internally. Because the
+// reference is the id — never the name or file path — an asset can be renamed or
+// moved between folders without breaking a single use. `name` is simply the asset's
+// folder name (a human label, stored once as the folder — never duplicated into the
+// meta); the engine's own built-ins (weapon models, the "gray"/"wall" defaults)
+// resolve their name to an id ONCE at startup and then work purely by id like
+// everything else. `folder` is the group path the asset lives under ("" = top level,
+// "props/crates" = nested), derived purely from the directory structure so an importer
+// can drop thousands of assets into folders and have them grouped automatically.
 
 export interface AssetId {
-  /** stable UUID minted at import time — the canonical identity authored data references */
+  /** stable UUID minted at import time — the canonical identity everything resolves by */
   id: string;
-  /** on-disk folder/file basename (sanitized) — the stable key code uses for built-ins */
-  slug: string;
-  /** mutable display name (defaults to the slug) */
+  /** the asset's folder name (a human label). Not stored in the meta — it IS the folder. */
   name: string;
   /** group path under the kind root, "/"-joined ("" = top level) */
   folder: string;
 }
 
-/** find an asset by its canonical id (what authored data stores) */
+/** find an asset by its canonical id (what authored data stores + the runtime resolves by) */
 export function assetById<T extends AssetId>(list: readonly T[], id: string | undefined): T | undefined {
   return id ? list.find((a) => a.id === id) : undefined;
 }
-/** find an asset by its on-disk slug (what code uses for engine built-ins) */
-export function assetBySlug<T extends AssetId>(list: readonly T[], slug: string | undefined): T | undefined {
-  return slug ? list.find((a) => a.slug === slug) : undefined;
-}
-/** resolve a reference that may be either an id (authored data) or a slug (a code
- *  built-in, or legacy data being read) — id wins. For display/lookup resilience. */
-export function assetByRef<T extends AssetId>(list: readonly T[], ref: string | undefined): T | undefined {
-  return assetById(list, ref) ?? assetBySlug(list, ref);
+/** find an asset by its folder name — used ONLY to bootstrap the engine's built-in
+ *  references (weapons, defaults) to their ids at startup; never in a hot path. */
+export function assetByName<T extends AssetId>(list: readonly T[], name: string | undefined): T | undefined {
+  return name ? list.find((a) => a.name === name) : undefined;
 }
 
 /** the primitive a collision solid is shaped from. A "box" fills its `size` bounds;

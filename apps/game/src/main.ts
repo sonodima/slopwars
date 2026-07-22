@@ -11,7 +11,7 @@ import { Cursor } from "./cursor";
 import { Hud } from "./hud";
 import { GameMap } from "./map";
 import catalog from "virtual:asset-catalog";
-import { assetByRef } from "@slopwars/shared";
+import { assetById } from "@slopwars/shared";
 import { resolveTextures } from "./textures";
 import { mapTextureFolders } from "./objects";
 import { MaterialLibrary, materialTextureFolders } from "./materials";
@@ -2979,14 +2979,17 @@ class Game {
 
   // ─── map loading / rotation ───────────────────────────────────────────────────
 
-  /** HDRI cube for a map's sky reference (an asset id, or a slug), loaded at most once
-   *  (skybox + IBL specular source). The reference resolves to the HDRI's file path
-   *  through the catalog, so an HDRI can be renamed without breaking a map. */
-  loadHdri(ref: string): Promise<TextureCube> {
-    const file = assetByRef(catalog.hdri, ref)?.file ?? ref;
+  /** HDRI cube for a resolved file path, loaded at most once (skybox + IBL specular). */
+  loadHdri(file: string): Promise<TextureCube> {
     let p = this.hdriCache.get(file);
     if (!p) { p = loadHDRCube(this.engine, file); this.hdriCache.set(file, p); }
     return p;
+  }
+
+  /** resolve a map's sky reference (an HDRI asset id) to its file path, or undefined —
+   *  so an HDRI can be renamed/moved without breaking a map (the map stores the id). */
+  private hdriFile(ref: string | undefined): string | undefined {
+    return ref ? assetById(catalog.hdri, ref)?.file : undefined;
   }
 
   /** load (or hot-swap) a map by id: resolve palette + sky, rebuild geometry,
@@ -3072,8 +3075,9 @@ class Game {
     applyPost(env, this.bloom, this.tone);                  // tonemapping + bloom from env
     if (env.fog) applyFogFalloff(scene, env.fog);
     else scene.fogMode = FogMode.None;
-    if (env.sky.hdri) {
-      const cube = await this.loadHdri(env.sky.hdri);
+    const hdriFile = this.hdriFile(env.sky.hdri);
+    if (hdriFile) {
+      const cube = await this.loadHdri(hdriFile);
       this.skyMat.texture = cube;
       this.amb.specularTexture = cube;
       scene.background.mode = BackgroundMode.Sky;
@@ -3087,7 +3091,7 @@ class Game {
     }
     // weather layers go last: with clouds on they swap the background for the
     // cloud-compositing sky material (over the same HDRI, cached → instant)
-    this.weather.apply(env, env.sky.hdri ? await this.loadHdri(env.sky.hdri) : null);
+    this.weather.apply(env, hdriFile ? await this.loadHdri(hdriFile) : null);
     this.updateDepthMode();
   }
 

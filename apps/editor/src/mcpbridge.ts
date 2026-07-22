@@ -7,7 +7,7 @@
 // reach this bridge. This is how Claude Code / Codex / other agents "act in the
 // editor" while it's open.
 import type { AssetCatalog, AssetId, Placement, Tuple3 } from "@slopwars/shared";
-import { assetByRef } from "@slopwars/shared";
+import { assetByName } from "@slopwars/shared";
 import { objectCatalog, objectTypeNames } from "@game/objects";
 import { state } from "./state";
 import { tabs, type ModelView } from "./tabs";
@@ -61,7 +61,7 @@ function resolveParamRefs(ctx: McpBridgeCtx, params: Record<string, unknown> | u
   const c = ctx.getCatalog();
   const conv = (list: readonly AssetId[], key: string): void => {
     const v = params[key];
-    if (typeof v === "string" && v) params[key] = assetByRef(list, v)?.id ?? v;
+    if (typeof v === "string" && v) params[key] = assetByName(list, v)?.id ?? v;
   };
   conv(c.materials, "mat");
   conv(c.models, "model");

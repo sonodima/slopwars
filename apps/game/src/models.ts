@@ -4,8 +4,8 @@
 // is hardcoded here, so committing a new model folder makes it load with zero
 // code changes. Every model carries a stable UUID `id`: authored data (a map's
 // props) references that id, so a model can be renamed without breaking uses. The
-// game's own built-ins (weapon viewmodels, the character) reference a model by its
-// `slug` (the on-disk folder name) through `modelId`, since those are engine
+// game's own built-ins (weapon viewmodels, the character) name a model by its folder
+// and resolve it to an id at startup through `modelId`, since those are engine
 // assets, not user content. Both paths funnel through the id-keyed maps below.
 import { Engine, Entity, GLTFResource } from "@galacean/engine";
 import type { ModelMeta } from "@slopwars/shared";
@@ -22,14 +22,15 @@ export const MODEL_LOAD_COUNT = catalog.models.length;
 
 /** per-model calibration metas (from models/**\/meta.json), keyed by asset id */
 const MODEL_META = new Map<string, ModelMeta>(catalog.models.map((m) => [m.id, (m.meta ?? {}) as ModelMeta]));
-/** slug → id, so code built-ins can name a model by its on-disk folder */
-const ID_BY_SLUG = new Map<string, string>(catalog.models.map((m) => [m.slug, m.id]));
+/** folder name → id, so the engine's built-ins (weapons, character) can name a model
+ *  by its folder and get resolved to an id at startup. */
+const ID_BY_NAME = new Map<string, string>(catalog.models.map((m) => [m.name, m.id]));
 
-/** resolve a model reference (an authored id, or a code built-in's slug) to its
- *  canonical id. An unknown ref passes through so a dangling reference stays inert. */
-export function modelId(ref: string): string { return ID_BY_SLUG.get(ref) ?? ref; }
+/** resolve a model reference to its canonical id: an authored id passes straight
+ *  through; a built-in's folder name is looked up. */
+export function modelId(ref: string): string { return ID_BY_NAME.get(ref) ?? ref; }
 
-/** a model's calibration meta by reference (id or slug); empty object if none */
+/** a model's calibration meta by reference (an id, or a built-in's folder name); empty if none */
 export function modelMetaOf(ref: string): ModelMeta { return MODEL_META.get(modelId(ref)) ?? {}; }
 
 /** the pool of models flagged usable as Prop-Hunt disguises (meta.propHunt), by id.
@@ -71,7 +72,7 @@ export async function loadModels(engine: Engine, onEach?: (name: string) => void
     catalog.models.map((m) =>
       loadGLTF(engine, m.gltf)
         .then((r) => { out[m.id] = r; onEach?.(pretty(m.name)); })
-        .catch((e) => { console.warn("[model] failed:", m.slug, e); out[m.id] = null; onEach?.(pretty(m.name)); }),
+        .catch((e) => { console.warn("[model] failed:", m.name, e); out[m.id] = null; onEach?.(pretty(m.name)); }),
     ),
   );
   return out;
